@@ -334,7 +334,9 @@ pytest
 
 ## 📄 许可证
 
-MIT License
+Apache License 2.0
+
+详情请查看 [LICENSE](./LICENSE) 文件。
 
 ## 📞 联系方式
 
