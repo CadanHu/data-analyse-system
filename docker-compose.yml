@@ -13,13 +13,17 @@ services:
       - ./backend/logs:/app/logs
     environment:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-60}
+      - RATE_LIMIT_WINDOW=${RATE_LIMIT_WINDOW:-60}
+      - MAX_SQL_EXECUTION_TIME=${MAX_SQL_EXECUTION_TIME:-30}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
     networks:
       - app-network
 

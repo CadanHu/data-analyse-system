@@ -1,5 +1,9 @@
 # 部署文档
 
+## ⚠️ 注意
+
+此 Docker 部署配置尚未经过实际测试。如果在部署过程中遇到问题，请参考手动部署方式或提交 Issue。
+
 ## Docker 部署
 
 ### 前置要求
@@ -12,19 +16,24 @@
 
 1. **克隆项目**
 ```bash
-git clone <repository-url>
+git clone https://github.com/CadanHu/data-analyse-system.git
 cd data-analyse-system
 ```
 
 2. **配置环境变量**
 ```bash
-cp backend/.env.example backend/.env
-# 编辑 backend/.env，填入你的 DEEPSEEK_API_KEY
+# 复制根目录的环境变量示例文件
+cp .env.example .env
+# 编辑 .env，填入你的 DEEPSEEK_API_KEY
 ```
 
 3. **启动服务**
 ```bash
+# 首次启动会构建镜像，可能需要几分钟
 docker-compose up -d
+
+# 如果需要重新构建镜像
+docker-compose up -d --build
 ```
 
 4. **访问应用**
