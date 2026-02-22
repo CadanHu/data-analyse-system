@@ -24,6 +24,7 @@ class SessionUpdate(BaseModel):
 class Session(SessionBase):
     """会话响应"""
     id: str
+    database_key: Optional[str] = "business"
     created_at: datetime
     updated_at: datetime
     
@@ -42,6 +43,8 @@ class MessageCreate(MessageBase):
     role: str = Field(..., description="角色：user 或 assistant")
     sql: Optional[str] = Field(None, description="生成的 SQL")
     chart_cfg: Optional[str] = Field(None, description="ECharts 配置 JSON")
+    thinking: Optional[str] = Field(None, description="思考过程")
+    data: Optional[str] = Field(None, description="数据 JSON")
 
 
 class Message(MessageBase):
@@ -51,6 +54,8 @@ class Message(MessageBase):
     role: str
     sql: Optional[str] = Field(None, description="生成的 SQL")
     chart_cfg: Optional[str] = Field(None, description="ECharts 配置 JSON")
+    thinking: Optional[str] = Field(None, description="思考过程")
+    data: Optional[str] = Field(None, description="数据 JSON")
     created_at: datetime
     
     class Config:

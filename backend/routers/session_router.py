@@ -17,6 +17,7 @@ async def create_session(session_data: Optional[SessionCreate] = Body(None)):
     创建新会话
     
     - **title**: 可选的会话标题，如果不提供将自动生成
+    - **database_key**: 可选的数据库键，默认为 'business'
     """
     title = session_data.title if session_data and session_data.title else None
     session_id = await session_db.create_session(title)
@@ -28,6 +29,7 @@ async def create_session(session_data: Optional[SessionCreate] = Body(None)):
     return Session(
         id=session_data['id'],
         title=session_data.get('title'),
+        database_key=session_data.get('database_key', 'business'),
         created_at=session_data['created_at'],
         updated_at=session_data['updated_at']
     )
@@ -45,6 +47,7 @@ async def get_sessions():
         Session(
             id=s['id'],
             title=s.get('title'),
+            database_key=s.get('database_key', 'business'),
             created_at=s['created_at'],
             updated_at=s['updated_at']
         )
@@ -68,9 +71,51 @@ async def get_session(session_id: str):
     return Session(
         id=session_data['id'],
         title=session_data.get('title'),
+        database_key=session_data.get('database_key', 'business'),
         created_at=session_data['created_at'],
         updated_at=session_data['updated_at']
     )
+
+
+@router.get("/{session_id}/database")
+async def get_session_database(session_id: str):
+    """
+    获取会话关联的数据库
+    
+    - **session_id**: 会话 ID
+    """
+    db_key = await session_db.get_session_database(session_id)
+    if db_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"会话 {session_id} 不存在"
+        )
+    return {"database_key": db_key}
+
+
+@router.post("/{session_id}/database")
+async def set_session_database(session_id: str, data: dict):
+    """
+    设置会话关联的数据库
+    
+    - **session_id**: 会话 ID
+    - **database_key**: 数据库键
+    """
+    db_key = data.get("database_key")
+    if not db_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="缺少 database_key 参数"
+        )
+    
+    success = await session_db.set_session_database(session_id, db_key)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"会话 {session_id} 不存在"
+        )
+    
+    return {"message": "数据库设置成功", "database_key": db_key}
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

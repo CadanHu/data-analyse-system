@@ -8,12 +8,15 @@ import ErrorBoundary from './components/ErrorBoundary'
 import Welcome from './components/Welcome'
 import About from './components/About'
 import LearnMore from './components/LearnMore'
+import Tutorial from './components/Tutorial'
+import Features from './components/Features'
+import Changelog from './components/Changelog'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import sessionApi from './api/sessionApi'
 
 export default function App() {
-  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, messages, setMessages, loading } = useSessionStore()
+  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, messages, setMessages, loading, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'chat' | 'sessions' | 'charts'>('chat')
@@ -51,15 +54,26 @@ export default function App() {
   const loadMessages = async (sessionId: string) => {
     try {
       const data = await sessionApi.getMessages(sessionId)
-      setMessages(data)
+      const processedData = data.map(msg => {
+        const processedMsg = { ...msg }
+        if (typeof processedMsg.data === 'string' && processedMsg.data) {
+          try {
+            processedMsg.data = JSON.parse(processedMsg.data)
+          } catch (e) {
+            console.error('解析消息 data 失败:', e)
+          }
+        }
+        return processedMsg
+      })
+      setMessages(processedData)
       
-      if (data.length > 0) {
-        const lastMessage = data[data.length - 1]
+      if (processedData.length > 0) {
+        const lastMessage = processedData[processedData.length - 1]
         if (lastMessage.role === 'assistant') {
             if (lastMessage.chart_cfg && lastMessage.data) {
               try {
                 const chartOption = JSON.parse(lastMessage.chart_cfg)
-                const sqlResult = JSON.parse(lastMessage.data)
+                const sqlResult = lastMessage.data
                 setChartOption(chartOption, 'bar')
                 setSqlResult(sqlResult)
                 if (lastMessage.sql) setCurrentSql(lastMessage.sql)
@@ -78,11 +92,12 @@ export default function App() {
     }
   }
 
-  const handleSelectSession = (sessionId: string) => {
+  const handleSelectSession = (sessionId: string, session?: any) => {
     setSelectedSessionId(sessionId)
-    const session = sessions.find(s => s.id === sessionId)
-    if (session) {
-      setCurrentSession(session)
+    const targetSession = session || sessions.find(s => s.id === sessionId)
+    if (targetSession) {
+      clearMessages()
+      setCurrentSession(targetSession)
       setCurrentSessionId(sessionId)
       loadMessages(sessionId)
     }
@@ -94,6 +109,9 @@ export default function App() {
         <Route path="/" element={<Welcome />} />
         <Route path="/about" element={<About />} />
         <Route path="/learn-more" element={<LearnMore />} />
+        <Route path="/tutorial" element={<Tutorial />} />
+        <Route path="/features" element={<Features />} />
+        <Route path="/changelog" element={<Changelog />} />
         <Route path="/app" element={
           <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -146,8 +164,13 @@ export default function App() {
                         <div className="h-full bg-gradient-to-br from-[#E6E6FA]/40 to-[#BFFFD9]/30 backdrop-blur-md">
                           <SessionList
                             selectedSessionId={selectedSessionId}
-                            onSelectSession={(id) => {
+                            onSelectSession={(id, session) => {
                               setSelectedSessionId(id)
+                              if (session) {
+                                clearMessages()
+                                setCurrentSession(session)
+                                loadMessages(id)
+                              }
                               setActiveTab('chat')
                             }}
                             onSessionsUpdated={loadSessions}

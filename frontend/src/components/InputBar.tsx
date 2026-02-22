@@ -10,7 +10,8 @@ interface InputBarProps {
 export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { isLoading } = useChatStore()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const { isLoading, isThinkingMode, setThinkingMode } = useChatStore()
   const { connect } = useSSE()
 
   useEffect(() => {
@@ -35,19 +36,62 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
     }
   }
 
+  const handleFileUpload = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      const file = files[0]
+      setInput(prev => prev + `\n[文件: ${file.name}]`)
+    }
+  }
+
   return (
     <div className="relative">
       <div className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)]">
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={!sessionId ? '请先选择一个会话' : '输入你的问题... (Enter 发送，Shift+Enter 换行)'}
-          disabled={isLoading || !sessionId}
-          className="w-full bg-transparent px-5 py-4 text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-          rows={1}
-        />
+        <div className="flex items-start gap-2 px-4 pt-4">
+          <button
+            onClick={handleFileUpload}
+            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)]"
+            title="上传文件"
+          >
+            <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/*,.pdf,.txt,.csv,.xlsx,.xls"
+            onChange={handleFileChange}
+          />
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={!sessionId ? '请先选择一个会话' : '输入你的问题... (Enter 发送，Shift+Enter 换行)'}
+            disabled={isLoading || !sessionId}
+            className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+            rows={1}
+          />
+          <button
+            onClick={() => setThinkingMode(!isThinkingMode)}
+            className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-all shadow-[0_4px_12px_rgba(0,0,0,0.06)] hover:shadow-[0_6px_16px_rgba(0,0,0,0.1)] ${
+              isThinkingMode 
+                ? 'bg-gradient-to-r from-[#FFD700] to-[#FFA500]' 
+                : 'bg-gradient-to-r from-gray-100 to-gray-200'
+            }`}
+            title={isThinkingMode ? '思考模式已开启' : '思考模式已关闭'}
+          >
+            <svg className={`w-5 h-5 ${isThinkingMode ? 'text-white' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+          </button>
+        </div>
         <div className="flex items-center justify-between px-4 pb-3">
           <div className="text-xs text-gray-400">
             {isLoading ? '正在思考中...' : 'Enter 发送 | Shift+Enter 换行'}

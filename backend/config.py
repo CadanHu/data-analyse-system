@@ -22,7 +22,24 @@ MODEL_NAME = "deepseek-chat"  # 使用 DeepSeek 模型
 DATABASE_DIR = BASE_DIR / "data"
 DATABASE_DIR.mkdir(exist_ok=True)
 SESSION_DB_PATH = DATABASE_DIR / "sessions.db"  # 会话数据库
-BUSINESS_DB_PATH = DATABASE_DIR / "business.db"  # 业务数据库
+
+# 多数据库配置
+DATABASES = {
+    "business": {
+        "path": DATABASE_DIR / "business.db",
+        "name": "业务数据库"
+    },
+    "chinook": {
+        "path": DATABASE_DIR / "Chinook_Sqlite.sqlite",
+        "name": "Chinook 音乐数据库"
+    },
+    "northwind": {
+        "path": DATABASE_DIR / "northwind.db",
+        "name": "Northwind 商业数据库"
+    }
+}
+
+BUSINESS_DB_PATH = DATABASE_DIR / "business.db"  # 默认业务数据库
 
 # 内存配置
 MEMORY_WINDOW_SIZE = 10  # 保留最近 N 轮对话

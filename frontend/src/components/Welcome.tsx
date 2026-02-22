@@ -438,9 +438,9 @@ export default function Welcome() {
             <div>
               <h4 className="text-sm font-semibold text-white mb-4">产品</h4>
               <ul className="space-y-3">
-                <li><a href="#" className="text-sm text-gray-400 hover:text-white transition-colors">功能特性</a></li>
+                <li><Link to="/features" className="text-sm text-gray-400 hover:text-white transition-colors">功能特性</Link></li>
                 <li><a href="#" className="text-sm text-gray-400 hover:text-white transition-colors">定价方案</a></li>
-                <li><a href="#" className="text-sm text-gray-400 hover:text-white transition-colors">更新日志</a></li>
+                <li><Link to="/changelog" className="text-sm text-gray-400 hover:text-white transition-colors">更新日志</Link></li>
                 <li><a href="#" className="text-sm text-gray-400 hover:text-white transition-colors">路线图</a></li>
               </ul>
             </div>
@@ -450,7 +450,7 @@ export default function Welcome() {
               <ul className="space-y-3">
                 <li><a href="#" className="text-sm text-gray-400 hover:text-white transition-colors">文档</a></li>
                 <li><a href="#" className="text-sm text-gray-400 hover:text-white transition-colors">API</a></li>
-                <li><a href="#" className="text-sm text-gray-400 hover:text-white transition-colors">教程</a></li>
+                <li><Link to="/tutorial" className="text-sm text-gray-400 hover:text-white transition-colors">教程</Link></li>
                 <li><a href="#" className="text-sm text-gray-400 hover:text-white transition-colors">博客</a></li>
               </ul>
             </div>

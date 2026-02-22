@@ -14,6 +14,8 @@ export const useChatStore = create<ChatState & {
   setCurrentSessionId: (sessionId: string | null) => void
   isRightPanelVisible: boolean
   setRightPanelVisible: (visible: boolean) => void
+  isThinkingMode: boolean
+  setThinkingMode: (enabled: boolean) => void
 }>((set, get) => ({
   messages: [],
   isLoading: false,
@@ -25,6 +27,10 @@ export const useChatStore = create<ChatState & {
   sessionStates: {},
   currentSessionId: null,
   isRightPanelVisible: false,
+  isThinkingMode: false,
+
+  setThinkingMode: (enabled: boolean) =>
+    set({ isThinkingMode: enabled }),
 
   setRightPanelVisible: (visible: boolean) =>
     set({ isRightPanelVisible: visible }),
@@ -54,7 +60,8 @@ export const useChatStore = create<ChatState & {
         currentSqlResult: saved.sqlResult,
         currentSql: saved.sql,
         isRightPanelVisible: saved.isRightPanelVisible,
-        currentSessionId: sessionId
+        currentSessionId: sessionId,
+        isThinkingMode: get().isThinkingMode
       })
     } else {
       set({
@@ -63,7 +70,8 @@ export const useChatStore = create<ChatState & {
         currentSqlResult: null,
         currentSql: '',
         isRightPanelVisible: false,
-        currentSessionId: sessionId
+        currentSessionId: sessionId,
+        isThinkingMode: get().isThinkingMode
       })
     }
   },

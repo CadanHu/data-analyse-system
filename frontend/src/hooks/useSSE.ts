@@ -2,8 +2,18 @@ import { useRef, useCallback } from 'react'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 
+// 简单的 UUID 生成函数
+function generateId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
+
 interface SSEHandlers {
   onThinking?: (content: string) => void
+  onModelThinking?: (content: string) => void
   onSqlGenerated?: (sql: string) => void
   onSqlResult?: (result: any) => void
   onChartReady?: (option: any, chartType: string) => void
@@ -20,9 +30,10 @@ export function useSSE() {
     setThinkingContent,
     setCurrentSql,
     setChartOption,
-    setSqlResult
+    setSqlResult,
+    isThinkingMode
   } = useChatStore()
-  const { addMessage } = useSessionStore()
+  const { addMessage, updateLastMessage } = useSessionStore()
 
   const connect = useCallback(
     async (sessionId: string, question: string, handlers?: SSEHandlers) => {
@@ -38,7 +49,7 @@ export function useSSE() {
       abortControllerRef.current = controller
 
       addMessage({
-        id: Date.now().toString(),
+        id: generateId(),
         session_id: sessionId,
         role: 'user',
         content: question,
@@ -49,8 +60,11 @@ export function useSSE() {
       let assistantSql = ''
       let assistantChartCfg = ''
       let assistantThinking = ''
+      let assistantModelThinking = ''
       let assistantChartConfig: any = null
       let assistantData: any = null
+      let assistantMessageId = generateId()
+      let assistantMessageAdded = false
 
       try {
         const response = await fetch('http://localhost:8000/api/chat/stream', {
@@ -60,7 +74,8 @@ export function useSSE() {
           },
           body: JSON.stringify({
             session_id: sessionId,
-            question: question
+            question: question,
+            enable_thinking: isThinkingMode
           }),
           signal: controller.signal
         })
@@ -79,37 +94,27 @@ export function useSSE() {
             if (done) break
 
             buffer += decoder.decode(value, { stream: true })
-            const events = buffer.split('\n\n')
-            buffer = events.pop() || ''
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || ''
 
-            for (const eventStr of events) {
-              if (!eventStr.trim()) continue
+            for (const line of lines) {
+              if (!line.trim()) continue
 
-              const lines = eventStr.split('\n').filter(l => l.trim())
-              let eventType = ''
-              let dataStr = ''
-
-              for (const line of lines) {
-                if (line.startsWith('event:')) {
-                  eventType = line.substring('event:'.length).trim()
-                } else if (line.startsWith('data:')) {
-                  dataStr = line.substring('data:'.length).trim()
-                }
-              }
-
-              if (eventType && dataStr) {
-                let eventData: any
-                try {
-                  eventData = JSON.parse(dataStr)
-                } catch {
-                  eventData = {}
-                }
+              try {
+                const event = JSON.parse(line)
+                const eventType = event.event
+                const eventData = event.data || {}
 
                 switch (eventType) {
                   case 'thinking':
                     assistantThinking = eventData.content || ''
                     setThinkingContent(assistantThinking)
                     handlers?.onThinking?.(eventData.content)
+                    break
+                  case 'model_thinking':
+                    assistantModelThinking += eventData.content || ''
+                    setThinkingContent(assistantModelThinking)
+                    handlers?.onModelThinking?.(eventData.content)
                     break
                   case 'schema_loaded':
                     break
@@ -133,20 +138,30 @@ export function useSSE() {
                     handlers?.onChartReady?.(eventData.option, eventData.chart_type)
                     break
                   case 'summary':
-                    assistantContent = eventData.content || ''
+                    assistantContent += eventData.content || ''
                     setThinkingContent('')
-                    addMessage({
-                      id: Date.now().toString(),
-                      session_id: sessionId,
-                      role: 'assistant',
-                      content: assistantContent,
-                      sql: assistantSql,
-                      chart_cfg: assistantChartCfg,
-                      chartConfig: assistantChartConfig,
-                      data: assistantData,
-                      thinking: assistantThinking,
-                      created_at: new Date().toISOString()
-                    })
+                    if (!assistantMessageAdded) {
+                      addMessage({
+                        id: assistantMessageId,
+                        session_id: sessionId,
+                        role: 'assistant',
+                        content: assistantContent,
+                        sql: assistantSql,
+                        chart_cfg: assistantChartCfg,
+                        data: assistantData,
+                        thinking: assistantModelThinking || assistantThinking,
+                        created_at: new Date().toISOString()
+                      })
+                      assistantMessageAdded = true
+                    } else {
+                      updateLastMessage({
+                        content: assistantContent,
+                        sql: assistantSql,
+                        chart_cfg: assistantChartCfg,
+                        data: assistantData,
+                        thinking: assistantModelThinking || assistantThinking
+                      })
+                    }
                     handlers?.onSummary?.(eventData.content)
                     break
                   case 'done':
@@ -160,20 +175,22 @@ export function useSSE() {
                     handlers?.onError?.(eventData.message || '发生错误')
                     break
                 }
+              } catch (e) {
+                console.error('Failed to parse event:', e, line)
               }
             }
           }
         }
       } catch (error) {
         if (error instanceof Error && error.name !== 'AbortError') {
-          console.error('SSE Error:', error)
+          console.error('Stream Error:', error)
           setIsLoading(false)
           setThinkingContent('')
           handlers?.onError?.('连接错误，请稍后重试')
         }
       }
     },
-    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage]
+    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage]
   )
 
   const disconnect = useCallback(() => {

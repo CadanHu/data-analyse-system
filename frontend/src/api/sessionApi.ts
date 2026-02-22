@@ -54,7 +54,9 @@ const sessionApi = {
     role: 'user' | 'assistant',
     content: string,
     sql?: string,
-    chartCfg?: string
+    chartCfg?: string,
+    thinking?: string,
+    data?: string
   ): Promise<Message> {
     const response = await api.post(`/sessions/${sessionId}/messages`, {
       session_id: sessionId,
@@ -62,6 +64,8 @@ const sessionApi = {
       content,
       sql,
       chart_cfg: chartCfg,
+      thinking,
+      data
     })
     return response.data
   },

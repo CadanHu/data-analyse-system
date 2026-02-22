@@ -35,6 +35,8 @@ async def get_messages(session_id: str):
             content=m['content'],
             sql=m.get('sql'),
             chart_cfg=m.get('chart_cfg'),
+            thinking=m.get('thinking'),
+            data=m.get('data'),
             created_at=m['created_at']
         )
         for m in messages_data
@@ -51,6 +53,8 @@ async def create_message(session_id: str, message_data: MessageCreate):
     - **content**: 消息内容
     - **sql**: 可选，生成的 SQL 语句
     - **chart_cfg**: 可选，图表配置 JSON
+    - **thinking**: 可选，思考过程
+    - **data**: 可选，数据 JSON
     """
     # 验证会话是否存在
     session = await session_db.get_session(session_id)
@@ -60,13 +64,15 @@ async def create_message(session_id: str, message_data: MessageCreate):
             detail=f"会话 {session_id} 不存在"
         )
     
-    message_id = await session_db.add_message(
-        session_id=session_id,
-        role=message_data.role,
-        content=message_data.content,
-        sql=message_data.sql,
-        chart_cfg=message_data.chart_cfg
-    )
+    message_id = await session_db.create_message({
+        "session_id": session_id,
+        "role": message_data.role,
+        "content": message_data.content,
+        "sql": message_data.sql,
+        "chart_cfg": message_data.chart_cfg,
+        "thinking": message_data.thinking,
+        "data": message_data.data
+    })
     
     messages = await session_db.get_messages(session_id)
     # 获取刚创建的消息
@@ -82,5 +88,7 @@ async def create_message(session_id: str, message_data: MessageCreate):
         content=target_message['content'],
         sql=target_message.get('sql'),
         chart_cfg=target_message.get('chart_cfg'),
+        thinking=target_message.get('thinking'),
+        data=target_message.get('data'),
         created_at=target_message['created_at']
     )

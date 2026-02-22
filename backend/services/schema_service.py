@@ -3,19 +3,33 @@ Schema 提取服务
 """
 import aiosqlite
 from typing import List, Dict
-from config import BUSINESS_DB_PATH
+from pathlib import Path
+from config import DATABASES, BUSINESS_DB_PATH
 
 
 class SchemaService:
     _cached_schema: str = None
     _cached_tables: List[str] = None
+    _current_db_path: Path = BUSINESS_DB_PATH
+
+    @classmethod
+    def set_database(cls, db_key: str = "business"):
+        """设置当前使用的数据库"""
+        if db_key in DATABASES:
+            cls._current_db_path = DATABASES[db_key]["path"]
+            cls.clear_cache()
+
+    @classmethod
+    def get_current_db_path(cls) -> Path:
+        """获取当前数据库路径"""
+        return cls._current_db_path
 
     @classmethod
     async def get_table_names(cls) -> List[str]:
         if cls._cached_tables is not None:
             return cls._cached_tables
 
-        async with aiosqlite.connect(BUSINESS_DB_PATH) as conn:
+        async with aiosqlite.connect(cls._current_db_path) as conn:
             async with conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             ) as cursor:
@@ -25,8 +39,9 @@ class SchemaService:
 
     @classmethod
     async def get_table_schema(cls, table_name: str) -> str:
-        async with aiosqlite.connect(BUSINESS_DB_PATH) as conn:
-            async with conn.execute(f"PRAGMA table_info({table_name})") as cursor:
+        quoted_table = f'"{table_name}"'
+        async with aiosqlite.connect(cls._current_db_path) as conn:
+            async with conn.execute(f"PRAGMA table_info({quoted_table})") as cursor:
                 columns = await cursor.fetchall()
                 schema_parts = [f"CREATE TABLE {table_name} ("]
                 col_defs = []
@@ -59,20 +74,22 @@ class SchemaService:
             table_schema = await cls.get_table_schema(table)
             schemas.append(table_schema)
 
-            sample_data = await cls.get_sample_data(table)
-            if sample_data:
-                schemas.append(f"\n-- {table} 示例数据:")
-                schemas.append(sample_data)
-
         full_schema = "\n\n".join(schemas)
+        
+        # 限制 schema 大小，避免 token 超限
+        max_chars = 40000
+        if len(full_schema) > max_chars:
+            full_schema = full_schema[:max_chars] + "\n\n-- (schema truncated due to size limit)"
+        
         cls._cached_schema = full_schema
         return full_schema
 
     @classmethod
     async def get_sample_data(cls, table_name: str, limit: int = 3) -> str:
-        async with aiosqlite.connect(BUSINESS_DB_PATH) as conn:
+        quoted_table = f'"{table_name}"'
+        async with aiosqlite.connect(cls._current_db_path) as conn:
             conn.row_factory = aiosqlite.Row
-            async with conn.execute(f"SELECT * FROM {table_name} LIMIT {limit}") as cursor:
+            async with conn.execute(f"SELECT * FROM {quoted_table} LIMIT {limit}") as cursor:
                 rows = await cursor.fetchall()
                 if not rows:
                     return ""

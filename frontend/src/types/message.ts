@@ -33,11 +33,13 @@ export interface ChatState {
   currentSqlResult: SQLResult | null
   thinkingContent: string
   currentSql: string
+  isThinkingMode: boolean
   addMessage: (message: Message) => void
   setIsLoading: (loading: boolean) => void
   setChartOption: (option: ChartOption | null, type: string) => void
   setSqlResult: (result: SQLResult | null) => void
   setThinkingContent: (content: string) => void
   setCurrentSql: (sql: string) => void
+  setThinkingMode: (enabled: boolean) => void
   clearMessages: () => void
 }

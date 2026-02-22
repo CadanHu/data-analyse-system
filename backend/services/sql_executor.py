@@ -4,7 +4,8 @@ SQL 执行服务
 import aiosqlite
 import asyncio
 from typing import List, Dict, Any, Optional
-from config import BUSINESS_DB_PATH, MAX_SQL_EXECUTION_TIME
+from config import MAX_SQL_EXECUTION_TIME
+from services.schema_service import SchemaService
 
 
 class SQLExecutor:
@@ -30,7 +31,8 @@ class SQLExecutor:
 
         try:
             async def execute():
-                async with aiosqlite.connect(BUSINESS_DB_PATH) as conn:
+                db_path = SchemaService.get_current_db_path()
+                async with aiosqlite.connect(db_path) as conn:
                     conn.row_factory = aiosqlite.Row
                     async with conn.execute(sql) as cursor:
                         rows = await cursor.fetchall()

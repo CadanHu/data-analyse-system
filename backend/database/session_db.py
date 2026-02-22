@@ -24,10 +24,17 @@ class SessionDatabase:
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
                     title TEXT,
+                    database_key TEXT DEFAULT 'business',
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # 添加新字段（如果表已存在）
+            try:
+                await db.execute("ALTER TABLE sessions ADD COLUMN database_key TEXT DEFAULT 'business'")
+            except Exception:
+                pass
             
             # 创建消息表
             await db.execute("""
@@ -60,16 +67,36 @@ class SessionDatabase:
             
             await db.commit()
     
-    async def create_session(self, title: Optional[str] = None) -> str:
+    async def create_session(self, title: Optional[str] = None, database_key: Optional[str] = 'business') -> str:
         """创建新会话"""
         session_id = str(uuid.uuid4())
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
-                "INSERT INTO sessions (id, title) VALUES (?, ?)",
-                (session_id, title)
+                "INSERT INTO sessions (id, title, database_key) VALUES (?, ?, ?)",
+                (session_id, title, database_key)
             )
             await db.commit()
         return session_id
+    
+    async def get_session_database(self, session_id: str) -> Optional[str]:
+        """获取会话关联的数据库"""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT database_key FROM sessions WHERE id = ?",
+                (session_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else None
+    
+    async def set_session_database(self, session_id: str, database_key: str) -> bool:
+        """设置会话关联的数据库"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE sessions SET database_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (database_key, session_id)
+            )
+            await db.commit()
+            return db.total_changes > 0
     
     async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """获取会话详情"""

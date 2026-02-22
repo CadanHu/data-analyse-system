@@ -6,6 +6,7 @@ interface SqlBlockProps {
 
 export default function SqlBlock({ sql }: SqlBlockProps) {
   const [copied, setCopied] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
 
   const handleCopy = async () => {
     try {
@@ -20,7 +21,23 @@ export default function SqlBlock({ sql }: SqlBlockProps) {
   return (
     <div className="mt-4">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-400 font-medium">SQL 查询</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400 font-medium">SQL 查询</span>
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg 
+              className={`w-4 h-4 transition-transform ${collapsed ? '-rotate-90' : ''}`} 
+              fill="none" 
+              viewBox="0 0 24 24" 
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            {collapsed ? '展开' : '折叠'}
+          </button>
+        </div>
         <button
           onClick={handleCopy}
           className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
@@ -42,11 +59,13 @@ export default function SqlBlock({ sql }: SqlBlockProps) {
           )}
         </button>
       </div>
-      <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 overflow-x-auto border border-white/40">
-        <pre className="text-sm text-gray-700 whitespace-pre-wrap">
-          {sql}
-        </pre>
-      </div>
+      {!collapsed && (
+        <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 overflow-x-auto border border-white/40">
+          <pre className="text-sm text-gray-700 whitespace-pre-wrap">
+            {sql}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }

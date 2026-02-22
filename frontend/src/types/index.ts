@@ -1,6 +1,7 @@
 export interface Session {
   id: string
   title?: string
+  database_key?: string
   created_at: string
   updated_at: string
 }

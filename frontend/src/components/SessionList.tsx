@@ -6,12 +6,12 @@ import SessionListSkeleton from './SessionListSkeleton'
 
 interface SessionListProps {
   selectedSessionId: string | null
-  onSelectSession: (sessionId: string) => void
+  onSelectSession: (sessionId: string, session?: any) => void
   onSessionsUpdated?: () => void
 }
 
 export default function SessionList({ selectedSessionId, onSelectSession, onSessionsUpdated }: SessionListProps) {
-  const { sessions, currentSession, setSessions, setCurrentSession, removeSession, loading } = useSessionStore()
+  const { sessions, currentSession, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
@@ -28,8 +28,9 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
     try {
       const session = await sessionApi.createSession()
       await loadSessions()
+      clearMessages()
       setCurrentSession(session)
-      onSelectSession(session.id)
+      onSelectSession(session.id, session)
     } catch (error) {
       console.error('创建会话失败:', error)
     }
@@ -52,6 +53,7 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
       await sessionApi.deleteSession(sessionId)
       removeSession(sessionId)
       if (currentSession?.id === sessionId) {
+        clearMessages()
         const remainingSessions = sessions.filter(s => s.id !== sessionId)
         if (remainingSessions.length > 0) {
           setCurrentSession(remainingSessions[0])

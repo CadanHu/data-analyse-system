@@ -30,3 +30,4 @@ class MessageResponse(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     question: str
+    enable_thinking: bool = False

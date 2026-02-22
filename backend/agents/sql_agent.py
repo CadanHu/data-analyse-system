@@ -29,28 +29,88 @@ class SQLAgent:
             response.raise_for_status()
             result = response.json()
             return result["choices"][0]["message"]["content"]
+    
+    async def _chat_completion_stream(
+        self, 
+        messages: List[Dict[str, str]], 
+        temperature: float = 0.7,
+        enable_thinking: bool = True
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        request_body = {
+            "model": MODEL_NAME,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True
+        }
+        
+        if enable_thinking:
+            request_body["thinking"] = {"type": "enabled"}
+        
+        print(f"📤 发送到 DeepSeek 的请求: model={MODEL_NAME}, enable_thinking={enable_thinking}")
+        print(f"📤 Messages 数量: {len(messages)}")
+        for i, msg in enumerate(messages):
+            print(f"📤 Message {i} ({msg['role']}): {msg['content'][:200]}...")
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{API_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json=request_body
+            ) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    print(f"❌ DeepSeek API 错误: {response.status_code}")
+                    print(f"❌ 错误响应: {error_text.decode('utf-8', errors='ignore')}")
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            if chunk.get("choices"):
+                                delta = chunk["choices"][0].get("delta", {})
+                                yield {
+                                    "reasoning_content": delta.get("reasoning_content", ""),
+                                    "content": delta.get("content", "")
+                                }
+                        except json.JSONDecodeError:
+                            pass
 
-    async def generate_sql(
+    async def generate_sql_stream(
         self,
         question: str,
         schema: str,
-        history: str = ""
-    ) -> Dict[str, Any]:
+        history: str = "",
+        enable_thinking: bool = False,
+        database_name: str = "业务数据库"
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = SQL_GENERATION_PROMPT.format(
+            database_name=database_name,
             schema=schema,
             history=history,
             question=question
         )
 
-        content = await self._chat_completion(
-            messages=[
-                {"role": "system", "content": "你是一个专业的数据分析助手。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1
-        )
+        messages = [
+            {"role": "system", "content": "你是一个专业的数据分析助手。"},
+            {"role": "user", "content": prompt}
+        ]
 
-        return self._parse_json_response(content)
+        full_content = ""
+        async for delta in self._chat_completion_stream(messages, temperature=0.1, enable_thinking=enable_thinking):
+            if delta["reasoning_content"]:
+                yield {"type": "reasoning", "content": delta["reasoning_content"]}
+            if delta["content"]:
+                full_content += delta["content"]
+                yield {"type": "content", "content": delta["content"]}
+        
+        yield {"type": "done", "result": self._parse_json_response(full_content)}
 
     def _parse_json_response(self, content: str) -> Dict[str, Any]:
         try:
@@ -66,25 +126,31 @@ class SQLAgent:
                 "reasoning": "解析失败"
             }
 
-    async def generate_summary(
+    async def generate_summary_stream(
         self,
         sql_result: str,
-        chart_type: str
-    ) -> str:
+        chart_type: str,
+        enable_thinking: bool = False
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = SUMMARY_PROMPT.format(
             sql_result=sql_result,
             chart_type=chart_type
         )
 
-        content = await self._chat_completion(
-            messages=[
-                {"role": "system", "content": "你是一个专业的数据分析师。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
+        messages = [
+            {"role": "system", "content": "你是一个专业的数据分析师。"},
+            {"role": "user", "content": prompt}
+        ]
 
-        return content or ""
+        full_content = ""
+        async for delta in self._chat_completion_stream(messages, temperature=0.3, enable_thinking=enable_thinking):
+            if delta["reasoning_content"]:
+                yield {"type": "reasoning", "content": delta["reasoning_content"]}
+            if delta["content"]:
+                full_content += delta["content"]
+                yield {"type": "content", "content": delta["content"]}
+        
+        yield {"type": "done", "result": full_content or ""}
 
     async def generate_chart_config(
         self,
@@ -208,6 +274,8 @@ class SQLAgent:
 
                 if not sql:
                     raise ValueError("未能生成有效的 SQL")
+                
+                print(f"📝 生成的 SQL: {sql}")
 
                 yield {"event": "sql_generated", "data": {"sql": sql}}
                 yield {"event": "sql_executing", "data": {"content": "正在查询数据库..."}}
@@ -266,11 +334,21 @@ class SQLAgent:
     async def process_question_with_history(
         self,
         question: str,
-        history_str: str
+        history_str: str,
+        enable_thinking: bool = False
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """使用已格式化的历史字符串处理问题"""
+        from config import DATABASES
+        
         schema = await SchemaService.get_full_schema()
         tables = await SchemaService.get_table_names()
+        
+        current_db_path = SchemaService.get_current_db_path()
+        database_name = "业务数据库"
+        for key, config in DATABASES.items():
+            if str(config["path"]) == str(current_db_path):
+                database_name = config["name"]
+                break
 
         yield {"event": "thinking", "data": {"content": "正在理解您的问题..."}}
         yield {"event": "schema_loaded", "data": {"tables": tables}}
@@ -279,18 +357,35 @@ class SQLAgent:
         sql = ""
         chart_type = "table"
         last_error = None
+        full_reasoning = ""
 
         for attempt in range(MAX_RETRY_COUNT + 1):
             try:
                 if attempt > 0:
                     yield {"event": "thinking", "data": {"content": f"正在修正 SQL (第 {attempt} 次重试)..."}}
 
-                sql_response = await self.generate_sql(question, schema, history_str)
+                full_reasoning = ""
+                sql_response = None
+                
+                async for stream_event in self.generate_sql_stream(question, schema, history_str, enable_thinking, database_name):
+                    if stream_event["type"] == "reasoning":
+                        full_reasoning += stream_event["content"]
+                        yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
+                    elif stream_event["type"] == "content":
+                        pass
+                    elif stream_event["type"] == "done":
+                        sql_response = stream_event["result"]
+                
+                if not sql_response:
+                    raise ValueError("未能生成有效的 SQL 响应")
+                
                 sql = sql_response.get("sql", "")
                 chart_type = sql_response.get("chart_type", "table")
 
                 if not sql:
                     raise ValueError("未能生成有效的 SQL")
+                
+                print(f"📝 生成的 SQL: {sql}")
 
                 yield {"event": "sql_generated", "data": {"sql": sql}}
                 yield {"event": "sql_executing", "data": {"content": "正在查询数据库..."}}
@@ -320,17 +415,33 @@ class SQLAgent:
         try:
             yield {"event": "thinking", "data": {"content": "正在生成分析摘要..."}}
             formatted_result = SQLExecutor.format_sql_result(sql_result)
-            summary = await self.generate_summary(formatted_result, chart_type)
-            yield {"event": "summary", "data": {"content": summary}}
+            
+            full_summary_reasoning = ""
+            summary = ""
+            async for stream_event in self.generate_summary_stream(formatted_result, chart_type, enable_thinking):
+                if stream_event["type"] == "reasoning":
+                    full_summary_reasoning += stream_event["content"]
+                    yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
+                elif stream_event["type"] == "content":
+                    summary += stream_event["content"]
+                    yield {"event": "summary", "data": {"content": stream_event["content"]}}
+                elif stream_event["type"] == "done":
+                    summary = stream_event["result"]
+            
+            if not summary:
+                yield {"event": "summary", "data": {"content": "数据分析完成。"}}
+                
         except Exception as e:
             print(f"⚠️ 生成摘要失败，使用默认内容: {str(e)}")
             yield {"event": "summary", "data": {"content": "数据分析完成，但生成摘要时遇到问题。"}}
+            summary = "数据分析完成，但生成摘要时遇到问题。"
 
         yield {
             "event": "done",
             "data": {
                 "sql": sql,
                 "chart_config": chart_config,
-                "summary": summary
+                "summary": summary,
+                "reasoning": full_reasoning
             }
         }

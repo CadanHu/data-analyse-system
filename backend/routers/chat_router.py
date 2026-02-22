@@ -1,5 +1,5 @@
 """
-聊天路由 - SSE 流式推送
+聊天路由 - 流式 HTTP 响应
 """
 import uuid
 import json
@@ -11,6 +11,7 @@ from models.message import ChatRequest
 from database.session_db import SessionDB
 from agents.sql_agent import SQLAgent
 from agents.memory_manager import get_memory_manager
+from services.stream_service import StreamableHTTPService
 
 router = APIRouter()
 _sql_agent = None
@@ -36,10 +37,17 @@ def generate_session_title(question: str) -> str:
 
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    print(f"📥 收到聊天请求: session_id={request.session_id}, question={request.question[:50]}...")
+    print(f"📥 收到聊天请求: session_id={request.session_id}, question={request.question[:50]}..., enable_thinking={request.enable_thinking}")
     
     session_db = SessionDB()
     memory_manager = get_memory_manager()
+    from services.schema_service import SchemaService
+    
+    # 切换到会话关联的数据库
+    db_key = await session_db.get_session_database(request.session_id)
+    if db_key:
+        SchemaService.set_database(db_key)
+        print(f"🎯 已切换到会话关联的数据库: {db_key}")
     
     session = await session_db.get_session(request.session_id)
     if not session:
@@ -79,7 +87,7 @@ async def chat_stream(request: ChatRequest):
         try:
             print("🚀 开始处理问题...")
             # 传递历史字符串给 SQL Agent
-            async for event in get_sql_agent().process_question_with_history(request.question, history_str):
+            async for event in get_sql_agent().process_question_with_history(request.question, history_str, request.enable_thinking):
                 event_type = event.get("event")
                 event_data = event.get("data", {})
                 print(f"📤 发送事件: {event_type}")
@@ -94,9 +102,16 @@ async def chat_stream(request: ChatRequest):
                     assistant_chart_config = event_data.get("option", {})
                     assistant_chart_cfg = json.dumps(assistant_chart_config, ensure_ascii=False)
                 elif event_type == "summary":
-                    assistant_content = event_data.get("content", "")
+                    assistant_content += event_data.get("content", "")
+                elif event_type == "done":
+                    done_data = event_data
+                    assistant_content = done_data.get("summary", assistant_content)
 
-                yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                # 生成事件对象
+                yield {
+                    "event": event_type,
+                    "data": event_data
+                }
 
                 if event_type == "done":
                     print("✅ 处理完成，保存助手消息")
@@ -119,16 +134,16 @@ async def chat_stream(request: ChatRequest):
         except Exception as e:
             print(f"❌ 处理过程中出错: {str(e)}")
             traceback.print_exc()
-            yield f"event: error\ndata: {json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
+            yield {
+                "event": "error",
+                "data": {"message": str(e)}
+            }
 
+    # 使用 StreamableHTTPService 生成流式响应
     return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
+        StreamableHTTPService.generate_stream(event_generator()),
+        media_type="application/json",
+        headers=StreamableHTTPService.get_response_headers()
     )
 
 
@@ -140,4 +155,45 @@ async def get_schema():
     return {
         "tables": tables,
         "schema": full_schema
+    }
+
+
+@router.get("/databases")
+async def get_databases():
+    """获取所有可用的数据库列表"""
+    from config import DATABASES
+    from services.schema_service import SchemaService
+    
+    current_db_path = SchemaService.get_current_db_path()
+    
+    databases = []
+    for key, config in DATABASES.items():
+        databases.append({
+            "key": key,
+            "name": config["name"],
+            "path": str(config["path"]),
+            "is_current": str(config["path"]) == str(current_db_path)
+        })
+    
+    return {"databases": databases}
+
+
+@router.post("/database/switch")
+async def switch_database(request: dict):
+    """切换数据库"""
+    from config import DATABASES
+    from services.schema_service import SchemaService
+    
+    db_key = request.get("database_key")
+    if db_key not in DATABASES:
+        raise HTTPException(status_code=400, detail=f"数据库 {db_key} 不存在")
+    
+    SchemaService.set_database(db_key)
+    
+    return {
+        "message": f"已切换到 {DATABASES[db_key]['name']}",
+        "database": {
+            "key": db_key,
+            "name": DATABASES[db_key]["name"]
+        }
     }

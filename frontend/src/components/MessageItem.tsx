@@ -9,12 +9,22 @@ interface MessageItemProps {
 
 export default function MessageItem({ message }: MessageItemProps) {
   const isUser = message.role === 'user'
-  const [thinkingCollapsed, setThinkingCollapsed] = useState(false)
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(true)
   const { setChartOption, setSqlResult, setCurrentSql, setRightPanelVisible } = useChatStore()
 
   const handleShowChart = () => {
-    if (message.chartConfig && message.data) {
-      setChartOption(message.chartConfig, 'bar')
+    let chartConfig = message.chartConfig
+    if (!chartConfig && message.chart_cfg) {
+      try {
+        chartConfig = JSON.parse(message.chart_cfg)
+      } catch (e) {
+        console.error('解析图表配置失败:', e)
+        return
+      }
+    }
+    
+    if (chartConfig && message.data) {
+      setChartOption(chartConfig, 'bar')
       setSqlResult(message.data)
       if (message.sql) {
         setCurrentSql(message.sql)
@@ -76,7 +86,7 @@ export default function MessageItem({ message }: MessageItemProps) {
             <SqlBlock sql={message.sql} />
           )}
           
-          {!isUser && message.chartConfig && message.data && (
+          {!isUser && (message.chartConfig || message.chart_cfg) && message.data && (
             <div className="mt-4">
               <button
                 onClick={handleShowChart}
