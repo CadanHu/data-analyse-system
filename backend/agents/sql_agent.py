@@ -349,8 +349,11 @@ class SQLAgent:
         """使用已格式化的历史字符串处理问题"""
         from config import DATABASES
         
+        print(f"🚀 SQLAgent 准备开始生成查询...")
+        print(f"📚 获取 Schema 信息...")
         schema = await SchemaService.get_full_schema()
         tables = await SchemaService.get_table_names()
+        print(f"📊 数据库中共有 {len(tables)} 张表: {', '.join(tables)}")
         
         current_db_key = SchemaService.get_current_db_key()
         database_name = "业务数据库"
@@ -359,6 +362,8 @@ class SQLAgent:
         if current_db_key in DATABASES:
             database_name = DATABASES[current_db_key]["name"]
             db_type = DATABASES[current_db_key].get("type", "sqlite")
+        
+        print(f"💾 当前数据库类型: {db_type}, 数据库名称: {database_name}")
         
         if db_type == "mysql":
             database_type_info = "【数据库类型】\nMySQL"
@@ -382,14 +387,17 @@ class SQLAgent:
         last_error = None
         full_reasoning = ""
 
+        print(f"🧠 开始调用 AI 模型生成 SQL (重试限制: {MAX_RETRY_COUNT})...")
         for attempt in range(MAX_RETRY_COUNT + 1):
             try:
                 if attempt > 0:
+                    print(f"🔄 正在尝试第 {attempt} 次 SQL 修正...")
                     yield {"event": "thinking", "data": {"content": f"正在修正 SQL (第 {attempt} 次重试)..."}}
 
                 full_reasoning = ""
                 sql_response = None
                 
+                print(f"📡 正在发起 DeepSeek 流式请求...")
                 async for stream_event in self.generate_sql_stream(
                     question, 
                     schema, 
@@ -409,19 +417,22 @@ class SQLAgent:
                         sql_response = stream_event["result"]
                 
                 if not sql_response:
+                    print(f"❌ AI 未返回有效结果")
                     raise ValueError("未能生成有效的 SQL 响应")
                 
                 sql = sql_response.get("sql", "")
                 chart_type = sql_response.get("chart_type", "table")
 
                 if not sql:
+                    print(f"❌ 生成的 SQL 为空，原始回复内容可能是非法 JSON")
                     raise ValueError("未能生成有效的 SQL")
                 
-                print(f"📝 生成的 SQL: {sql}")
+                print(f"📝 AI 生成的 SQL: {sql}")
 
                 yield {"event": "sql_generated", "data": {"sql": sql}}
                 yield {"event": "sql_executing", "data": {"content": "正在查询数据库..."}}
 
+                print(f"⚡ 执行 SQL 查询...")
                 sql_result = await SQLExecutor.execute_sql(sql)
                 print(f"✅ SQL 执行成功: {len(sql_result.get('rows', []))} 行数据")
                 yield {"event": "sql_result", "data": sql_result}
@@ -429,9 +440,7 @@ class SQLAgent:
 
             except Exception as e:
                 last_error = str(e)
-                print(f"❌ SQL 执行失败 (尝试 {attempt + 1}/{MAX_RETRY_COUNT + 1}): {last_error}")
-                import traceback
-                traceback.print_exc()
+                print(f"❌ SQL 执行/生成失败: {last_error}")
                 if attempt >= MAX_RETRY_COUNT:
                     yield {"event": "error", "data": {"message": f"查询失败: {last_error}"}}
                     return

@@ -27,7 +27,7 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
   const handleCreateSession = async () => {
     try {
       const session = await sessionApi.createSession()
-      await loadSessions()
+      await loadSessions(false)
       clearMessages()
       setCurrentSession(session)
       onSelectSession(session.id, session)
@@ -65,10 +65,11 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
       await sessionApi.deleteSession(sessionId)
       console.log('API调用成功')
       
+      // 只有在后端删除成功后才从本地状态移除
       removeSession(sessionId)
       console.log('从状态中移除会话')
       
-      if (currentSession?.id === sessionId) {
+      if (selectedSessionId === sessionId) {
         clearMessages()
         setCurrentSession(null)
       }
@@ -95,21 +96,6 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
       console.error('重命名会话失败:', error)
     } finally {
       setEditingSessionId(null)
-    }
-  }
-
-  const handleClearContext = async (e: React.MouseEvent, sessionId: string) => {
-    e.stopPropagation()
-    if (!confirm('确定要清空这个会话的上下文吗？')) return
-    try {
-      await sessionApi.clearSessionContext(sessionId)
-      if (selectedSessionId === sessionId) {
-        const session = await sessionApi.getSession(sessionId)
-        setCurrentSession(session)
-      }
-      await loadSessions()
-    } catch (error) {
-      console.error('清空上下文失败:', error)
     }
   }
 
@@ -227,15 +213,6 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
                   </div>
                   {!editingSessionId && (
                     <div className="flex gap-1">
-                      <button
-                        onClick={(e) => handleClearContext(e, session.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#FFFACD]/40 rounded-lg transition-all"
-                        title="清空上下文"
-                      >
-                        <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
                       <button
                         onClick={(e) => handleDeleteSession(e, session.id)}
                         className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#E6E6FA]/40 rounded-lg transition-all"

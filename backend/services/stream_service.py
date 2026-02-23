@@ -2,7 +2,21 @@
 流式 HTTP 服务 - 使用标准 HTTP 流式响应替代 SSE
 """
 import json
+from datetime import date, datetime
+from decimal import Decimal
 from typing import AsyncGenerator, Dict, Any
+
+
+class CustomJSONEncoder(json.JSONEncoder):
+    """
+    自定义 JSON 编码器，支持日期、时间、Decimal 等类型
+    """
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super(CustomJSONEncoder, self).default(obj)
 
 
 class StreamableHTTPService:
@@ -25,11 +39,15 @@ class StreamableHTTPService:
             event_type = event.get("event")
             event_data = event.get("data", {})
             
-            # 生成流式 JSON 格式
+            # 记录流式输出事件
+            if event_type not in ["model_thinking"]:  # 避免 model_thinking 这种高频事件刷屏
+                print(f"📡 [Stream] 发送事件给前端: {event_type}")
+            
+            # 生成流式 JSON 格式，使用自定义编码器处理日期等类型
             yield json.dumps({
                 "event": event_type,
                 "data": event_data
-            }, ensure_ascii=False) + "\n"
+            }, ensure_ascii=False, cls=CustomJSONEncoder) + "\n"
 
     @staticmethod
     def get_response_headers() -> Dict[str, str]:

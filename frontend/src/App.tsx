@@ -23,7 +23,7 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
-    loadSessions()
+    loadSessions(true)
     
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768)
@@ -35,12 +35,13 @@ export default function App() {
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
-  const loadSessions = async () => {
-    setLoading(true)
+  const loadSessions = async (isInitialLoad = false) => {
+    if (isInitialLoad) setLoading(true)
     sessionApi.getSessions()
       .then(data => {
         setSessions(data)
-        if (data.length > 0 && !currentSession) {
+        // 只有在初始加载且没有当前会话时，才默认选中第一个
+        if (isInitialLoad && data.length > 0 && !currentSession) {
           setSelectedSessionId(data[0].id)
           setCurrentSession(data[0])
           setCurrentSessionId(data[0].id)
@@ -48,7 +49,9 @@ export default function App() {
         }
       })
       .catch(error => console.error('加载会话列表失败:', error))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (isInitialLoad) setLoading(false)
+      })
   }
 
   const loadMessages = async (sessionId: string) => {
@@ -173,7 +176,7 @@ export default function App() {
                               }
                               setActiveTab('chat')
                             }}
-                            onSessionsUpdated={loadSessions}
+                            onSessionsUpdated={() => loadSessions(false)}
                           />
                         </div>
                       )}
@@ -199,7 +202,7 @@ export default function App() {
                         <SessionList
                           selectedSessionId={selectedSessionId}
                           onSelectSession={handleSelectSession}
-                          onSessionsUpdated={loadSessions}
+                          onSessionsUpdated={() => loadSessions(false)}
                         />
                       </div>
                     }

@@ -142,7 +142,7 @@ async def update_session(session_id: str, session_update: SessionUpdate):
     - **session_id**: 会话 ID
     - **title**: 新的会话标题
     """
-    success = await session_db.update_session(session_id, session_update.title)
+    success = await session_db.update_session_title(session_id, session_update.title)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -158,19 +158,7 @@ async def update_session(session_id: str, session_update: SessionUpdate):
     return Session(
         id=session_data['id'],
         title=session_data.get('title'),
+        database_key=session_data.get('database_key', 'business'),
         created_at=session_data['created_at'],
         updated_at=session_data['updated_at']
     )
-
-
-@router.post("/{session_id}/clear-context", status_code=status.HTTP_204_NO_CONTENT)
-async def clear_session_context(session_id: str):
-    """
-    清空会话上下文（Memory）
-    
-    - **session_id**: 会话 ID
-    - 清空该会话的 Memory Manager 中的记忆
-    """
-    memory_manager = get_memory_manager()
-    await memory_manager.clear_memory(session_id)
-    print(f"🧹 已清空会话 {session_id} 的上下文记忆")

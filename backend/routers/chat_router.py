@@ -12,6 +12,7 @@ from database.session_db import SessionDB
 from agents.sql_agent import SQLAgent
 from agents.memory_manager import get_memory_manager
 from services.stream_service import StreamableHTTPService
+from utils.json_utils import json_dumps
 import os
 
 router = APIRouter()
@@ -49,20 +50,30 @@ def generate_session_title(question: str) -> str:
 
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest):
-    print(f"📥 收到聊天请求: session_id={request.session_id}, question={request.question[:50]}..., enable_thinking={request.enable_thinking}")
+    print(f"\n" + "="*50)
+    print(f"📥 收到流式聊天请求: session_id={request.session_id}")
+    print(f"📝 用户问题: {request.question}")
+    print(f"💡 思考模式: {request.enable_thinking}")
+    print(f"📦 请求体: {request.dict()}")
+    print("="*50)
     
     session_db = SessionDB()
     memory_manager = get_memory_manager()
     from services.schema_service import SchemaService
     
-    # 切换到会话关联的数据库
+    # 获取会话当前选中的数据库
     db_key = await session_db.get_session_database(request.session_id)
+    print(f"🔍 从数据库获取会话 {request.session_id} 的数据库配置: {db_key}")
+    
     if db_key:
+        print(f"🎯 正在切换 SchemaService 数据库为: {db_key}")
         SchemaService.set_database(db_key)
-        print(f"🎯 已切换到会话关联的数据库: {db_key}")
+    else:
+        print(f"⚠️ 会话未关联数据库，将使用默认数据库")
     
     session = await session_db.get_session(request.session_id)
     if not session:
+        print(f"❌ 找不到会话: {request.session_id}")
         raise HTTPException(status_code=404, detail="会话不存在")
 
     # 如果会话标题为空或默认值，自动生成新标题
@@ -110,22 +121,27 @@ async def chat_stream(request: ChatRequest):
             async for event in agent.process_question_with_history(request.question, history_str, request.enable_thinking):
                 event_type = event.get("event")
                 event_data = event.get("data", {})
-                print(f"📤 发送事件: {event_type}")
+                print(f"📤 正在转发事件: {event_type}")
 
                 if event_type == "thinking":
                     assistant_thinking = event_data.get("content", "")
                 elif event_type == "sql_generated":
                     assistant_sql = event_data.get("sql", "")
+                    print(f"  └─ 生成 SQL: {assistant_sql[:100]}...")
                 elif event_type == "sql_result":
-                    assistant_data = json.dumps(event_data, ensure_ascii=False)
+                    print(f"  └─ 查询结果行数: {event_data.get('row_count', 0)}")
+                    # 使用自定义 json_dumps 处理日期类型数据
+                    assistant_data = json_dumps(event_data)
                 elif event_type == "chart_ready":
                     assistant_chart_config = event_data.get("option", {})
-                    assistant_chart_cfg = json.dumps(assistant_chart_config, ensure_ascii=False)
+                    assistant_chart_cfg = json_dumps(assistant_chart_config)
                 elif event_type == "summary":
-                    assistant_content += event_data.get("content", "")
+                    content_chunk = event_data.get("content", "")
+                    assistant_content += content_chunk
                 elif event_type == "done":
                     done_data = event_data
                     assistant_content = done_data.get("summary", assistant_content)
+                    print(f"✅ 处理完成，生成摘要字数: {len(assistant_content)}")
 
                 # 生成事件对象
                 yield {
@@ -134,7 +150,7 @@ async def chat_stream(request: ChatRequest):
                 }
 
                 if event_type == "done":
-                    print("✅ 处理完成，保存助手消息")
+                    print("💾 正在保存助手消息到数据库...")
                     # 保存助手消息到数据库
                     await session_db.create_message({
                         "id": assistant_message_id,
@@ -150,6 +166,7 @@ async def chat_stream(request: ChatRequest):
                     # 添加到记忆
                     await memory_manager.add_assistant_message(request.session_id, assistant_content)
                     await session_db.update_session_updated_at(request.session_id)
+                    print(f"✨ 会话状态更新成功")
 
         except Exception as e:
             print(f"❌ 处理过程中出错: {str(e)}")

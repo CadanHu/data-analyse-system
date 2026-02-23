@@ -26,7 +26,15 @@ LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "data-analyse-system")
 # 数据库配置
 DATABASE_DIR = BASE_DIR / "data"
 DATABASE_DIR.mkdir(exist_ok=True)
-SESSION_DB_PATH = DATABASE_DIR / "sessions.db"  # 会话数据库
+SESSION_DB_PATH = DATABASE_DIR / "sessions.db"  # SQLite 会话数据库 (旧)
+
+# 会话数据库配置 (MySQL)
+USE_MYSQL_FOR_SESSIONS = os.getenv("USE_MYSQL_FOR_SESSIONS", "false").lower() == "true"
+MYSQL_SESSION_DATABASE = os.getenv("MYSQL_SESSION_DATABASE", "data_pulse_sessions")
+MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
+MYSQL_PORT = int(os.getenv("MYSQL_PORT", 3306))
+MYSQL_USER = os.getenv("MYSQL_USER", "root")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "root")
 
 # 多数据库配置
 DATABASES = {
@@ -53,6 +61,24 @@ DATABASES = {
         "user": os.getenv("MYSQL_USER", "root"),
         "password": os.getenv("MYSQL_PASSWORD", ""),
         "name": "MySQL 示例数据库"
+    },
+    "classic_business": {
+        "type": "mysql",
+        "host": MYSQL_HOST,
+        "port": MYSQL_PORT,
+        "database": "classic_business",
+        "user": MYSQL_USER,
+        "password": MYSQL_PASSWORD,
+        "name": "经典商业分析库 (MySQL)"
+    },
+    "global_analysis": {
+        "type": "mysql",
+        "host": MYSQL_HOST,
+        "port": MYSQL_PORT,
+        "database": "global_analysis",
+        "user": MYSQL_USER,
+        "password": MYSQL_PASSWORD,
+        "name": "全场景商业分析库 (MySQL)"
     }
 }
 

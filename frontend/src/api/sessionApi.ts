@@ -2,7 +2,7 @@ import axios from 'axios'
 import type { Session, Message } from '../types'
 
 const api = axios.create({
-  baseURL: 'http://localhost:8002/api',
+  baseURL: '/api',
   timeout: 30000,
 })
 
@@ -41,11 +41,6 @@ const sessionApi = {
   async updateSessionTitle(sessionId: string, title: string): Promise<Session> {
     const response = await api.patch(`/sessions/${sessionId}`, { title })
     return response.data
-  },
-
-  // 清空会话上下文
-  async clearSessionContext(sessionId: string): Promise<void> {
-    await api.post(`/sessions/${sessionId}/clear-context`)
   },
 
   // 添加消息

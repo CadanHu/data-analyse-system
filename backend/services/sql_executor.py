@@ -47,7 +47,13 @@ class SQLExecutor:
                 if not adapter.connected:
                     await adapter.connect()
                 
-                rows = await adapter.execute_query(sql)
+                # 核心修复：MySQL 驱动会将 % 视为占位符格式化字符
+                # 如果 SQL 中包含 LIKE '2024-%'，会导致 "not enough arguments for format string"
+                # 解决方法是将 % 替换为 %%
+                escaped_sql = sql.replace("%", "%%")
+                print(f"📡 [Database] 准备执行 SQL: {escaped_sql}")
+                
+                rows = await adapter.execute_query(escaped_sql)
                 
                 if not rows:
                     return {
