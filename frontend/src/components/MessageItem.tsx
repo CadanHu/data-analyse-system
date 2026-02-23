@@ -10,7 +10,7 @@ interface MessageItemProps {
 export default function MessageItem({ message }: MessageItemProps) {
   const isUser = message.role === 'user'
   const [thinkingCollapsed, setThinkingCollapsed] = useState(true)
-  const { setChartOption, setSqlResult, setCurrentSql, setRightPanelVisible } = useChatStore()
+  const { setChartOption, setSqlResult, setCurrentSql, setRightPanelVisible, setActiveTab } = useChatStore()
 
   const handleShowChart = () => {
     let chartConfig = message.chartConfig
@@ -30,6 +30,7 @@ export default function MessageItem({ message }: MessageItemProps) {
         setCurrentSql(message.sql)
       }
       setRightPanelVisible(true)
+      setActiveTab('charts')
     }
   }
 

@@ -6,6 +6,7 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 
 【当前数据库】
 {database_name}
+{database_type_info}
 
 【数据库信息】
 {schema}
@@ -26,8 +27,8 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 重要规则：
 1. 只允许使用 SELECT 语句，禁止使用 INSERT、UPDATE、DELETE、DROP、CREATE、ALTER 等修改操作
 2. "数据库信息"中的 CREATE TABLE 只是告诉你表结构，不是让你重新创建表
-3. 如果要查询有哪些表，请使用：SELECT name FROM sqlite_master WHERE type='table' ORDER BY name
-4. 如果表名或列名是 SQL 关键字（如 Order、Group、Select 等），请用双引号将它们括起来，例如：SELECT * FROM "Order"
+3. 如果要查询有哪些表，{table_list_query}
+4. 如果表名或列名是 SQL 关键字（如 Order、Group、Select 等），请用{quote_char}将它们括起来，例如：SELECT * FROM {quote_char}Order{quote_char}
 
 用户问题：{question}
 """

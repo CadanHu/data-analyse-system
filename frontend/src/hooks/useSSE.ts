@@ -67,7 +67,7 @@ export function useSSE() {
       let assistantMessageAdded = false
 
       try {
-        const response = await fetch('http://localhost:8000/api/chat/stream', {
+        const response = await fetch('http://localhost:8002/api/chat/stream', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

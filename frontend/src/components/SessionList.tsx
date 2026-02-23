@@ -47,20 +47,30 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
   }
 
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.preventDefault()
     e.stopPropagation()
-    if (!confirm('确定要删除这个会话吗？')) return
+    
+    console.log('点击了删除按钮，会话ID:', sessionId)
+    
+    const confirmed = window.confirm('确定要删除这个会话吗？')
+    
+    console.log('用户选择:', confirmed ? '确认删除' : '取消删除')
+    
+    if (!confirmed) {
+      return
+    }
+    
     try {
+      console.log('开始删除会话...')
       await sessionApi.deleteSession(sessionId)
+      console.log('API调用成功')
+      
       removeSession(sessionId)
+      console.log('从状态中移除会话')
+      
       if (currentSession?.id === sessionId) {
         clearMessages()
-        const remainingSessions = sessions.filter(s => s.id !== sessionId)
-        if (remainingSessions.length > 0) {
-          setCurrentSession(remainingSessions[0])
-          onSelectSession(remainingSessions[0].id)
-        } else {
-          setCurrentSession(null)
-        }
+        setCurrentSession(null)
       }
     } catch (error) {
       console.error('删除会话失败:', error)
@@ -171,87 +181,75 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
           </div>
         ) : (
           <div className="space-y-3">
-            {groupOrder.map(({ key, label }) => {
-              const groupSessions = groupedSessions[key]
-              if (!groupSessions || groupSessions.length === 0) return null
-
-              return (
-                <div key={key}>
-                  <h3 className="text-xs font-medium text-gray-400 px-2 py-1">{label}</h3>
-                  <div className="space-y-1">
-                    {groupSessions.map((session) => (
-                      <div
-                        key={session.id}
-                        onClick={() => {
-                          if (!editingSessionId) {
-                            setCurrentSession(session)
-                            onSelectSession(session.id)
-                          }
-                        }}
-                        className={`
-                          group p-3 rounded-xl cursor-pointer transition-all
-                          ${selectedSessionId === session.id
-                            ? 'bg-[#BFFFD9]/30 border border-[#BFFFD9]/50 shadow-[0_4px_12px_rgba(191,255,217,0.2)]'
-                            : 'hover:bg-white/40 border border-transparent'
-                          }
-                        `}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            {editingSessionId === session.id ? (
-                              <input
-                                ref={inputRef}
-                                type="text"
-                                value={editingTitle}
-                                onChange={(e) => setEditingTitle(e.target.value)}
-                                onBlur={() => handleFinishRename(session.id)}
-                                onKeyDown={(e) => handleKeyDown(e, session.id)}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full bg-white/80 border border-[#BFFFD9]/70 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none"
-                              />
-                            ) : (
-                              <>
-                                <h3 
-                                  className="text-sm font-medium truncate text-gray-700"
-                                  onDoubleClick={(e) => handleStartRename(e, session)}
-                                >
-                                  {session.title || '未命名会话'}
-                                </h3>
-                                <p className="text-xs text-gray-400 mt-1">
-                                  {formatDate(session.updated_at)}
-                                </p>
-                              </>
-                            )}
-                          </div>
-                          {!editingSessionId && (
-                            <div className="flex gap-1">
-                              <button
-                                onClick={(e) => handleClearContext(e, session.id)}
-                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#FFFACD]/40 rounded-lg transition-all"
-                                title="清空上下文"
-                              >
-                                <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
-                              <button
-                                onClick={(e) => handleDeleteSession(e, session.id)}
-                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#E6E6FA]/40 rounded-lg transition-all"
-                                title="删除会话"
-                              >
-                                <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+            {filteredSessions.map((session) => (
+              <div
+                key={session.id}
+                onClick={() => {
+                  if (!editingSessionId) {
+                    setCurrentSession(session)
+                    onSelectSession(session.id)
+                  }
+                }}
+                className={`
+                  group p-3 rounded-xl cursor-pointer transition-all
+                  ${selectedSessionId === session.id
+                    ? 'bg-[#BFFFD9]/30 border border-[#BFFFD9]/50 shadow-[0_4px_12px_rgba(191,255,217,0.2)]'
+                    : 'hover:bg-white/40 border border-transparent'
+                  }
+                `}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    {editingSessionId === session.id ? (
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        onBlur={() => handleFinishRename(session.id)}
+                        onKeyDown={(e) => handleKeyDown(e, session.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full bg-white/80 border border-[#BFFFD9]/70 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none"
+                      />
+                    ) : (
+                      <>
+                        <h3 
+                          className="text-sm font-medium truncate text-gray-700"
+                          onDoubleClick={(e) => handleStartRename(e, session)}
+                        >
+                          {session.title || '未命名会话'}
+                        </h3>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {formatDate(session.updated_at)}
+                        </p>
+                      </>
+                    )}
                   </div>
+                  {!editingSessionId && (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={(e) => handleClearContext(e, session.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#FFFACD]/40 rounded-lg transition-all"
+                        title="清空上下文"
+                      >
+                        <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteSession(e, session.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#E6E6FA]/40 rounded-lg transition-all"
+                        title="删除会话"
+                      >
+                        <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </div>
         )}
       </div>

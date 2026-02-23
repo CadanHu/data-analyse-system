@@ -65,13 +65,14 @@ async def health_check():
 
 
 # 注册路由
-from routers import session_router, message_router, chat_router, upload_router
+from routers import session_router, message_router, chat_router, upload_router, database_router
 from fastapi.staticfiles import StaticFiles
 
 app.include_router(session_router.router, prefix="/api", tags=["会话管理"])
 app.include_router(message_router.router, prefix="/api", tags=["消息管理"])
 app.include_router(chat_router.router, prefix="/api", tags=["聊天接口"])
 app.include_router(upload_router.router, prefix="/api", tags=["文件上传"])
+app.include_router(database_router.router)
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 

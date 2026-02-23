@@ -16,6 +16,8 @@ export const useChatStore = create<ChatState & {
   setRightPanelVisible: (visible: boolean) => void
   isThinkingMode: boolean
   setThinkingMode: (enabled: boolean) => void
+  activeTab: 'chat' | 'sessions' | 'charts'
+  setActiveTab: (tab: 'chat' | 'sessions' | 'charts') => void
 }>((set, get) => ({
   messages: [],
   isLoading: false,
@@ -28,12 +30,16 @@ export const useChatStore = create<ChatState & {
   currentSessionId: null,
   isRightPanelVisible: false,
   isThinkingMode: false,
+  activeTab: 'chat',
 
   setThinkingMode: (enabled: boolean) =>
     set({ isThinkingMode: enabled }),
 
   setRightPanelVisible: (visible: boolean) =>
     set({ isRightPanelVisible: visible }),
+
+  setActiveTab: (tab: 'chat' | 'sessions' | 'charts') =>
+    set({ activeTab: tab }),
 
   setCurrentSessionId: (sessionId: string | null) => {
     const current = get()

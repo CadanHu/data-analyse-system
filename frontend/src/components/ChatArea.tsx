@@ -43,7 +43,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
 
   const loadDatabases = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/databases')
+      const response = await fetch('http://localhost:8002/api/databases')
       const data = await response.json()
       if (data && data.databases && Array.isArray(data.databases)) {
         setDatabases(data.databases)
@@ -57,14 +57,14 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
 
   const switchDatabase = async (dbKey: string, updateSession: boolean = true) => {
     try {
-      await fetch('http://localhost:8000/api/database/switch', {
+      await fetch('http://localhost:8002/api/database/switch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ database_key: dbKey })
       })
       
       if (updateSession && selectedSessionId) {
-        await fetch(`http://localhost:8000/api/sessions/${selectedSessionId}/database`, {
+        await fetch(`http://localhost:8002/api/sessions/${selectedSessionId}/database`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ database_key: dbKey })

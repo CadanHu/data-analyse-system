@@ -1,11 +1,11 @@
 """
 SQL 执行服务
 """
-import aiosqlite
 import asyncio
 from typing import List, Dict, Any, Optional
 from config import MAX_SQL_EXECUTION_TIME
 from services.schema_service import SchemaService
+from databases.database_manager import DatabaseManager
 
 
 class SQLExecutor:
@@ -16,10 +16,17 @@ class SQLExecutor:
         forbidden_keywords = ['insert', 'update', 'delete', 'drop', 'alter', 'create', 'truncate', 'replace']
         for keyword in forbidden_keywords:
             if keyword in sql_lower:
-                return False, f"禁止使用 {keyword.upper()} 操作，只允许 SELECT 查询"
+                return False, f"禁止使用 {keyword.upper()} 操作，只允许 SELECT/SHOW 查询"
         
-        if not sql_lower.startswith('select'):
-            return False, "只允许 SELECT 查询"
+        allowed_prefixes = ['select', 'show tables', 'show columns', 'describe', 'desc']
+        allowed = False
+        for prefix in allowed_prefixes:
+            if sql_lower.startswith(prefix):
+                allowed = True
+                break
+        
+        if not allowed:
+            return False, "只允许 SELECT 或 SHOW/DESCRIBE 查询"
         
         return True, None
 
@@ -31,22 +38,31 @@ class SQLExecutor:
 
         try:
             async def execute():
-                db_path = SchemaService.get_current_db_path()
-                async with aiosqlite.connect(db_path) as conn:
-                    conn.row_factory = aiosqlite.Row
-                    async with conn.execute(sql) as cursor:
-                        rows = await cursor.fetchall()
-                        columns = [desc[0] for desc in cursor.description] if cursor.description else []
-                        
-                        result_rows = []
-                        for row in rows:
-                            result_rows.append(dict(row))
-                        
-                        return {
-                            "columns": columns,
-                            "rows": result_rows,
-                            "row_count": len(result_rows)
-                        }
+                db_key = SchemaService.get_current_db_key()
+                adapter = DatabaseManager.get_adapter(db_key)
+                
+                if not adapter:
+                    raise ValueError(f"无法获取数据库适配器: {db_key}")
+                
+                if not adapter.connected:
+                    await adapter.connect()
+                
+                rows = await adapter.execute_query(sql)
+                
+                if not rows:
+                    return {
+                        "columns": [],
+                        "rows": [],
+                        "row_count": 0
+                    }
+                
+                columns = list(rows[0].keys()) if rows else []
+                
+                return {
+                    "columns": columns,
+                    "rows": rows,
+                    "row_count": len(rows)
+                }
             
             result = await asyncio.wait_for(execute(), timeout=timeout)
             return result

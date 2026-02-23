@@ -75,10 +75,13 @@ class SQLAgent:
                             chunk = json.loads(data_str)
                             if chunk.get("choices"):
                                 delta = chunk["choices"][0].get("delta", {})
-                                yield {
-                                    "reasoning_content": delta.get("reasoning_content", ""),
-                                    "content": delta.get("content", "")
-                                }
+                                reasoning_content = delta.get("reasoning_content", "")
+                                content = delta.get("content", "")
+                                if reasoning_content or content:
+                                    yield {
+                                        "reasoning_content": reasoning_content,
+                                        "content": content
+                                    }
                         except json.JSONDecodeError:
                             pass
 
@@ -88,13 +91,19 @@ class SQLAgent:
         schema: str,
         history: str = "",
         enable_thinking: bool = False,
-        database_name: str = "业务数据库"
+        database_name: str = "业务数据库",
+        database_type_info: str = "",
+        table_list_query: str = "请使用：SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+        quote_char: str = '"'
     ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = SQL_GENERATION_PROMPT.format(
             database_name=database_name,
+            database_type_info=database_type_info,
             schema=schema,
             history=history,
-            question=question
+            question=question,
+            table_list_query=table_list_query,
+            quote_char=quote_char
         )
 
         messages = [
@@ -343,12 +352,26 @@ class SQLAgent:
         schema = await SchemaService.get_full_schema()
         tables = await SchemaService.get_table_names()
         
-        current_db_path = SchemaService.get_current_db_path()
+        current_db_key = SchemaService.get_current_db_key()
         database_name = "业务数据库"
-        for key, config in DATABASES.items():
-            if str(config["path"]) == str(current_db_path):
-                database_name = config["name"]
-                break
+        db_type = "sqlite"
+        
+        if current_db_key in DATABASES:
+            database_name = DATABASES[current_db_key]["name"]
+            db_type = DATABASES[current_db_key].get("type", "sqlite")
+        
+        if db_type == "mysql":
+            database_type_info = "【数据库类型】\nMySQL"
+            table_list_query = "请使用：SHOW TABLES"
+            quote_char = "`"
+        elif db_type == "postgresql":
+            database_type_info = "【数据库类型】\nPostgreSQL"
+            table_list_query = "请使用：SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            quote_char = '"'
+        else:
+            database_type_info = ""
+            table_list_query = "请使用：SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            quote_char = '"'
 
         yield {"event": "thinking", "data": {"content": "正在理解您的问题..."}}
         yield {"event": "schema_loaded", "data": {"tables": tables}}
@@ -367,7 +390,16 @@ class SQLAgent:
                 full_reasoning = ""
                 sql_response = None
                 
-                async for stream_event in self.generate_sql_stream(question, schema, history_str, enable_thinking, database_name):
+                async for stream_event in self.generate_sql_stream(
+                    question, 
+                    schema, 
+                    history_str, 
+                    enable_thinking, 
+                    database_name,
+                    database_type_info,
+                    table_list_query,
+                    quote_char
+                ):
                     if stream_event["type"] == "reasoning":
                         full_reasoning += stream_event["content"]
                         yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}

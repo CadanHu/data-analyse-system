@@ -314,7 +314,7 @@ export default function RightPanel() {
             </button>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap mb-3">
           {CHART_TYPES.map((type) => (
             <button
               key={type.key}
@@ -331,6 +331,31 @@ export default function RightPanel() {
           ))}
         </div>
       </div>
+
+      {/* 当前执行的 SQL 显示区域 */}
+      {currentSql && (
+        <div className="flex-none p-4 border-b border-white/30 bg-white/30 backdrop-blur-sm">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-600">当前执行的 SQL</h3>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(currentSql).then(() => {
+                  alert('SQL 已复制到剪贴板！');
+                });
+              }}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-white/50 rounded-lg transition-all"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              复制
+            </button>
+          </div>
+          <pre className="bg-gray-800 text-green-400 p-3 rounded-lg text-xs overflow-x-auto font-mono">
+            {currentSql}
+          </pre>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {hasData ? (

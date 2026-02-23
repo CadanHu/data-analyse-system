@@ -18,9 +18,8 @@ import sessionApi from './api/sessionApi'
 
 export default function App() {
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, messages, setMessages, loading, clearMessages } = useSessionStore()
-  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible } = useChatStore()
+  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'chat' | 'sessions' | 'charts'>('chat')
   const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {

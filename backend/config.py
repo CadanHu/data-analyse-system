@@ -31,16 +31,28 @@ SESSION_DB_PATH = DATABASE_DIR / "sessions.db"  # 会话数据库
 # 多数据库配置
 DATABASES = {
     "business": {
+        "type": "sqlite",
         "path": DATABASE_DIR / "business.db",
         "name": "业务数据库"
     },
     "chinook": {
+        "type": "sqlite",
         "path": DATABASE_DIR / "Chinook_Sqlite.sqlite",
         "name": "Chinook 音乐数据库"
     },
     "northwind": {
+        "type": "sqlite",
         "path": DATABASE_DIR / "northwind.db",
         "name": "Northwind 商业数据库"
+    },
+    "mysql_example": {
+        "type": "mysql",
+        "host": os.getenv("MYSQL_HOST", "localhost"),
+        "port": int(os.getenv("MYSQL_PORT", 3306)),
+        "database": os.getenv("MYSQL_DATABASE", "test"),
+        "user": os.getenv("MYSQL_USER", "root"),
+        "password": os.getenv("MYSQL_PASSWORD", ""),
+        "name": "MySQL 示例数据库"
     }
 }
 
