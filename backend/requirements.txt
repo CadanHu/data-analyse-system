@@ -4,6 +4,7 @@ uvicorn[standard]==0.27.0
 python-multipart==0.0.6
 
 # LangChain 最新稳定版本 (0.3.x 系列，完全支持 1.x 特性)
+# 注意：LangChain 1.x 需要 Python 3.10+，请参考 UPGRADE_PYTHON312_GUIDE.md
 langchain==0.3.27
 langchain-community==0.3.27
 langchain-core==0.3.83
