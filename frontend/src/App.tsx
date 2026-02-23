@@ -13,6 +13,7 @@ import Features from './components/Features'
 import Changelog from './components/Changelog'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
+import { SQLResult } from './types/message'
 import sessionApi from './api/sessionApi'
 
 export default function App() {
@@ -73,7 +74,7 @@ export default function App() {
             if (lastMessage.chart_cfg && lastMessage.data) {
               try {
                 const chartOption = JSON.parse(lastMessage.chart_cfg)
-                const sqlResult = lastMessage.data
+                const sqlResult = lastMessage.data as unknown as SQLResult
                 setChartOption(chartOption, 'bar')
                 setSqlResult(sqlResult)
                 if (lastMessage.sql) setCurrentSql(lastMessage.sql)

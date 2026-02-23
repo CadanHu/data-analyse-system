@@ -18,6 +18,11 @@ API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # DeepSeek API Key
 API_BASE_URL = "https://api.deepseek.com/v1"  # DeepSeek API 地址
 MODEL_NAME = "deepseek-chat"  # 使用 DeepSeek 模型
 
+# LangChain 配置
+LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY", "")
+LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "data-analyse-system")
+
 # 数据库配置
 DATABASE_DIR = BASE_DIR / "data"
 DATABASE_DIR.mkdir(exist_ok=True)

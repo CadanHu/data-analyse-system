@@ -12,15 +12,27 @@ from database.session_db import SessionDB
 from agents.sql_agent import SQLAgent
 from agents.memory_manager import get_memory_manager
 from services.stream_service import StreamableHTTPService
+import os
 
 router = APIRouter()
 _sql_agent = None
+_sql_agent_with_langchain = None
+
+# 是否使用 LangChain
+USE_LANGCHAIN = os.getenv("USE_LANGCHAIN", "false").lower() == "true"
 
 def get_sql_agent():
     global _sql_agent
     if _sql_agent is None:
         _sql_agent = SQLAgent()
     return _sql_agent
+
+def get_sql_agent_with_langchain():
+    global _sql_agent_with_langchain
+    if _sql_agent_with_langchain is None:
+        from agents.sql_agent_with_langchain import SQLAgentWithLangChain
+        _sql_agent_with_langchain = SQLAgentWithLangChain()
+    return _sql_agent_with_langchain
 
 
 def generate_session_title(question: str) -> str:
@@ -86,8 +98,16 @@ async def chat_stream(request: ChatRequest):
 
         try:
             print("🚀 开始处理问题...")
+            print(f"📦 使用 {'LangChain' if USE_LANGCHAIN else '原生'} SQL Agent")
+            
+            # 选择使用哪个 Agent
+            if USE_LANGCHAIN:
+                agent = get_sql_agent_with_langchain()
+            else:
+                agent = get_sql_agent()
+            
             # 传递历史字符串给 SQL Agent
-            async for event in get_sql_agent().process_question_with_history(request.question, history_str, request.enable_thinking):
+            async for event in agent.process_question_with_history(request.question, history_str, request.enable_thinking):
                 event_type = event.get("event")
                 event_data = event.get("data", {})
                 print(f"📤 发送事件: {event_type}")
