@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import SessionList from './components/SessionList'
 import ChatArea from './components/ChatArea'
 import RightPanel from './components/RightPanel'
@@ -17,6 +17,7 @@ import { SQLResult } from './types/message'
 import sessionApi from './api/sessionApi'
 
 export default function App() {
+  const navigate = useNavigate()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, messages, setMessages, loading, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -26,13 +27,19 @@ export default function App() {
     loadSessions(true)
     
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768)
+      // 竖屏且宽度较小视为移动端
+      const isPortrait = window.innerHeight > window.innerWidth
+      setIsMobile(isPortrait && window.innerWidth < 768)
     }
     
     checkMobile()
     window.addEventListener('resize', checkMobile)
+    window.addEventListener('orientationchange', checkMobile)
     
-    return () => window.removeEventListener('resize', checkMobile)
+    return () => {
+      window.removeEventListener('resize', checkMobile)
+      window.removeEventListener('orientationchange', checkMobile)
+    }
   }, [])
 
   const loadSessions = async (isInitialLoad = false) => {
@@ -40,13 +47,8 @@ export default function App() {
     sessionApi.getSessions()
       .then(data => {
         setSessions(data)
-        // 只有在初始加载且没有当前会话时，才默认选中第一个
-        if (isInitialLoad && data.length > 0 && !currentSession) {
-          setSelectedSessionId(data[0].id)
-          setCurrentSession(data[0])
-          setCurrentSessionId(data[0].id)
-          loadMessages(data[0].id)
-        }
+        // 在 iOS 上，我们不自动加载第一个会话的消息，以防卡顿
+        // 让用户手动点击会话时再加载
       })
       .catch(error => console.error('加载会话列表失败:', error))
       .finally(() => {
@@ -55,19 +57,23 @@ export default function App() {
   }
 
   const loadMessages = async (sessionId: string) => {
+    if (!sessionId) return
+    console.log('[App] Loading Messages for:', sessionId)
+    
     try {
       const data = await sessionApi.getMessages(sessionId)
+      // 这里的 map 处理如果是大数据量会卡，但在 3 条会话下应该是秒出的
       const processedData = data.map(msg => {
-        const processedMsg = { ...msg }
-        if (typeof processedMsg.data === 'string' && processedMsg.data) {
+        if (typeof msg.data === 'string' && msg.data) {
           try {
-            processedMsg.data = JSON.parse(processedMsg.data)
+            return { ...msg, data: JSON.parse(msg.data) }
           } catch (e) {
             console.error('解析消息 data 失败:', e)
           }
         }
-        return processedMsg
+        return msg
       })
+      
       setMessages(processedData)
       
       if (processedData.length > 0) {
@@ -96,13 +102,17 @@ export default function App() {
   }
 
   const handleSelectSession = (sessionId: string, session?: any) => {
+    console.log('[App] Selecting Session:', sessionId)
     setSelectedSessionId(sessionId)
     const targetSession = session || sessions.find(s => s.id === sessionId)
     if (targetSession) {
       clearMessages()
       setCurrentSession(targetSession)
       setCurrentSessionId(sessionId)
-      loadMessages(sessionId)
+      // 使用 setTimeout 确保 UI 先更新（高亮选中状态），然后再开始耗时的消息加载
+      setTimeout(() => {
+        loadMessages(sessionId)
+      }, 50)
     }
   }
 
@@ -126,12 +136,23 @@ export default function App() {
             <div className="relative z-10 h-full p-4 md:p-6">
               <div className="h-full rounded-3xl overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
                 {isMobile ? (
-                  <div className="h-full flex flex-col">
-                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm">
-                      <div className="flex">
+                  <div className="h-full flex flex-col relative">
+                    {/* 全局回退按钮：位于状态栏时间旁边 */}
+                    <button 
+                      onClick={() => navigate('/')}
+                      className="absolute left-4 z-[100] p-1.5 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-gray-700 transition-all shadow-sm"
+                      style={{ top: 'calc(env(safe-area-inset-top) + 0.4rem)' }}
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+
+                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm landscape:h-10" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                      <div className="flex pl-12 landscape:pl-16"> {/* 为左侧箭头留出空间 */}
                         <button
                           onClick={() => setActiveTab('sessions')}
-                          className={`flex-1 px-4 py-3 text-sm font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-2 text-sm landscape:text-xs font-medium transition-all ${
                             activeTab === 'sessions'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -141,7 +162,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setActiveTab('chat')}
-                          className={`flex-1 px-4 py-3 text-sm font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-2 text-sm landscape:text-xs font-medium transition-all ${
                             activeTab === 'chat'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -151,7 +172,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setActiveTab('charts')}
-                          className={`flex-1 px-4 py-3 text-sm font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-2 text-sm landscape:text-xs font-medium transition-all ${
                             activeTab === 'charts'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -168,13 +189,17 @@ export default function App() {
                           <SessionList
                             selectedSessionId={selectedSessionId}
                             onSelectSession={(id, session) => {
+                              // 1. 立即切换标签页 (最高优先级)
+                              setActiveTab('chat')
+                              
+                              // 2. 更新状态并加载消息 (后台异步)
                               setSelectedSessionId(id)
-                              if (session) {
+                              const targetSession = session || sessions.find(s => s.id === id)
+                              if (targetSession) {
                                 clearMessages()
-                                setCurrentSession(session)
+                                setCurrentSession(targetSession)
                                 loadMessages(id)
                               }
-                              setActiveTab('chat')
                             }}
                             onSessionsUpdated={() => loadSessions(false)}
                           />

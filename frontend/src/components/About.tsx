@@ -5,7 +5,7 @@ export default function About() {
 
   return (
     <div className="min-h-screen bg-[#050810] text-white">
-      <nav className="fixed top-0 left-0 right-0 z-50 px-6 py-4 bg-[#050810]/80 backdrop-blur-xl border-b border-white/10">
+      <nav className="fixed top-0 left-0 right-0 z-[100] px-6 py-4 bg-[#050810]/95 backdrop-blur-xl border-b border-white/10" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <button
             onClick={() => navigate('/')}
@@ -20,15 +20,18 @@ export default function About() {
             <span className="text-xl font-bold tracking-tight">DataPulse</span>
           </button>
           <button
-            onClick={() => navigate('/app')}
-            className="px-4 py-2 text-sm font-medium text-white border border-white/20 rounded-lg hover:border-[#06d6a0]/50 hover:bg-[#06d6a0]/10 transition-all"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/app');
+            }}
+            className="px-4 py-2 text-sm font-medium text-white border border-white/20 rounded-lg hover:border-[#06d6a0]/50 hover:bg-[#06d6a0]/10 transition-all pointer-events-auto"
           >
             进入应用
           </button>
         </div>
       </nav>
 
-      <main className="relative z-10 pt-32 pb-20 px-6">
+      <main className="relative z-10 pt-48 pb-20 px-6">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-16">
             <h1 className="text-5xl md:text-6xl font-bold mb-6">

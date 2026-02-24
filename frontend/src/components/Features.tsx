@@ -221,7 +221,7 @@ const categories = Array.from(new Set(features.map(f => f.category)))
 export default function Features() {
   return (
     <div className="min-h-screen bg-[#050810] text-white">
-      <nav className="fixed top-0 left-0 right-0 z-50 px-6 py-4 backdrop-blur-xl border-b border-white/10 bg-[#050810]/95">
+      <nav className="fixed top-0 left-0 right-0 z-[100] px-6 py-4 backdrop-blur-xl border-b border-white/10 bg-[#050810]/95" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3">
             <div className="flex items-end gap-1 h-6">
@@ -232,14 +232,11 @@ export default function Features() {
             </div>
             <span className="text-xl font-bold tracking-tight">DataPulse</span>
           </Link>
-          <div className="flex items-center gap-6">
-            <Link to="/" className="text-sm text-gray-400 hover:text-white transition-colors">首页</Link>
-            <Link to="/features" className="text-sm text-white font-medium">功能特性</Link>
-            <Link to="/tutorial" className="text-sm text-gray-400 hover:text-white transition-colors">教程</Link>
-            <Link to="/about" className="text-sm text-gray-400 hover:text-white transition-colors">关于</Link>
+          <div className="flex items-center gap-4">
+            <Link to="/" className="text-xs text-gray-400 hover:text-white transition-colors hidden sm:block">首页</Link>
             <Link
               to="/app"
-              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-lg hover:shadow-lg hover:shadow-[#3b82f6]/30 transition-all"
+              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-lg hover:shadow-lg transition-all pointer-events-auto z-[110]"
             >
               进入应用
             </Link>
@@ -247,7 +244,7 @@ export default function Features() {
         </div>
       </nav>
 
-      <main className="relative z-10 pt-24 pb-20 px-6">
+      <main className="relative z-10 pt-48 pb-20 px-6">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
             <h1 className="text-4xl md:text-5xl font-bold mb-6">

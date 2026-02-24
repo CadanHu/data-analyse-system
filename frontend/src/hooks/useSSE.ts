@@ -67,7 +67,13 @@ export function useSSE() {
       let assistantMessageAdded = false
 
       try {
-        const response = await fetch('/api/chat/stream', {
+        // 动态判断路径，Web 环境走代理，App 环境使用 127.0.0.1 明确指向宿主机
+        const isWeb = typeof window !== 'undefined' && window.location.origin.startsWith('http')
+        const apiPath = isWeb
+          ? '/api/chat/stream'
+          : 'http://127.0.0.1:8003/api/chat/stream'
+
+        const response = await fetch(apiPath, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

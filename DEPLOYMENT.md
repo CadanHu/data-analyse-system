@@ -184,11 +184,46 @@ server {
 4. **配置 Redis 缓存**
 5. **使用负载均衡**
 
-## 安全建议
+## iOS 移动端部署 (Capacitor)
 
-1. **修改默认端口**
-2. **配置 HTTPS**
-3. **启用防火墙**
-4. **定期更新依赖**
-5. **配置日志轮转**
-6. **限制 API 访问频率**
+### 前置要求
+- macOS 操作系统
+- Xcode 15.0+
+- CocoaPods (`sudo gem install cocoapods`)
+- Node.js 18+
+
+### 部署步骤
+
+1. **环境初始化**
+```bash
+cd frontend
+# 安装移动端依赖
+npm install @capacitor/cli @capacitor/core @capacitor/ios
+```
+
+2. **构建与同步**
+```bash
+# 构建前端生产包
+npm run build
+# 同步代码到 iOS 原生工程
+npx cap sync
+```
+
+3. **运行模拟器**
+```bash
+# 启动 iOS 模拟器并部署 App
+npx cap run ios
+```
+
+4. **Xcode 手动运行 (可选)**
+```bash
+# 打开 Xcode 工程
+npx cap open ios
+# 在 Xcode 中点击 Run 按钮
+```
+
+### 调试与优化
+
+- **Safari 调试**：在 Mac Safari 中通过 `开发 -> 模拟器 -> index.html` 开启 Web 检查器。
+- **刘海屏适配**：系统已自动通过 `viewport-fit=cover` 适配安全区域。
+- **网络连接**：若模拟器连不上后端，请确保后端启动时绑定了 `0.0.0.0`，且前端代码指向了正确的宿主机地址。

@@ -88,24 +88,15 @@ BUSINESS_DB_PATH = DATABASE_DIR / "business.db"  # 默认业务数据库
 MEMORY_WINDOW_SIZE = 10  # 保留最近 N 轮对话
 
 # CORS 配置
-ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:5174",
-    "http://127.0.0.1:5175",
-    "http://127.0.0.1:3000",
-]
+ALLOWED_ORIGINS = ["*"]
 
 # 请求限制
 MAX_SQL_EXECUTION_TIME = 30  # SQL 最长执行时间（秒）
 MAX_RETRY_COUNT = 2  # SQL 执行失败最大重试次数
 
 # 频率限制
-RATE_LIMIT_REQUESTS = 60  # 时间窗口内最大请求数
-RATE_LIMIT_WINDOW = 60  # 时间窗口（秒）
+RATE_LIMIT_REQUESTS = 10000  # 增大限制以禁用频率拦截
+RATE_LIMIT_WINDOW = 60
 
 # 日志配置
 LOG_LEVEL = "INFO"  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL

@@ -68,11 +68,15 @@ class RateLimiter:
 
 async def rate_limit_middleware(request: Request, call_next):
     """请求频率限制中间件"""
+    # 1. 允许所有的 OPTIONS 请求（解决 CORS 预检导致的 60s 超时）
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     # 获取客户端 IP
     client_ip = request.client.host if request.client else "unknown"
     
-    # 检查是否在白名单中（本地开发环境）
-    if client_ip in ["127.0.0.1", "::1", "localhost"]:
+    # 2. 检查是否在白名单中（增加对 .local 域名的支持）
+    if client_ip in ["127.0.0.1", "::1", "localhost"] or client_ip.endswith(".local"):
         return await call_next(request)
     
     # 检查请求频率

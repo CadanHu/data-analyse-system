@@ -23,6 +23,13 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   const [currentDb, setCurrentDb] = useState<string>('business')
   const [showDbSelector, setShowDbSelector] = useState(false)
 
+  const getApiPath = (path: string) => {
+    const isWeb = typeof window !== 'undefined' && window.location.origin.startsWith('http')
+    return isWeb
+      ? `/api${path}`
+      : `http://127.0.0.1:8003/api${path}`
+  }
+
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight
@@ -43,7 +50,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
 
   const loadDatabases = async () => {
     try {
-      const response = await fetch('/api/databases')
+      const response = await fetch(getApiPath('/databases'))
       const data = await response.json()
       if (data && data.databases && Array.isArray(data.databases)) {
         setDatabases(data.databases)
@@ -57,14 +64,14 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
 
   const switchDatabase = async (dbKey: string, updateSession: boolean = true) => {
     try {
-      await fetch('/api/database/switch', {
+      await fetch(getApiPath('/database/switch'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ database_key: dbKey })
       })
       
       if (updateSession && selectedSessionId) {
-        await fetch(`/api/sessions/${selectedSessionId}/database`, {
+        await fetch(getApiPath(`/sessions/${selectedSessionId}/database`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ database_key: dbKey })
@@ -81,10 +88,10 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-none p-4 border-b border-white/30">
+      <div className="flex-none p-4 border-b border-white/30" style={{ paddingTop: '1rem' }}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-gray-700">
+            <h2 className="text-xl font-bold text-gray-700 truncate">
               {currentSession?.title || '未命名会话'}
             </h2>
             <p className="text-xs text-gray-400 mt-1">智能数据分析助理</p>
@@ -92,30 +99,26 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
           <div className="relative">
             <button
               onClick={() => setShowDbSelector(!showDbSelector)}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] rounded-xl text-sm text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)]"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-xl text-xs text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)]"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7M4 7c0-2.21 1.79-4 4-4h8c2.21 0 4 1.79 4 4M9 17l-3-3m0 0l-3 3" />
-              </svg>
-              <span className="font-medium">{databases.find(d => d.key === currentDb)?.name || '数据库'}</span>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <span className="font-medium truncate max-w-[70px]">
+                {databases.find(d => d.key === currentDb)?.name || '数据库'}
+              </span>
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
             {showDbSelector && (
-              <div className="absolute right-0 top-full mt-2 bg-white/90 backdrop-blur-md rounded-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12)] z-50 min-w-[200px]">
+              <div className="absolute right-0 top-full mt-2 bg-white/90 backdrop-blur-md rounded-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12)] z-50 min-w-[150px]">
                 {databases.map((db) => (
                   <button
                     key={db.key}
                     onClick={() => switchDatabase(db.key, true)}
-                    className={`w-full text-left px-4 py-2.5 text-sm transition-all first:rounded-t-xl last:rounded-b-xl hover:bg-[#BFFFD9]/30 ${
+                    className={`w-full text-left px-4 py-2 text-sm transition-all first:rounded-t-xl last:rounded-b-xl hover:bg-[#BFFFD9]/30 ${
                       db.key === currentDb ? 'bg-[#BFFFD9]/50 text-gray-700 font-medium' : 'text-gray-600'
                     }`}
                   >
                     {db.name}
-                    {db.key === currentDb && (
-                      <span className="ml-2 text-xs text-[#BFFFD9]">✓</span>
-                    )}
                   </button>
                 ))}
               </div>

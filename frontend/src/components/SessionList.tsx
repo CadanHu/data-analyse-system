@@ -130,7 +130,7 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-white/30">
+      <div className="p-4 border-b border-white/30" style={{ paddingTop: '1rem' }}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-gray-700">会话列表</h2>
           <button
@@ -173,7 +173,8 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
                 onClick={() => {
                   if (!editingSessionId) {
                     setCurrentSession(session)
-                    onSelectSession(session.id)
+                    // 必须传入 session 对象，确保 App.tsx 能立即触发 loadMessages
+                    onSelectSession(session.id, session)
                   }
                 }}
                 className={`
@@ -215,11 +216,11 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
                     <div className="flex gap-1">
                       <button
                         onClick={(e) => handleDeleteSession(e, session.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#E6E6FA]/40 rounded-lg transition-all"
+                        className="md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-[#E6E6FA]/40 rounded-lg transition-all"
                         title="删除会话"
                       >
                         <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                         </svg>
                       </button>
                     </div>

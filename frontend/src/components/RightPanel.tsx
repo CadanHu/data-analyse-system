@@ -236,7 +236,15 @@ function DataTable({ sqlResult, onExportCsv }: { sqlResult: any; onExportCsv: ()
 }
 
 export default function RightPanel() {
-  const { currentChartOption, currentChartType: defaultChartType, currentSqlResult, currentSql, setRightPanelVisible } = useChatStore()
+  const { 
+    currentChartOption, 
+    currentChartType: defaultChartType, 
+    currentSqlResult, 
+    currentSql, 
+    setRightPanelVisible,
+    isFullScreen,
+    setFullScreen
+  } = useChatStore()
   const [activeType, setActiveType] = useState<string>(defaultChartType || 'bar')
 
   const displayOption = useMemo(() => {
@@ -286,27 +294,75 @@ export default function RightPanel() {
     URL.revokeObjectURL(url)
   }
 
+  // 渲染图表内容
+  const renderContent = (full: boolean = false) => (
+    <div className={`w-full ${full ? 'h-full' : 'h-[350px] md:h-full'} p-4`}>
+      {hasData ? (
+        activeType === 'table' ? (
+          <div className={full ? 'h-full' : ''}>
+            <DataTable sqlResult={currentSqlResult} onExportCsv={handleExportCsv} />
+          </div>
+        ) : displayOption ? (
+          <EChartsRenderer option={displayOption} />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center p-8 text-gray-400">
+            图表无法生成
+          </div>
+        )
+      ) : (
+        <div className="w-full h-full flex items-center justify-center p-8 text-gray-400">
+          暂无数据
+        </div>
+      )}
+    </div>
+  )
+
   return (
-    <div className="flex-none flex flex-col h-full">
-      <div className="flex-none p-4 border-b border-white/30">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-gray-700">数据可视化</h2>
+    <div className="flex-none flex flex-col h-full relative overflow-hidden">
+      {/* 全屏模态层：使用极高层级固定定位 */}
+      {isFullScreen && (
+        <div className="fixed inset-0 z-[9999] bg-white flex flex-col" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
+          <div className="flex-none flex justify-between items-center p-4 border-b bg-white shadow-sm" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' }}>
+            <h3 className="font-bold text-gray-700">全屏查看分析</h3>
+            <button 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setFullScreen(false);
+              }}
+              className="w-12 h-12 flex items-center justify-center bg-gray-100 active:bg-gray-200 rounded-full text-gray-900 shadow-md border border-gray-200"
+              style={{ WebkitAppearance: 'none' }}
+            >
+              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto bg-white">
+            {renderContent(true)}
+          </div>
+        </div>
+      )}
+
+      {/* 顶部标题栏 */}
+      <div className="flex-none p-3 border-b border-white/30 landscape:p-2">
+        <div className="flex items-center justify-between mb-2 landscape:mb-1">
+          <h2 className="text-lg font-semibold text-gray-700 landscape:text-sm">数据可视化</h2>
           <div className="flex items-center gap-2">
-            {currentSql && (
+            {hasData && (
               <button
-                onClick={handleExportSql}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] rounded-xl text-xs text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)]"
+                onClick={() => setFullScreen(true)}
+                className="p-1.5 bg-blue-50 text-blue-600 rounded-lg active:bg-blue-100 shadow-sm"
+                title="全屏查看"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                 </svg>
-                导出 SQL
               </button>
             )}
             <button
               onClick={() => setRightPanelVisible(false)}
-              className="flex items-center justify-center w-8 h-8 bg-white/60 hover:bg-white/80 rounded-xl text-gray-400 hover:text-gray-600 transition-all"
-              title="关闭"
+              className="w-8 h-8 flex items-center justify-center bg-white/60 rounded-xl text-gray-400"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -314,77 +370,48 @@ export default function RightPanel() {
             </button>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap mb-3">
+        
+        {/* 类型切换按钮：横屏下更紧凑 */}
+        <div className="flex gap-2 flex-wrap">
           {CHART_TYPES.map((type) => (
             <button
               key={type.key}
               onClick={() => setActiveType(type.key)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm transition-all ${
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs transition-all ${
                 activeType === type.key
-                  ? 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] text-gray-700 shadow-[0_4px_12px_rgba(191,255,217,0.3)]'
-                  : 'bg-white/60 text-gray-500 hover:bg-white/80 hover:text-gray-600'
+                  ? 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] text-gray-700 shadow-sm'
+                  : 'bg-white/60 text-gray-500'
               }`}
             >
               <span>{type.icon}</span>
-              <span>{type.label}</span>
+              <span className="landscape:hidden">{type.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* 当前执行的 SQL 显示区域 */}
-      {currentSql && (
-        <div className="flex-none p-4 border-b border-white/30 bg-white/30 backdrop-blur-sm">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-600">当前执行的 SQL</h3>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(currentSql).then(() => {
-                  alert('SQL 已复制到剪贴板！');
-                });
-              }}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-white/50 rounded-lg transition-all"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              复制
-            </button>
-          </div>
-          <pre className="bg-gray-800 text-green-400 p-3 rounded-lg text-xs overflow-x-auto font-mono">
-            {currentSql}
-          </pre>
-        </div>
-      )}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="min-h-full">
+          {/* SQL 区域：横屏下自动收起/变小 */}
+          {currentSql && (
+            <div className="p-4 border-b border-white/30 bg-white/10 landscape:p-2">
+              <details className="group">
+                <summary className="list-none flex items-center justify-between cursor-pointer">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">查看 SQL 语句</h3>
+                  <svg className="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </summary>
+                <pre className="mt-2 bg-gray-800 text-green-400 p-3 rounded-lg text-[10px] overflow-x-auto font-mono">
+                  {currentSql}
+                </pre>
+              </details>
+            </div>
+          )}
 
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {hasData ? (
-          activeType === 'table' ? (
-            <DataTable sqlResult={currentSqlResult} onExportCsv={handleExportCsv} />
-          ) : displayOption ? (
-            <div className="w-full h-full p-4">
-              <EChartsRenderer option={displayOption} />
-            </div>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <div className="text-center text-gray-400">
-                <p className="text-lg">图表无法生成</p>
-                <p className="text-sm mt-1">数据格式不支持此图表类型</p>
-              </div>
-            </div>
-          )
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="text-center text-gray-400">
-              <svg className="w-16 h-16 mx-auto mb-4 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
-              </svg>
-              <p className="text-lg">图表区域</p>
-              <p className="text-sm mt-1">提问后自动生成图表</p>
-            </div>
-          </div>
-        )}
+          {/* 主要内容区 */}
+          {renderContent(false)}
+        </div>
       </div>
     </div>
   )

@@ -18,6 +18,8 @@ export const useChatStore = create<ChatState & {
   setThinkingMode: (enabled: boolean) => void
   activeTab: 'chat' | 'sessions' | 'charts'
   setActiveTab: (tab: 'chat' | 'sessions' | 'charts') => void
+  isFullScreen: boolean
+  setFullScreen: (enabled: boolean) => void
 }>((set, get) => ({
   messages: [],
   isLoading: false,
@@ -30,7 +32,10 @@ export const useChatStore = create<ChatState & {
   currentSessionId: null,
   isRightPanelVisible: false,
   isThinkingMode: false,
-  activeTab: 'chat',
+  activeTab: 'sessions',
+  isFullScreen: false,
+
+  setFullScreen: (enabled: boolean) => set({ isFullScreen: enabled }),
 
   setThinkingMode: (enabled: boolean) =>
     set({ isThinkingMode: enabled }),
