@@ -5,7 +5,7 @@ import json
 import re
 import httpx
 from typing import Dict, Any, Optional, List, AsyncGenerator
-from config import API_KEY, API_BASE_URL, MODEL_NAME, MAX_RETRY_COUNT
+from config import API_KEY, API_BASE_URL, CHAT_MODEL, REASONER_MODEL, MAX_RETRY_COUNT
 from utils.prompt_templates import (
     SQL_GENERATION_PROMPT, SUMMARY_PROMPT, CHART_CONFIG_PROMPT, 
     INTENT_CLASSIFICATION_PROMPT, CHAT_RESPONSE_PROMPT, PLAN_GENERATION_PROMPT
@@ -24,7 +24,7 @@ class SQLAgent:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": MODEL_NAME,
+                    "model": CHAT_MODEL,
                     "messages": messages,
                     "temperature": temperature
                 }
@@ -39,17 +39,22 @@ class SQLAgent:
         temperature: float = 0.7,
         enable_thinking: bool = True
     ) -> AsyncGenerator[Dict[str, Any], None]:
+        # 根据开关选择模型
+        active_model = REASONER_MODEL if enable_thinking else CHAT_MODEL
+        
         request_body = {
-            "model": MODEL_NAME,
+            "model": active_model,
             "messages": messages,
             "temperature": temperature,
             "stream": True
         }
         
-        if enable_thinking:
-            request_body["thinking"] = {"type": "enabled"}
+        # 只有在非官方 deepseek-reasoner 但想开启思考模式时（比如某些中转平台）
+        # 才可能需要这个额外的 thinking 参数。官方 reasoner 是自动开启的。
+        # if enable_thinking and active_model != "deepseek-reasoner":
+        #     request_body["thinking"] = {"type": "enabled"}
         
-        print(f"📤 发送到 DeepSeek 的请求: model={MODEL_NAME}, enable_thinking={enable_thinking}")
+        print(f"📤 发送到 DeepSeek 的请求: model={active_model}, enable_thinking={enable_thinking}")
         print(f"📤 Messages 数量: {len(messages)}")
         for i, msg in enumerate(messages):
             print(f"📤 Message {i} ({msg['role']}): {msg['content'][:200]}...")
@@ -633,6 +638,7 @@ class SQLAgent:
                 "sql": sql,
                 "chart_config": chart_config,
                 "summary": summary,
-                "reasoning": full_reasoning
+                "reasoning": full_reasoning,
+                "session_title": sql_response.get("session_title", "") if sql_response else ""
             }
         }

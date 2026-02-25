@@ -84,6 +84,10 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
         await session_db.update_session_title(request.session_id, user_id, new_title)
         print(f"🏷️ 自动生成会话标题: {new_title}")
 
+    # 获取历史对话（从 Memory Manager 或数据库）
+    # 注意：在添加当前问题之前获取，这样 history_str 只包含真正的“历史”
+    history_str = await memory_manager.get_history_text(request.session_id)
+
     # 保存用户消息到数据库
     user_message_id = str(uuid.uuid4())
     await session_db.create_message({
@@ -96,9 +100,6 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
     
     # 添加到记忆
     await memory_manager.add_user_message(request.session_id, request.question)
-
-    # 获取历史对话（从 Memory Manager 或数据库）
-    history_str = await memory_manager.get_history_text(request.session_id)
 
     async def event_generator():
         assistant_message_id = str(uuid.uuid4())
@@ -147,6 +148,16 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 elif event_type == "done":
                     done_data = event_data
                     assistant_content = done_data.get("summary", assistant_content)
+                    
+                    # 动态更新会话标题逻辑
+                    model_suggested_title = done_data.get("session_title", "")
+                    if model_suggested_title:
+                        # 检查当前标题是否为默认/通用标题
+                        current_session = await session_db.get_session(request.session_id, user_id)
+                        if current_session and (not current_session.get("title") or current_session["title"] in ["新会话", "未命名会话"] or len(current_session["title"]) > 25):
+                            print(f"🏷️ 模型建议新标题: {model_suggested_title}")
+                            await session_db.update_session_title(request.session_id, user_id, model_suggested_title)
+                    
                     # done 事件数据中也包含最终的 reasoning
                     if not assistant_reasoning:
                         assistant_reasoning = done_data.get("reasoning", "")

@@ -21,7 +21,8 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 {{
   "sql": "SELECT ...",
   "chart_type": "bar|line|pie|scatter|table",
-  "reasoning": "我的分析思路..."
+  "reasoning": "我的分析思路...",
+  "session_title": "基于上下文生成的15字以内的简短会话标题"
 }}
 
 请根据用户的问题生成正确的 SQL 查询。

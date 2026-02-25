@@ -67,3 +67,24 @@ htmlcov/
 *.pem
 *.cert
 *.key
+RESTART_GUIDE.md
+
+# Capacitor / Mobile
+frontend/android/build/
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/local.properties
+frontend/android/*.iml
+frontend/android/.idea
+frontend/android/.navigation
+.cxx
+*.apk
+*.aar
+*.keystore
+
+# iOS Specifics
+frontend/ios/DerivedData/
+frontend/ios/App/Pods/
+frontend/ios/App/App.xcworkspace/
+frontend/ios/App/App.xcodeproj/xcuserdata/
+frontend/ios/App/App/public/
