@@ -60,20 +60,24 @@ export default function MessageItem({ message }: MessageItemProps) {
             <div className="mb-4">
               <button
                 onClick={() => setThinkingCollapsed(!thinkingCollapsed)}
-                className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 mb-3 transition-colors"
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all ${
+                  thinkingCollapsed 
+                    ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-100' 
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
+                }`}
               >
                 <svg 
-                  className={`w-4 h-4 transition-transform ${thinkingCollapsed ? '-rotate-90' : ''}`} 
+                  className={`w-3.5 h-3.5 transition-transform duration-300 ${thinkingCollapsed ? '' : 'rotate-180'}`} 
                   fill="none" 
                   viewBox="0 0 24 24" 
                   stroke="currentColor"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
-                思考过程
+                {thinkingCollapsed ? '查看 AI 思考过程' : '收起思考过程'}
               </button>
               {!thinkingCollapsed && (
-                <div className="bg-white/60 rounded-xl p-4 text-xs text-gray-500 italic border border-white/30 markdown-body prose prose-invert prose-sm max-w-none">
+                <div className="mt-3 bg-amber-50/50 rounded-xl p-4 text-xs text-gray-600 italic border border-amber-100/50 markdown-body prose prose-sm max-w-none">
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                     {preprocessContent(message.thinking)}
                   </ReactMarkdown>

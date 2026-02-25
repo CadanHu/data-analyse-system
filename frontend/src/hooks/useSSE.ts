@@ -134,6 +134,23 @@ export function useSSE() {
                     assistantModelThinking += eventData.content || ''
                     setThinkingContent(assistantModelThinking)
                     handlers?.onModelThinking?.(eventData.content)
+                    
+                    // 第一次收到思考内容时，立即创建助手消息
+                    if (!assistantMessageAdded) {
+                      addMessage({
+                        id: assistantMessageId,
+                        session_id: sessionId,
+                        role: 'assistant',
+                        content: '',
+                        thinking: assistantModelThinking,
+                        created_at: new Date().toISOString()
+                      })
+                      assistantMessageAdded = true
+                    } else {
+                      updateLastMessage({
+                        thinking: assistantModelThinking
+                      })
+                    }
                     break
                   case 'schema_loaded':
                     break
