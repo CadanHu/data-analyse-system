@@ -17,7 +17,12 @@
     "echarts": "^5.4.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.1",
     "react-router-dom": "^6.21.0",
+    "rehype-katex": "^7.0.0",
+    "rehype-highlight": "^7.0.0",
+    "remark-math": "^6.0.0",
+    "katex": "^0.16.9",
     "zustand": "^4.4.7"
   },
   "devDependencies": {

@@ -1,4 +1,8 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import type { Message } from '../types/message'
 import SqlBlock from './SqlBlock'
 import { useChatStore } from '../stores/chatStore'
@@ -74,14 +78,47 @@ export default function MessageItem({ message }: MessageItemProps) {
                 思考过程
               </button>
               {!thinkingCollapsed && (
-                <div className="bg-white/60 rounded-xl p-4 text-xs text-gray-500 italic border border-white/30">
-                  {message.thinking}
+                <div className="bg-white/60 rounded-xl p-4 text-xs text-gray-500 italic border border-white/30 markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                    {message.thinking}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>
           )}
           
-          <p className="whitespace-pre-wrap leading-relaxed text-gray-700">{message.content}</p>
+          <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed overflow-x-auto markdown-body">
+            <ReactMarkdown 
+              remarkPlugins={[remarkMath]} 
+              rehypePlugins={[rehypeKatex]}
+              components={{
+                code({ inline, className, children, ...props }: any) {
+                  return (
+                    <code className={`${className} bg-gray-100 px-1 py-0.5 rounded text-sm`} {...props}>
+                      {children}
+                    </code>
+                  )
+                },
+                table({ children }) {
+                  return (
+                    <div className="overflow-x-auto my-4">
+                      <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg">
+                        {children}
+                      </table>
+                    </div>
+                  )
+                },
+                th({ children }) {
+                  return <th className="px-4 py-2 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">{children}</th>
+                },
+                td({ children }) {
+                  return <td className="px-4 py-2 text-sm text-gray-600 border-b">{children}</td>
+                }
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
+          </div>
           
           {!isUser && message.sql && (
             <SqlBlock sql={message.sql} />
