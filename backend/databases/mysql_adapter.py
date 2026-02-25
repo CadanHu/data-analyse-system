@@ -103,6 +103,32 @@ class MySQLAdapter(BaseDatabaseAdapter):
     async def get_table_schema(self, table_name: str) -> List[ColumnInfo]:
         return await self._get_columns(table_name)
 
+    async def get_create_table_sql(self, table_name: str) -> str:
+        """获取 MySQL 的 CREATE TABLE 语句"""
+        if not self._connection:
+            await self.connect()
+        try:
+            async with self._connection.cursor() as cursor:
+                await cursor.execute(f"SHOW CREATE TABLE `{table_name}`")
+                row = await cursor.fetchone()
+                return row[1] if row else ""
+        except Exception as e:
+            print(f"❌ 获取 CREATE TABLE 失败: {str(e)}")
+            return ""
+
+    async def get_database_version(self) -> str:
+        """获取 MySQL 版本"""
+        if not self._connection:
+            await self.connect()
+        try:
+            async with self._connection.cursor() as cursor:
+                await cursor.execute("SELECT VERSION()")
+                row = await cursor.fetchone()
+                return row[0] if row else "unknown"
+        except Exception as e:
+            print(f"❌ 获取 MySQL 版本失败: {str(e)}")
+            return "unknown"
+
     async def execute_query(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
         if not self._connection:
             await self.connect()

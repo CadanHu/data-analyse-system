@@ -35,11 +35,9 @@ export default function MessageList() {
       {storeMessages.map((message) => (
         <MessageItem key={message.id} message={message} />
       ))}
-      {isLoading && thinkingContent ? (
-        <ThinkingIndicator content={thinkingContent} />
-      ) : isLoading ? (
+      {isLoading && storeMessages.length === 0 && (
         <MessageSkeleton />
-      ) : null}
+      )}
     </div>
   )
 }

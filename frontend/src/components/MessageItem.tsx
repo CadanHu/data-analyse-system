@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -13,8 +13,16 @@ interface MessageItemProps {
 
 export default function MessageItem({ message }: MessageItemProps) {
   const isUser = message.role === 'user'
-  const [thinkingCollapsed, setThinkingCollapsed] = useState(true)
-  const { setChartOption, setSqlResult, setCurrentSql, setRightPanelVisible, setActiveTab } = useChatStore()
+  // 如果消息中有思考内容且内容还未完成（处于加载状态），默认展开
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(!(message.thinking && !message.content))
+  const { setChartOption, setSqlResult, setCurrentSql, setRightPanelVisible, setActiveTab, isLoading } = useChatStore()
+
+  // 监听思考内容变化，如果是在加载中且有新内容，保持展开
+  useEffect(() => {
+    if (isLoading && message.thinking && !message.content) {
+      setThinkingCollapsed(false)
+    }
+  }, [message.thinking, isLoading, message.content])
 
   const handleShowChart = () => {
     let chartConfig = message.chartConfig

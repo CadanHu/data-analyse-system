@@ -7,8 +7,10 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 【当前数据库】
 {database_name}
 {database_type_info}
+【数据库版本】
+{database_version}
 
-【数据库信息】
+【数据库详细信息 (Schema & 样本数据)】
 {schema}
 
 【对话历史】
@@ -28,7 +30,12 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 1. 只允许使用 SELECT 语句，禁止使用 INSERT、UPDATE、DELETE、DROP、CREATE、ALTER 等修改操作
 2. "数据库信息"中的 CREATE TABLE 只是告诉你表结构，不是让你重新创建表
 3. 如果要查询有哪些表，{table_list_query}
-4. 如果表名或列名是 SQL 关键字（如 Order、Group、Select 等），请用{quote_char}将它们括起来，例如：SELECT * FROM {quote_char}Order{quote_char}
+4. 如果表名或列名是 SQL 关键字（如 Order、Group、Select 等），请用{quote_char}将它们括起来
+5. **重要（关于窗口函数）**：
+   - 如果数据库是 MySQL 且版本低于 8.0（如 5.7），**严禁使用** LAG, LEAD, RANK, OVER 等窗口函数。请改用子查询或自连接来实现。
+   - 如果数据库是 SQLite，确保使用的语法与 SQLite 兼容。
+6. 请务必仔细检查 Schema 中的外键关系，确保 JOIN 条件正确。
+7. 尽量在生成的 SQL 中包含对字段含义的理解。
 
 用户问题：{question}
 """
@@ -37,28 +44,44 @@ INTENT_CLASSIFICATION_PROMPT = """你是一个智能助手，负责根据用户�
 
 【输出要求】
 必须返回合法的 JSON 格式，不要包含任何其他文字。
-请从以下两个类别中选择一个作为 `intent`：
-- `sql_query`：如果用户的问题是关于数据查询、业务分析、图表生成等，需要通过 SQL 查询数据库来回答。
-- `chat`：如果用户的问题是通用知识、闲聊、关于当前对话的元问题（如“刚刚的对话是什么？”、“你叫什么名字？”等），不需要查询数据库即可回答。
+请从以下三个类别中选择一个作为 `intent`：
+- `sql_query`：用户的问题涉及新的数据查询需求、新的业务分析请求。
+- `confirmation`：用户对你之前提出的分析方案表示认可、授权或要求执行（如“可以”、“执行”、“OK”、“开始分析吧”、“按照这个方案做”）。
+- `chat`：通用的闲聊、关于对话历史的问题或无需数据库的操作。
 
 例如：
 用户问题：查询近一个月的销售额
 输出：{{"intent": "sql_query"}}
 
-用户问题：帮我分析一下用户留存率
-输出：{{"intent": "sql_query"}}
+用户问题：可以执行
+输出：{{"intent": "confirmation"}}
 
-用户问题：刚刚的对话是什么？
-输出：{{"intent": "chat"}}
-
-用户问题：你好
-输出：{{"intent": "chat"}}
-
-用户问题：你叫什么名字？
+用户问题：刚刚我们聊了什么？
 输出：{{"intent": "chat"}}
 
 用户问题：{question}
 输出：
+"""
+
+PLAN_GENERATION_PROMPT = """你是一个专业的数据分析顾问。用户提出了一个分析需求，你需要根据现有的数据库表结构，给出一个专业的分析方案供用户确认。
+
+【当前数据库】
+{database_name} ({database_type})
+
+【数据库表结构】
+{schema}
+
+【对话历史】
+{history}
+
+【输出要求】
+1. 首先列出与该需求最相关的几张表，并简要说明它们的作用。
+2. 给出你的分析思路：你打算如何关联这些表？使用哪些字段？进行怎样的计算（如聚合、排序、过滤）？
+3. 最后请明确询问用户：“这个分析方案是否可以？如果确认，我将为您生成数据并分析。”
+4. **不要生成任何 SQL 语句**。
+5. 使用 Markdown 格式输出，确保清晰易读。
+
+用户需求：{question}
 """
 
 CHAT_RESPONSE_PROMPT = """你是一个智能数据分析助手的AI模型。

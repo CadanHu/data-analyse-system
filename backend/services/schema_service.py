@@ -58,6 +58,13 @@ class SchemaService:
         if adapter:
             if not adapter.connected:
                 await adapter.connect()
+            
+            # 优先使用适配器提供的完整 DDL
+            create_sql = await adapter.get_create_table_sql(table_name)
+            if create_sql:
+                return create_sql
+                
+            # 降级方案：手动构建
             columns = await adapter.get_table_schema(table_name)
             schema_parts = [f"CREATE TABLE {table_name} ("]
             col_defs = []
@@ -75,15 +82,32 @@ class SchemaService:
         return ""
 
     @classmethod
-    async def get_full_schema(cls) -> str:
-        """获取完整数据库结构"""
-        if cls._cached_schema is not None:
-            return cls._cached_schema
+    async def get_db_version(cls) -> str:
+        """获取当前数据库版本"""
+        adapter = DatabaseManager.get_adapter(cls._current_db_key)
+        if adapter:
+            if not adapter.connected:
+                await adapter.connect()
+            return await adapter.get_database_version()
+        return "unknown"
+
+    @classmethod
+    async def get_full_schema(cls, include_sample: bool = True) -> str:
+        """获取完整数据库结构（可选包含样本数据）"""
+        # 缓存逻辑暂时移除或针对 include_sample 优化，因为样本数据可能变化
+        # if cls._cached_schema is not None:
+        #     return cls._cached_schema
 
         tables = await cls.get_table_names()
         schemas = []
         for table in tables:
             table_schema = await cls.get_table_schema(table)
+            
+            if include_sample:
+                sample_data = await cls.get_sample_data(table, limit=3)
+                if sample_data:
+                    table_schema += f"\n\n/*\nSample data for {table}:\n{sample_data}\n*/"
+            
             schemas.append(table_schema)
 
         full_schema = "\n\n".join(schemas)

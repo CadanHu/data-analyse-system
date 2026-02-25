@@ -6,7 +6,10 @@ import re
 import httpx
 from typing import Dict, Any, Optional, List, AsyncGenerator
 from config import API_KEY, API_BASE_URL, MODEL_NAME, MAX_RETRY_COUNT
-from utils.prompt_templates import SQL_GENERATION_PROMPT, SUMMARY_PROMPT, CHART_CONFIG_PROMPT, INTENT_CLASSIFICATION_PROMPT, CHAT_RESPONSE_PROMPT
+from utils.prompt_templates import (
+    SQL_GENERATION_PROMPT, SUMMARY_PROMPT, CHART_CONFIG_PROMPT, 
+    INTENT_CLASSIFICATION_PROMPT, CHAT_RESPONSE_PROMPT, PLAN_GENERATION_PROMPT
+)
 from services.schema_service import SchemaService
 from services.sql_executor import SQLExecutor
 
@@ -77,6 +80,11 @@ class SQLAgent:
                                 delta = chunk["choices"][0].get("delta", {})
                                 reasoning_content = delta.get("reasoning_content", "")
                                 content = delta.get("content", "")
+                                
+                                # 调试日志: 打印包含推理内容的块
+                                if reasoning_content:
+                                    print(f"🧠 [DeepSeek Thinking] 收到推理片段: {len(reasoning_content)} chars")
+                                
                                 if reasoning_content or content:
                                     yield {
                                         "reasoning_content": reasoning_content,
@@ -106,12 +114,14 @@ class SQLAgent:
         enable_thinking: bool = False,
         database_name: str = "业务数据库",
         database_type_info: str = "",
+        database_version: str = "unknown",
         table_list_query: str = "请使用：SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
         quote_char: str = '"'
     ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = SQL_GENERATION_PROMPT.format(
             database_name=database_name,
             database_type_info=database_type_info,
+            database_version=database_version,
             schema=schema,
             history=history,
             question=question,
@@ -396,9 +406,11 @@ class SQLAgent:
         
         print(f"🚀 SQLAgent 准备开始生成查询...")
         print(f"📚 获取 Schema 信息...")
-        schema = await SchemaService.get_full_schema()
+        schema = await SchemaService.get_full_schema(include_sample=True)
         tables = await SchemaService.get_table_names()
+        db_version = await SchemaService.get_db_version()
         print(f"📊 数据库中共有 {len(tables)} 张表: {', '.join(tables)}")
+        print(f"🔢 数据库版本: {db_version}")
         
         current_db_key = SchemaService.get_current_db_key()
         database_name = "业务数据库"
@@ -438,11 +450,11 @@ class SQLAgent:
         intent = await self._classify_intent(question)
         print(f"🎯 识别到的意图: {intent}")
 
+        # 处理闲聊
         if intent == "chat":
             full_summary_reasoning = ""
             summary_content = ""
             
-            # 准备数据库上下文信息
             db_context = {
                 "database_name": database_name,
                 "database_type": db_type,
@@ -475,7 +487,56 @@ class SQLAgent:
             }
             return
 
-        # 以下是原来的 SQL 生成逻辑
+        # 2. 判断是否是确认指令 (HITL 阶段二)
+        is_executing_after_plan = (intent == "confirmation")
+        
+        # 3. 如果是新查询且没有确认 (HITL 阶段一)
+        if intent == "sql_query" and not is_executing_after_plan:
+            print("💡 识别到查询需求，正在生成分析方案...")
+            
+            plan_prompt = PLAN_GENERATION_PROMPT.format(
+                database_name=database_name,
+                database_type=db_type,
+                schema=schema,
+                history=history_str,
+                question=question
+            )
+            
+            messages = [
+                {"role": "system", "content": "你是一个专业的数据分析顾问。"},
+                {"role": "user", "content": plan_prompt}
+            ]
+            
+            full_plan = ""
+            full_reasoning = ""
+            # 方案阶段也显示思考
+            async for delta in self._chat_completion_stream(messages, temperature=0.3, enable_thinking=enable_thinking):
+                if delta["reasoning_content"]:
+                    full_reasoning += delta["reasoning_content"]
+                    yield {"event": "model_thinking", "data": {"content": delta["reasoning_content"]}}
+                if delta["content"]:
+                    full_plan += delta["content"]
+                    yield {"event": "summary", "data": {"content": delta["content"]}}
+            
+            yield {
+                "event": "done",
+                "data": {
+                    "sql": "",
+                    "chart_config": {},
+                    "summary": full_plan,
+                    "reasoning": full_reasoning
+                }
+            }
+            return
+
+        # 4. 执行阶段 (确认后或特殊直通逻辑)
+        print(f"🧠 开始调用 AI 模型生成 SQL (重试限制: {MAX_RETRY_COUNT})...")
+        
+        # 如果是确认指令，我们需要从历史中还原用户的问题意图
+        execution_question = question
+        if is_executing_after_plan:
+            execution_question = f"基于你刚才提出的分析方案，请立即生成 SQL 并执行查询以回答用户。当前指令：{question}"
+
         for attempt in range(MAX_RETRY_COUNT + 1):
             try:
                 if attempt > 0:
@@ -487,12 +548,13 @@ class SQLAgent:
                 
                 print(f"📡 正在发起 DeepSeek 流式请求...")
                 async for stream_event in self.generate_sql_stream(
-                    question, 
+                    execution_question, 
                     schema, 
                     history_str, 
                     enable_thinking, 
                     database_name,
                     database_type_info,
+                    db_version,
                     table_list_query,
                     quote_char
                 ):

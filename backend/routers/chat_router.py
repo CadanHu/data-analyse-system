@@ -105,7 +105,8 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
         assistant_sql = ""
         assistant_chart_cfg = ""
         assistant_content = ""
-        assistant_thinking = ""
+        assistant_thinking = ""  # 用于记录 UI 状态
+        assistant_reasoning = "" # 用于记录真实的模型推理过程
         assistant_data = ""
         assistant_chart_config = {}
 
@@ -127,6 +128,9 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
 
                 if event_type == "thinking":
                     assistant_thinking = event_data.get("content", "")
+                elif event_type == "model_thinking":
+                    # 累加真实的模型思考过程
+                    assistant_reasoning += event_data.get("content", "")
                 elif event_type == "sql_generated":
                     assistant_sql = event_data.get("sql", "")
                     print(f"  └─ 生成 SQL: {assistant_sql[:100]}...")
@@ -143,6 +147,9 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 elif event_type == "done":
                     done_data = event_data
                     assistant_content = done_data.get("summary", assistant_content)
+                    # done 事件数据中也包含最终的 reasoning
+                    if not assistant_reasoning:
+                        assistant_reasoning = done_data.get("reasoning", "")
                     print(f"✅ 处理完成，生成摘要字数: {len(assistant_content)}")
 
                 # 生成事件对象
@@ -161,7 +168,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                         "content": assistant_content,
                         "sql": assistant_sql,
                         "chart_cfg": assistant_chart_cfg,
-                        "thinking": assistant_thinking,
+                        "thinking": assistant_reasoning, # 存入真实的推理过程
                         "data": assistant_data,
                         "created_at": datetime.now().isoformat()
                     })

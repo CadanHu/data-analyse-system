@@ -94,6 +94,32 @@ class SQLiteAdapter(BaseDatabaseAdapter):
 
         return columns
 
+    async def get_create_table_sql(self, table_name: str) -> str:
+        """获取 SQLite 的 CREATE TABLE 语句"""
+        if not self._connected:
+            await self.connect()
+        try:
+            cursor = await self._connection.execute(
+                f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else ""
+        except Exception as e:
+            print(f"❌ 获取 SQLite CREATE TABLE 失败: {e}")
+            return ""
+
+    async def get_database_version(self) -> str:
+        """获取 SQLite 版本"""
+        if not self._connected:
+            await self.connect()
+        try:
+            cursor = await self._connection.execute("SELECT sqlite_version()")
+            row = await cursor.fetchone()
+            return row[0] if row else "unknown"
+        except Exception as e:
+            print(f"❌ 获取 SQLite 版本失败: {e}")
+            return "unknown"
+
     async def execute_query(self, query: str, params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
         """执行查询"""
         if not self._connected:

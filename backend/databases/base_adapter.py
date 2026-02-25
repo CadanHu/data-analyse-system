@@ -66,6 +66,14 @@ class BaseDatabaseAdapter(ABC):
         """获取连接字符串（用于 LangChain SQLDatabase）"""
         pass
 
+    async def get_create_table_sql(self, table_name: str) -> str:
+        """获取表的 CREATE TABLE 语句"""
+        return ""
+
+    async def get_database_version(self) -> str:
+        """获取数据库版本信息"""
+        return "unknown"
+
     @property
     def connected(self) -> bool:
         return self._connected

@@ -12,6 +12,8 @@ class MessageCreate(BaseModel):
     content: str
     sql: Optional[str] = None
     chart_cfg: Optional[str] = None
+    thinking: Optional[str] = None
+    data: Optional[str] = None
 
 
 class MessageResponse(BaseModel):
@@ -21,6 +23,8 @@ class MessageResponse(BaseModel):
     content: str
     sql: Optional[str] = None
     chart_cfg: Optional[str] = None
+    thinking: Optional[str] = None
+    data: Optional[str] = None
     created_at: datetime
 
     class Config:

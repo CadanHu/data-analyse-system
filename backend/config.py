@@ -27,8 +27,8 @@ SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
 
 # API 配置
 API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # DeepSeek API Key
-API_BASE_URL = "https://api.deepseek.com/v1"  # DeepSeek API 地址
-MODEL_NAME = "deepseek-chat"  # 使用 DeepSeek 模型
+API_BASE_URL = "https://api.deepseek.com"  # DeepSeek API 地址 (通常不带 v1)
+MODEL_NAME = "deepseek-reasoner"  # 使用支持推理的模型
 
 # LangChain 配置
 LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
