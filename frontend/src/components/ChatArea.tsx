@@ -3,6 +3,7 @@ import MessageList from './MessageList'
 import InputBar from './InputBar'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
+import { databaseApi } from '../api'
 
 interface ChatAreaProps {
   selectedSessionId: string | null
@@ -22,13 +23,6 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   const [databases, setDatabases] = useState<Database[]>([])
   const [currentDb, setCurrentDb] = useState<string>('business')
   const [showDbSelector, setShowDbSelector] = useState(false)
-
-  const getApiPath = (path: string) => {
-    const isWeb = typeof window !== 'undefined' && window.location.origin.startsWith('http')
-    return isWeb
-      ? `/api${path}`
-      : `http://127.0.0.1:8003/api${path}`
-  }
 
   useEffect(() => {
     if (listRef.current) {
@@ -50,12 +44,9 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
 
   const loadDatabases = async () => {
     try {
-      const response = await fetch(getApiPath('/databases'))
-      const data = await response.json()
+      const data = await databaseApi.getDatabases()
       if (data && data.databases && Array.isArray(data.databases)) {
         setDatabases(data.databases)
-      } else {
-        console.error('数据库列表数据格式错误:', data)
       }
     } catch (error) {
       console.error('加载数据库列表失败:', error)
@@ -64,20 +55,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
 
   const switchDatabase = async (dbKey: string, updateSession: boolean = true) => {
     try {
-      await fetch(getApiPath('/database/switch'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ database_key: dbKey })
-      })
-      
-      if (updateSession && selectedSessionId) {
-        await fetch(getApiPath(`/sessions/${selectedSessionId}/database`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ database_key: dbKey })
-        })
-      }
-      
+      await databaseApi.switchDatabase(dbKey, updateSession && selectedSessionId ? selectedSessionId : undefined)
       setCurrentDb(dbKey)
       setShowDbSelector(false)
       await loadDatabases()

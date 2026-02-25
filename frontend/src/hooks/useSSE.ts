@@ -61,13 +61,24 @@ export function useSSE() {
       let assistantChartCfg = ''
       let assistantThinking = ''
       let assistantModelThinking = ''
-      let assistantChartConfig: any = null
       let assistantData: any = null
       let assistantMessageId = generateId()
       let assistantMessageAdded = false
 
       try {
-        // 动态判断路径，Web 环境走代理，App 环境使用 127.0.0.1 明确指向宿主机
+        // 1. 获取 Token
+        let token = ''
+        const authData = localStorage.getItem('auth-storage')
+        if (authData) {
+          try {
+            const parsed = JSON.parse(authData)
+            token = parsed.state?.token
+          } catch (e) {
+            console.error('Failed to parse auth-storage in useSSE', e)
+          }
+        }
+
+        // 2. 动态判断路径 (iOS 支持)
         const isWeb = typeof window !== 'undefined' && window.location.origin.startsWith('http')
         const apiPath = isWeb
           ? '/api/chat/stream'
@@ -76,7 +87,8 @@ export function useSSE() {
         const response = await fetch(apiPath, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
           },
           body: JSON.stringify({
             session_id: sessionId,
@@ -138,7 +150,6 @@ export function useSSE() {
                     handlers?.onSqlResult?.(eventData)
                     break
                   case 'chart_ready':
-                    assistantChartConfig = eventData.option
                     assistantChartCfg = JSON.stringify(eventData.option)
                     setChartOption(eventData.option, eventData.chart_type || 'bar')
                     handlers?.onChartReady?.(eventData.option, eventData.chart_type)

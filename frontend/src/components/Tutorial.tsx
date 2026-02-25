@@ -148,7 +148,7 @@ export default function Tutorial() {
           </div>
 
           <div className="space-y-6">
-            {tutorialSteps.map((step, index) => (
+            {tutorialSteps.map((step) => (
               <div
                 key={step.id}
                 className={`bg-[#0a0f1a] border border-white/10 rounded-xl overflow-hidden transition-all duration-300 ${

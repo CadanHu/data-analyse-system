@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
-import sessionApi from '../api/sessionApi'
+import { useAuthStore } from '../stores/authStore'
+import { sessionApi } from '../api'
 import type { Session } from '../types'
 import SessionListSkeleton from './SessionListSkeleton'
 
@@ -11,8 +12,10 @@ interface SessionListProps {
 }
 
 export default function SessionList({ selectedSessionId, onSelectSession, onSessionsUpdated }: SessionListProps) {
-  const { sessions, currentSession, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
+  const { sessions, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
+  const { user, logout } = useAuthStore()
   const [searchQuery, setSearchQuery] = useState('')
+// ... (中间代码省略，我将直接在 return 的最后添加 UI)
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -27,7 +30,7 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
   const handleCreateSession = async () => {
     try {
       const session = await sessionApi.createSession()
-      await loadSessions(false)
+      await loadSessions()
       clearMessages()
       setCurrentSession(session)
       onSelectSession(session.id, session)
@@ -112,21 +115,6 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
     : sessions.filter(session =>
         (session.title || '').toLowerCase().includes(searchQuery.toLowerCase())
       )
-
-  const groupedSessions = filteredSessions.reduce((acc, session) => {
-    const group = getTimeGroup(session.updated_at)
-    if (!acc[group]) {
-      acc[group] = []
-    }
-    acc[group].push(session)
-    return acc
-  }, {} as Record<string, Session[]>)
-
-  const groupOrder: Array<{ key: string; label: string }> = [
-    { key: 'today', label: '今天' },
-    { key: 'yesterday', label: '昨天' },
-    { key: 'earlier', label: '更早' }
-  ]
 
   return (
     <div className="flex flex-col h-full">
@@ -231,19 +219,36 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
           </div>
         )}
       </div>
+
+      {/* 用户信息与退出登录 */}
+      <div className="p-4 border-t border-white/30 bg-white/20 backdrop-blur-md">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#06d6a0] flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0">
+              {user?.username?.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-700 truncate">{user?.username}</p>
+              <p className="text-[10px] text-gray-400 truncate">{user?.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (window.confirm('确定要退出登录吗？')) {
+                logout()
+              }
+            }}
+            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+            title="退出登录"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>
   )
-}
-
-function getTimeGroup(dateStr: string): string {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-  
-  if (diffDays === 0) return 'today'
-  if (diffDays === 1) return 'yesterday'
-  return 'earlier'
 }
 
 function formatDate(dateStr: string): string {

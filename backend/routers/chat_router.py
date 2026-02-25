@@ -5,10 +5,11 @@ import uuid
 import json
 import traceback
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from models.message import ChatRequest
 from database.session_db import SessionDB
+from routers.auth_router import get_current_user
 from agents.sql_agent import SQLAgent
 from agents.memory_manager import get_memory_manager
 from services.stream_service import StreamableHTTPService
@@ -49,7 +50,7 @@ def generate_session_title(question: str) -> str:
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_current_user)):
     print(f"\n" + "="*50)
     print(f"📥 收到流式聊天请求: session_id={request.session_id}")
     print(f"📝 用户问题: {request.question}")
@@ -58,6 +59,7 @@ async def chat_stream(request: ChatRequest):
     print("="*50)
     
     session_db = SessionDB()
+    user_id = current_user["id"]
     memory_manager = get_memory_manager()
     from services.schema_service import SchemaService
     
@@ -71,15 +73,15 @@ async def chat_stream(request: ChatRequest):
     else:
         print(f"⚠️ 会话未关联数据库，将使用默认数据库")
     
-    session = await session_db.get_session(request.session_id)
+    session = await session_db.get_session(request.session_id, user_id)
     if not session:
-        print(f"❌ 找不到会话: {request.session_id}")
-        raise HTTPException(status_code=404, detail="会话不存在")
+        print(f"❌ 找不到会话或无权访问: {request.session_id}")
+        raise HTTPException(status_code=404, detail="会话不存在或无权访问")
 
     # 如果会话标题为空或默认值，自动生成新标题
     if (session["title"] is None or session["title"] == "" or session["title"] == "新会话") and len(request.question) > 0:
         new_title = generate_session_title(request.question)
-        await session_db.update_session_title(request.session_id, new_title)
+        await session_db.update_session_title(request.session_id, user_id, new_title)
         print(f"🏷️ 自动生成会话标题: {new_title}")
 
     # 保存用户消息到数据库

@@ -79,7 +79,8 @@ class SQLiteAdapter(BaseDatabaseAdapter):
         if not self._connected:
             await self.connect()
 
-        cursor = await self._connection.execute(f"PRAGMA table_info({table_name})")
+        # 使用双引号引用 table_name，以防其是 SQL 关键字
+        cursor = await self._connection.execute(f'PRAGMA table_info("{table_name}")')
         columns_info = await cursor.fetchall()
 
         columns = []

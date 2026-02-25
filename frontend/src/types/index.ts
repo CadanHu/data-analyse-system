@@ -17,3 +17,28 @@ export interface Message {
   data?: string
   created_at: string
 }
+
+export interface User {
+  id: number
+  username: string
+  email: string
+  avatar_url?: string
+  created_at: string
+  last_login?: string
+}
+
+export interface LoginCredentials {
+  username: string
+  password: string
+}
+
+export interface RegisterCredentials {
+  username: string
+  email: string
+  password: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+}

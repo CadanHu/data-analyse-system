@@ -11,6 +11,7 @@ interface SessionState {
 
 export const useChatStore = create<ChatState & {
   sessionStates: Record<string, SessionState>
+  currentSessionId: string | null
   setCurrentSessionId: (sessionId: string | null) => void
   isRightPanelVisible: boolean
   setRightPanelVisible: (visible: boolean) => void

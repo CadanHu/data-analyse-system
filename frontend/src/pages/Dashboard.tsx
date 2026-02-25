@@ -4,7 +4,7 @@ import MessageList from '../components/MessageList'
 import InputBar from '../components/InputBar'
 import RightPanel from '../components/RightPanel'
 import { useChatStore } from '../stores/chatStore'
-import { sessionApi } from '../api/sessionApi'
+import { sessionApi } from '@/api'
 
 function Dashboard() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -49,7 +49,6 @@ function Dashboard() {
         <MessageList />
         <InputBar 
           sessionId={selectedSessionId} 
-          disabled={!selectedSessionId}
         />
       </main>
 

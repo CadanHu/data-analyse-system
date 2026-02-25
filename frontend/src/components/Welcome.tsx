@@ -69,10 +69,12 @@ export default function Welcome() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-[#050810] text-white overflow-x-hidden">
+    <div className="min-h-screen bg-[#050810] text-white overflow-hidden">
       <canvas ref={canvasRef} className="fixed inset-0 pointer-events-none" />
 
-      {/* 导航栏 */}
+      <div className="fixed top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#06d6a0] to-transparent opacity-30" />
+      <div className="fixed top-0 left-0 w-px h-full bg-gradient-to-b from-transparent via-[#06d6a0] to-transparent opacity-30" />
+
       <nav className={`fixed top-0 left-0 right-0 z-50 px-6 py-4 backdrop-blur-xl border-b border-white/10 transition-all duration-300 ${scrolled ? 'bg-[#050810]/95 shadow-lg' : 'bg-[#050810]/80'}`} style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -87,7 +89,7 @@ export default function Welcome() {
             <Link to="/features" className="text-gray-400 hover:text-white transition-colors hidden md:block">功能</Link>
             <Link to="/tutorial" className="text-gray-400 hover:text-white transition-colors hidden md:block">教程</Link>
             <Link to="/about" className="text-gray-400 hover:text-white transition-colors hidden md:block">关于</Link>
-            <button onClick={() => navigate('/app')} className="px-5 py-2 text-sm font-medium text-white bg-[#3b82f6]/20 border border-[#3b82f6]/50 rounded-xl hover:bg-[#3b82f6]/30 transition-all">
+            <button onClick={() => navigate('/login')} className="px-5 py-2 text-sm font-medium text-white bg-[#3b82f6]/20 border border-[#3b82f6]/50 rounded-xl hover:bg-[#3b82f6]/30 transition-all">
               进入应用
             </button>
           </div>
@@ -114,8 +116,8 @@ export default function Welcome() {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 opacity-0 animate-[fadeInUp_0.8s_ease-out_0.3s_forwards]">
-            <button onClick={() => navigate('/app')} className="w-full sm:w-auto px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-2xl hover:shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:-translate-y-0.5 transition-all">
-              开始免费分析
+            <button onClick={() => navigate('/login')} className="w-full sm:w-auto px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-2xl hover:shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:-translate-y-0.5 transition-all">
+              开始使用
             </button>
             <button onClick={() => navigate('/learn-more')} className="w-full sm:w-auto px-8 py-4 text-base font-medium text-gray-300 border border-white/10 rounded-2xl hover:bg-white/5 transition-all flex items-center justify-center gap-2">
               查看核心架构

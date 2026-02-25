@@ -6,6 +6,9 @@ import RightPanel from './components/RightPanel'
 import ResizableSplit from './components/ResizableSplit'
 import ErrorBoundary from './components/ErrorBoundary'
 import Welcome from './components/Welcome'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import ProtectedRoute from './components/ProtectedRoute'
 import About from './components/About'
 import LearnMore from './components/LearnMore'
 import Tutorial from './components/Tutorial'
@@ -13,18 +16,22 @@ import Features from './components/Features'
 import Changelog from './components/Changelog'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
+import { useAuthStore } from './stores/authStore'
 import { SQLResult } from './types/message'
-import sessionApi from './api/sessionApi'
+import { sessionApi } from '@/api'
 
 export default function App() {
   const navigate = useNavigate()
-  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, messages, setMessages, loading, clearMessages } = useSessionStore()
+  const { isAuthenticated } = useAuthStore()
+  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
-    loadSessions(true)
+    if (isAuthenticated) {
+      loadSessions(true)
+    }
     
     const checkMobile = () => {
       // 竖屏且宽度较小视为移动端
@@ -40,15 +47,13 @@ export default function App() {
       window.removeEventListener('resize', checkMobile)
       window.removeEventListener('orientationchange', checkMobile)
     }
-  }, [])
+  }, [isAuthenticated])
 
   const loadSessions = async (isInitialLoad = false) => {
     if (isInitialLoad) setLoading(true)
     sessionApi.getSessions()
       .then(data => {
         setSessions(data)
-        // 在 iOS 上，我们不自动加载第一个会话的消息，以防卡顿
-        // 让用户手动点击会话时再加载
       })
       .catch(error => console.error('加载会话列表失败:', error))
       .finally(() => {
@@ -62,7 +67,6 @@ export default function App() {
     
     try {
       const data = await sessionApi.getMessages(sessionId)
-      // 这里的 map 处理如果是大数据量会卡，但在 3 条会话下应该是秒出的
       const processedData = data.map(msg => {
         if (typeof msg.data === 'string' && msg.data) {
           try {
@@ -109,7 +113,6 @@ export default function App() {
       clearMessages()
       setCurrentSession(targetSession)
       setCurrentSessionId(sessionId)
-      // 使用 setTimeout 确保 UI 先更新（高亮选中状态），然后再开始耗时的消息加载
       setTimeout(() => {
         loadMessages(sessionId)
       }, 50)
@@ -120,13 +123,17 @@ export default function App() {
     <ErrorBoundary>
       <Routes>
         <Route path="/" element={<Welcome />} />
+        <Route path="/login" element={isAuthenticated ? <Navigate to="/app" replace /> : <Login />} />
+        <Route path="/register" element={isAuthenticated ? <Navigate to="/app" replace /> : <Register />} />
         <Route path="/about" element={<About />} />
         <Route path="/learn-more" element={<LearnMore />} />
         <Route path="/tutorial" element={<Tutorial />} />
         <Route path="/features" element={<Features />} />
         <Route path="/changelog" element={<Changelog />} />
-        <Route path="/app" element={
-          <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
+        
+        <Route element={<ProtectedRoute />}>
+          <Route path="/app" element={
+            <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
               <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
@@ -137,7 +144,6 @@ export default function App() {
               <div className="h-full rounded-3xl overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
                 {isMobile ? (
                   <div className="h-full flex flex-col relative">
-                    {/* 全局回退按钮：位于状态栏时间旁边 */}
                     <button 
                       onClick={() => navigate('/')}
                       className="absolute left-4 z-[100] p-1.5 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-gray-700 transition-all shadow-sm"
@@ -149,7 +155,7 @@ export default function App() {
                     </button>
 
                     <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm landscape:h-10" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-                      <div className="flex pl-12 landscape:pl-16"> {/* 为左侧箭头留出空间 */}
+                      <div className="flex pl-12 landscape:pl-16">
                         <button
                           onClick={() => setActiveTab('sessions')}
                           className={`flex-1 px-4 py-3 landscape:py-2 text-sm landscape:text-xs font-medium transition-all ${
@@ -189,10 +195,7 @@ export default function App() {
                           <SessionList
                             selectedSessionId={selectedSessionId}
                             onSelectSession={(id, session) => {
-                              // 1. 立即切换标签页 (最高优先级)
                               setActiveTab('chat')
-                              
-                              // 2. 更新状态并加载消息 (后台异步)
                               setSelectedSessionId(id)
                               const targetSession = session || sessions.find(s => s.id === id)
                               if (targetSession) {
@@ -250,6 +253,7 @@ export default function App() {
             </div>
           </div>
         } />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ErrorBoundary>
