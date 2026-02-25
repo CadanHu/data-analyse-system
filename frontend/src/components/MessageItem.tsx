@@ -56,7 +56,7 @@ export default function MessageItem({ message }: MessageItemProps) {
             ? 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-tr-sm text-gray-700 border border-white/40' 
             : 'bg-white/70 rounded-tl-sm text-gray-700 border border-white/40'
         }`}>
-          {!isUser && message.thinking && (
+          {!isUser && message.thinking && message.thinking.trim().length > 0 && (
             <div className="mb-4">
               <button
                 onClick={() => setThinkingCollapsed(!thinkingCollapsed)}

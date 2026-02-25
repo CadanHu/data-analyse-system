@@ -103,15 +103,21 @@ class SQLAgentWithLangChain:
         self,
         question: str,
         history: str = "",
-        enable_thinking: bool = False
+        enable_thinking: bool = False,
+        database_name: str = "未知",
+        database_type: str = "未知",
+        tables: str = "未知"
     ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = CHAT_RESPONSE_PROMPT.format(
             history=history,
-            question=question
+            question=question,
+            database_name=database_name,
+            database_type=database_type,
+            tables=tables
         )
 
         messages = [
-            {"role": "system", "content": "你是一个智能数据分析助手的AI模型。"},
+            {"role": "system", "content": "你是一个智能数据分析助手。"},
             {"role": "user", "content": prompt}
         ]
 
@@ -247,15 +253,35 @@ class SQLAgentWithLangChain:
         这个方法与原 SQLAgent 接口完全兼容
         """
         # 1. 意图识别
-        yield {"event": "thinking", "data": {"content": "正在识别您的问题意图..."}}
         intent = await self._classify_intent(question)
         print(f"🎯 识别到的意图: {intent}")
 
         if intent == "chat":
-            yield {"event": "thinking", "data": {"content": "正在生成智能回复..."}}
             full_summary_reasoning = ""
             summary_content = ""
-            async for stream_event in self._generate_chat_response_stream(question, history_str, enable_thinking):
+            
+            # 准备数据库上下文信息
+            db_context = {
+                "database_name": "未知",
+                "database_type": "未知",
+                "tables": "未知"
+            }
+            
+            from services.schema_service import SchemaService
+            current_db_path = SchemaService.get_current_db_path()
+            current_db_key = SchemaService.get_current_db_key()
+            if current_db_key in DATABASES:
+                db_context["database_name"] = DATABASES[current_db_key]["name"]
+                db_context["database_type"] = "MySQL" if "mysql" in str(current_db_path).lower() else "SQLite"
+                tables = await SchemaService.get_table_names()
+                db_context["tables"] = ", ".join(tables) if tables else "无可用表"
+
+            async for stream_event in self._generate_chat_response_stream(
+                question, 
+                history_str, 
+                enable_thinking,
+                **db_context
+            ):
                 if stream_event["type"] == "reasoning":
                     full_summary_reasoning += stream_event["content"]
                     yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
@@ -271,7 +297,7 @@ class SQLAgentWithLangChain:
                     "sql": "",
                     "chart_config": {},
                     "summary": summary_content,
-                    "reasoning": full_summary_reasoning or "根据意图识别，这是一个聊天问题，无需查询数据库。"
+                    "reasoning": full_summary_reasoning
                 }
             }
             return

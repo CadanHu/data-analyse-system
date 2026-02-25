@@ -125,11 +125,12 @@ export function useSSE() {
 
                 switch (eventType) {
                   case 'thinking':
-                    assistantThinking = eventData.content || ''
-                    setThinkingContent(assistantThinking)
+                    // thinking 事件现在仅用于 UI 状态提示，不保存到消息中
+                    setThinkingContent(eventData.content || '')
                     handlers?.onThinking?.(eventData.content)
                     break
                   case 'model_thinking':
+                    // model_thinking 是真正的 AI 思考过程
                     assistantModelThinking += eventData.content || ''
                     setThinkingContent(assistantModelThinking)
                     handlers?.onModelThinking?.(eventData.content)
@@ -156,7 +157,8 @@ export function useSSE() {
                     break
                   case 'summary':
                     assistantContent += eventData.content || ''
-                    setThinkingContent('')
+                    // 在收到摘要时，清除 UI 上的思考状态提示，但保留真正的 model_thinking
+                    setThinkingContent(assistantModelThinking) 
                     if (!assistantMessageAdded) {
                       addMessage({
                         id: assistantMessageId,
@@ -166,7 +168,7 @@ export function useSSE() {
                         sql: assistantSql,
                         chart_cfg: assistantChartCfg,
                         data: assistantData,
-                        thinking: assistantModelThinking || assistantThinking,
+                        thinking: assistantModelThinking,
                         created_at: new Date().toISOString()
                       })
                       assistantMessageAdded = true
@@ -176,7 +178,7 @@ export function useSSE() {
                         sql: assistantSql,
                         chart_cfg: assistantChartCfg,
                         data: assistantData,
-                        thinking: assistantModelThinking || assistantThinking
+                        thinking: assistantModelThinking
                       })
                     }
                     handlers?.onSummary?.(eventData.content)

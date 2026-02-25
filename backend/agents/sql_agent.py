@@ -435,12 +435,10 @@ class SQLAgent:
         print(f"🧠 开始调用 AI 模型生成 SQL (重试限制: {MAX_RETRY_COUNT})...")
         
         # 1. 意图识别
-        yield {"event": "thinking", "data": {"content": "正在识别您的问题意图..."}}
         intent = await self._classify_intent(question)
         print(f"🎯 识别到的意图: {intent}")
 
         if intent == "chat":
-            yield {"event": "thinking", "data": {"content": "正在生成智能回复..."}}
             full_summary_reasoning = ""
             summary_content = ""
             
@@ -472,7 +470,7 @@ class SQLAgent:
                     "sql": "",
                     "chart_config": {},
                     "summary": summary_content,
-                    "reasoning": full_summary_reasoning or "根据意图识别，这是一个聊天问题，无需查询数据库。"
+                    "reasoning": full_summary_reasoning
                 }
             }
             return
