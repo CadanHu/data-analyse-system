@@ -29,6 +29,11 @@ pydantic-core>=2.20.0
 pydantic-settings>=2.10.0
 typing-extensions>=4.15.0
 
+# 安全与认证
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+email-validator==2.1.0
+
 # 开发工具
 pytest==7.4.4
 pytest-asyncio==0.23.5

@@ -2,7 +2,7 @@
 数据库管理路由 (Phase 2)
 支持多种数据库类型，保持与旧 API 向后兼容
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, List
 import sys
@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import DATABASES
 from databases.database_manager import DatabaseManager
 from databases.base_adapter import TableInfo
+from routers.auth_router import get_current_user
 
 router = APIRouter(prefix="/api", tags=["databases"])
 
@@ -40,7 +41,7 @@ async def startup_event():
 
 
 @router.get("/databases")
-async def get_databases():
+async def get_databases(current_user: dict = Depends(get_current_user)):
     """获取所有可用数据库 - 保持旧 API 格式兼容"""
     from config import DATABASES
     from services.schema_service import SchemaService
@@ -60,7 +61,7 @@ async def get_databases():
 
 
 @router.post("/database/switch")
-async def switch_database(request: SwitchDatabaseRequest):
+async def switch_database(request: SwitchDatabaseRequest, current_user: dict = Depends(get_current_user)):
     """切换数据库 - 保持旧 API 格式兼容"""
     from config import DATABASES
     from services.schema_service import SchemaService

@@ -13,7 +13,6 @@ interface FeatureCard {
 export default function Welcome() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const navigate = useNavigate()
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
@@ -94,18 +93,15 @@ export default function Welcome() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    setMousePosition({ x: e.clientX, y: e.clientY })
-  }
-
   const handleEnterApp = () => {
-    navigate('/app')
+    // 逻辑将在 Phase 4 通过路由守卫统一处理，这里暂时保持跳转 /app
+    // 但为了更好的用户体验，我们可以直接跳转到 login
+    navigate('/login')
   }
 
   return (
     <div 
       className="min-h-screen bg-[#050810] text-white overflow-hidden"
-      onMouseMove={handleMouseMove}
     >
       <canvas
         ref={canvasRef}
@@ -115,7 +111,7 @@ export default function Welcome() {
       <div className="fixed top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#06d6a0] to-transparent opacity-30" />
       <div className="fixed top-0 left-0 w-px h-full bg-gradient-to-b from-transparent via-[#06d6a0] to-transparent opacity-30" />
 
-      <nav className={`fixed top-0 left-0 right-0 z-50 px-6 py-4 backdrop-blur-xl border-b border-white/10 transition-all duration-300 ${scrolled ? 'bg-[#050810]/95 shadow-lg' : 'bg-[#050810]/80'}`}>
+      <nav className={`fixed top-0 left-0 right-0 z-50 px-6 py-4 backdrop-blur-xl border-b border-white/10 transition-all duration-300 ${scrolled ? 'bg-[#050810]/95 shadow-lg' : 'bg-[#050810]/80'}`} style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-end gap-1 h-6">
@@ -161,7 +157,7 @@ export default function Welcome() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 opacity-0 animate-[fadeInUp_0.8s_ease-out_0.3s_forwards]">
             <button
-              onClick={handleEnterApp}
+              onClick={() => navigate('/login')}
               className="px-8 py-4 text-base font-medium text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-xl hover:shadow-lg hover:shadow-[#3b82f6]/30 hover:-translate-y-0.5 transition-all"
             >
               开始使用

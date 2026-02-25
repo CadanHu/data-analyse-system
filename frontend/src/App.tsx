@@ -6,6 +6,9 @@ import RightPanel from './components/RightPanel'
 import ResizableSplit from './components/ResizableSplit'
 import ErrorBoundary from './components/ErrorBoundary'
 import Welcome from './components/Welcome'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import ProtectedRoute from './components/ProtectedRoute'
 import About from './components/About'
 import LearnMore from './components/LearnMore'
 import Tutorial from './components/Tutorial'
@@ -13,17 +16,21 @@ import Features from './components/Features'
 import Changelog from './components/Changelog'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
+import { useAuthStore } from './stores/authStore'
 import { SQLResult } from './types/message'
-import sessionApi from './api/sessionApi'
+import { sessionApi } from '@/api'
 
 export default function App() {
-  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, messages, setMessages, loading, clearMessages } = useSessionStore()
+  const { isAuthenticated } = useAuthStore()
+  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
-    loadSessions(true)
+    if (isAuthenticated) {
+      loadSessions(true)
+    }
     
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768)
@@ -110,13 +117,18 @@ export default function App() {
     <ErrorBoundary>
       <Routes>
         <Route path="/" element={<Welcome />} />
+        <Route path="/login" element={isAuthenticated ? <Navigate to="/app" replace /> : <Login />} />
+        <Route path="/register" element={isAuthenticated ? <Navigate to="/app" replace /> : <Register />} />
         <Route path="/about" element={<About />} />
         <Route path="/learn-more" element={<LearnMore />} />
         <Route path="/tutorial" element={<Tutorial />} />
         <Route path="/features" element={<Features />} />
         <Route path="/changelog" element={<Changelog />} />
-        <Route path="/app" element={
-          <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
+        
+        {/* 使用路由守卫保护 App 主体 */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/app" element={
+            <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
               <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
@@ -225,6 +237,7 @@ export default function App() {
             </div>
           </div>
         } />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ErrorBoundary>

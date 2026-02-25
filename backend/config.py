@@ -13,6 +13,18 @@ if env_path.exists():
 # 项目根目录
 BASE_DIR = Path(__file__).parent.parent
 
+# 安全配置
+SECRET_KEY = os.getenv("SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 默认 7 天
+
+# 邮件配置
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER", "")      # 您的邮箱地址
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")  # 您的邮箱授权码/应用密码
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
+
 # API 配置
 API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # DeepSeek API Key
 API_BASE_URL = "https://api.deepseek.com/v1"  # DeepSeek API 地址

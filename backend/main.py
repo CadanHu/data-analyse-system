@@ -7,6 +7,7 @@ import uvicorn
 
 from config import ALLOWED_ORIGINS, LOG_LEVEL, LOG_FILE, LOG_JSON_FORMAT
 from database.session_db import session_db
+from database.user_db import user_db
 from database.business_db import init_business_db
 from middleware import setup_exception_handlers, rate_limit_middleware
 from utils.logger import setup_logging
@@ -41,6 +42,7 @@ setup_exception_handlers(app)
 async def startup_event():
     """应用启动时初始化数据库"""
     await session_db.init_db()
+    await user_db.init_db()
     await init_business_db()
     print("✅ 数据库初始化完成")
 
@@ -65,13 +67,14 @@ async def health_check():
 
 
 # 注册路由
-from routers import session_router, message_router, chat_router, upload_router, database_router
+from routers import session_router, message_router, chat_router, upload_router, database_router, auth_router
 from fastapi.staticfiles import StaticFiles
 
 app.include_router(session_router.router, prefix="/api", tags=["会话管理"])
 app.include_router(message_router.router, prefix="/api", tags=["消息管理"])
 app.include_router(chat_router.router, prefix="/api", tags=["聊天接口"])
 app.include_router(upload_router.router, prefix="/api", tags=["文件上传"])
+app.include_router(auth_router.router, prefix="/api")
 app.include_router(database_router.router)
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

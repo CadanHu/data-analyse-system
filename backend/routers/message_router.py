@@ -1,29 +1,28 @@
 """
 消息管理路由
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
 
 from models.session import Message, MessageCreate
 from database.session_db import session_db
+from routers.auth_router import get_current_user
 
 router = APIRouter(prefix="/sessions/{session_id}/messages", tags=["消息管理"])
 
 
 @router.get("", response_model=List[Message])
-async def get_messages(session_id: str):
+async def get_messages(session_id: str, current_user: dict = Depends(get_current_user)):
     """
     获取会话的所有消息
-    
-    - **session_id**: 会话 ID
-    - 返回按创建时间正序排列的所有消息
     """
-    # 验证会话是否存在
-    session = await session_db.get_session(session_id)
+    user_id = current_user["id"]
+    # 验证会话是否存在且属于该用户
+    session = await session_db.get_session(session_id, user_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"会话 {session_id} 不存在"
+            detail=f"会话不存在或无权访问"
         )
     
     messages_data = await session_db.get_messages(session_id)
@@ -44,24 +43,17 @@ async def get_messages(session_id: str):
 
 
 @router.post("", response_model=Message, status_code=status.HTTP_201_CREATED)
-async def create_message(session_id: str, message_data: MessageCreate):
+async def create_message(session_id: str, message_data: MessageCreate, current_user: dict = Depends(get_current_user)):
     """
     创建新消息
-    
-    - **session_id**: 会话 ID
-    - **role**: 角色（user 或 assistant）
-    - **content**: 消息内容
-    - **sql**: 可选，生成的 SQL 语句
-    - **chart_cfg**: 可选，图表配置 JSON
-    - **thinking**: 可选，思考过程
-    - **data**: 可选，数据 JSON
     """
-    # 验证会话是否存在
-    session = await session_db.get_session(session_id)
+    user_id = current_user["id"]
+    # 验证会话是否存在且属于该用户
+    session = await session_db.get_session(session_id, user_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"会话 {session_id} 不存在"
+            detail=f"会话不存在或无权访问"
         )
     
     message_id = await session_db.create_message({

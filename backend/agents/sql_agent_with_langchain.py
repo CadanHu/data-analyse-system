@@ -9,7 +9,7 @@ from pathlib import Path
 from config import MAX_RETRY_COUNT, DATABASES
 from services.schema_service import SchemaService
 from services.sql_executor import SQLExecutor
-from utils.prompt_templates import SUMMARY_PROMPT
+from utils.prompt_templates import SUMMARY_PROMPT, INTENT_CLASSIFICATION_PROMPT, CHAT_RESPONSE_PROMPT
 from agents.langchain_sql_agent import get_langchain_sql_agent
 import httpx
 from config import API_KEY, API_BASE_URL, MODEL_NAME
@@ -21,6 +21,24 @@ class SQLAgentWithLangChain:
     提供与原 SQLAgent 相同的接口
     """
     
+    async def _chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{API_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": MODEL_NAME,
+                    "messages": messages,
+                    "temperature": temperature
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+
     async def _chat_completion_stream(
         self, 
         messages: List[Dict[str, str]], 
@@ -67,6 +85,46 @@ class SQLAgentWithLangChain:
                         except json.JSONDecodeError:
                             pass
     
+    async def _classify_intent(self, question: str) -> str:
+        prompt = INTENT_CLASSIFICATION_PROMPT.format(question=question)
+        messages = [
+            {"role": "system", "content": "你是一个智能助手，负责根据用户问题判断其意图。"},
+            {"role": "user", "content": prompt}
+        ]
+        response_content = await self._chat_completion(messages, temperature=0.0)
+        try:
+            intent_json = json.loads(response_content)
+            return intent_json.get("intent", "chat") # 默认归类为 chat
+        except json.JSONDecodeError:
+            print(f"❌ 意图识别结果解析失败: {response_content}")
+            return "chat"
+    
+    async def _generate_chat_response_stream(
+        self,
+        question: str,
+        history: str = "",
+        enable_thinking: bool = False
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        prompt = CHAT_RESPONSE_PROMPT.format(
+            history=history,
+            question=question
+        )
+
+        messages = [
+            {"role": "system", "content": "你是一个智能数据分析助手的AI模型。"},
+            {"role": "user", "content": prompt}
+        ]
+
+        full_content = ""
+        async for delta in self._chat_completion_stream(messages, temperature=0.7, enable_thinking=enable_thinking):
+            if delta["reasoning_content"]:
+                yield {"type": "reasoning", "content": delta["reasoning_content"]}
+            if delta["content"]:
+                full_content += delta["content"]
+                yield {"type": "content", "content": delta["content"]}
+        
+        yield {"type": "done", "result": full_content or ""}
+
     async def generate_summary_stream(
         self,
         sql_result: str,
@@ -188,6 +246,36 @@ class SQLAgentWithLangChain:
         使用已格式化的历史字符串处理问题
         这个方法与原 SQLAgent 接口完全兼容
         """
+        # 1. 意图识别
+        yield {"event": "thinking", "data": {"content": "正在识别您的问题意图..."}}
+        intent = await self._classify_intent(question)
+        print(f"🎯 识别到的意图: {intent}")
+
+        if intent == "chat":
+            yield {"event": "thinking", "data": {"content": "正在生成智能回复..."}}
+            full_summary_reasoning = ""
+            summary_content = ""
+            async for stream_event in self._generate_chat_response_stream(question, history_str, enable_thinking):
+                if stream_event["type"] == "reasoning":
+                    full_summary_reasoning += stream_event["content"]
+                    yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
+                elif stream_event["type"] == "content":
+                    summary_content += stream_event["content"]
+                    yield {"event": "summary", "data": {"content": stream_event["content"]}}
+                elif stream_event["type"] == "done":
+                    summary_content = stream_event["result"]
+            
+            yield {
+                "event": "done",
+                "data": {
+                    "sql": "",
+                    "chart_config": {},
+                    "summary": summary_content,
+                    "reasoning": full_summary_reasoning or "根据意图识别，这是一个聊天问题，无需查询数据库。"
+                }
+            }
+            return
+        
         schema = await SchemaService.get_full_schema()
         tables = await SchemaService.get_table_names()
         
@@ -303,6 +391,7 @@ class SQLAgentWithLangChain:
                 "reasoning": full_reasoning
             }
         }
+
 
 
 # 全局 Agent 实例缓存
