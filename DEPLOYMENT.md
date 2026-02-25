@@ -64,10 +64,14 @@ docker-compose down -v
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
 | DEEPSEEK_API_KEY | DeepSeek API 密钥 | - |
+| SECRET_KEY | JWT 签名密钥 (必须修改) | - |
+| ACCESS_TOKEN_EXPIRE_MINUTES | Token 有效期 (分钟) | 10080 (7天) |
 | LOG_LEVEL | 日志级别 | INFO |
 | RATE_LIMIT_REQUESTS | 频率限制请求数 | 60 |
 | RATE_LIMIT_WINDOW | 频率限制时间窗口（秒） | 60 |
 | MAX_SQL_EXECUTION_TIME | SQL 最大执行时间（秒） | 30 |
+
+> **⚠️ 安全提醒**: 在生产环境中，请务必生成一个强随机的 `SECRET_KEY`。可以使用命令 `openssl rand -hex 32` 生成。
 
 ### 数据持久化
 
