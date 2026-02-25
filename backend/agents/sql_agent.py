@@ -138,15 +138,21 @@ class SQLAgent:
         self,
         question: str,
         history: str = "",
-        enable_thinking: bool = False
+        enable_thinking: bool = False,
+        database_name: str = "未知",
+        database_type: str = "未知",
+        tables: str = "未知"
     ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = CHAT_RESPONSE_PROMPT.format(
             history=history,
-            question=question
+            question=question,
+            database_name=database_name,
+            database_type=database_type,
+            tables=tables
         )
 
         messages = [
-            {"role": "system", "content": "你是一个智能数据分析助手的AI模型。"},
+            {"role": "system", "content": "你是一个智能数据分析助手。"},
             {"role": "user", "content": prompt}
         ]
 
@@ -437,7 +443,20 @@ class SQLAgent:
             yield {"event": "thinking", "data": {"content": "正在生成智能回复..."}}
             full_summary_reasoning = ""
             summary_content = ""
-            async for stream_event in self._generate_chat_response_stream(question, history_str, enable_thinking):
+            
+            # 准备数据库上下文信息
+            db_context = {
+                "database_name": database_name,
+                "database_type": db_type,
+                "tables": ", ".join(tables) if tables else "无可用表"
+            }
+            
+            async for stream_event in self._generate_chat_response_stream(
+                question, 
+                history_str, 
+                enable_thinking,
+                **db_context
+            ):
                 if stream_event["type"] == "reasoning":
                     full_summary_reasoning += stream_event["content"]
                     yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}

@@ -38,25 +38,20 @@ export default function MessageItem({ message }: MessageItemProps) {
     }
   }
 
+  // 预处理内容，将 \( \) 转换为 $，将 \[ \] 转换为 $$，以确保 remark-math 正确识别
+  const preprocessContent = (content: string) => {
+    if (!content) return ''
+    return content
+      .replace(/\\\[/g, '$$$$')
+      .replace(/\\\]/g, '$$$$')
+      .replace(/\\\(/g, '$$')
+      .replace(/\\\)/g, '$$')
+  }
+
   return (
-    <div className={`flex gap-3 py-4 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-[0_4px_12px_rgba(0,0,0,0.08)] ${
-        isUser 
-          ? 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF]' 
-          : 'bg-gradient-to-r from-[#E6E6FA] to-[#FFFACD]'
-      }`}>
-        {isUser ? (
-          <svg className="w-4.5 h-4.5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-        ) : (
-          <svg className="w-4.5 h-4.5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-        )}
-      </div>
-      <div className={`flex-1 max-w-[80%] ${isUser ? 'flex justify-end' : ''}`}>
-        <div className={`rounded-2xl px-5 py-4 backdrop-blur-sm shadow-[0_4px_16px_rgba(0,0,0,0.06)] ${
+    <div className={`flex py-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-[92%] md:max-w-[85%] ${isUser ? 'flex justify-end' : ''}`}>
+        <div className={`rounded-2xl px-4 py-3 backdrop-blur-sm shadow-[0_2px_12px_rgba(0,0,0,0.04)] ${
           isUser 
             ? 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-tr-sm text-gray-700 border border-white/40' 
             : 'bg-white/70 rounded-tl-sm text-gray-700 border border-white/40'
@@ -78,9 +73,9 @@ export default function MessageItem({ message }: MessageItemProps) {
                 思考过程
               </button>
               {!thinkingCollapsed && (
-                <div className="bg-white/60 rounded-xl p-4 text-xs text-gray-500 italic border border-white/30 markdown-body">
+                <div className="bg-white/60 rounded-xl p-4 text-xs text-gray-500 italic border border-white/30 markdown-body prose prose-invert prose-sm max-w-none">
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {message.thinking}
+                    {preprocessContent(message.thinking)}
                   </ReactMarkdown>
                 </div>
               )}
@@ -94,29 +89,23 @@ export default function MessageItem({ message }: MessageItemProps) {
               components={{
                 code({ inline, className, children, ...props }: any) {
                   return (
-                    <code className={`${className} bg-gray-100 px-1 py-0.5 rounded text-sm`} {...props}>
+                    <code className={`${className} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`} {...props}>
                       {children}
                     </code>
                   )
                 },
                 table({ children }) {
                   return (
-                    <div className="overflow-x-auto my-4">
-                      <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg">
+                    <div className="overflow-x-auto my-4 rounded-lg border border-gray-200">
+                      <table className="min-w-full divide-y divide-gray-200">
                         {children}
                       </table>
                     </div>
                   )
-                },
-                th({ children }) {
-                  return <th className="px-4 py-2 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">{children}</th>
-                },
-                td({ children }) {
-                  return <td className="px-4 py-2 text-sm text-gray-600 border-b">{children}</td>
                 }
               }}
             >
-              {message.content}
+              {preprocessContent(message.content)}
             </ReactMarkdown>
           </div>
           
