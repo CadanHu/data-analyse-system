@@ -1,0 +1,1 @@
+数据分析系统的核心架构包括 FastAPI 后端和 React 前端。它支持 iOS 和 Android。

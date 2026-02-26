@@ -14,6 +14,7 @@ function generateId(): string {
 interface SSEHandlers {
   onThinking?: (content: string) => void
   onModelThinking?: (content: string) => void
+  onRagRetrieval?: (content: string) => void
   onSqlGenerated?: (sql: string) => void
   onSqlResult?: (result: any) => void
   onChartReady?: (option: any, chartType: string) => void
@@ -21,6 +22,12 @@ interface SSEHandlers {
   onDone?: (data: any) => void
   onMessageSent?: () => void
   onError?: (message: string) => void
+}
+
+interface ConnectOptions {
+  enable_rag?: boolean
+  rag_engine?: 'light' | 'pro'
+  onMessageSent?: () => void
 }
 
 export function useSSE() {
@@ -36,7 +43,7 @@ export function useSSE() {
   const { addMessage, updateLastMessage } = useSessionStore()
 
   const connect = useCallback(
-    async (sessionId: string, question: string, handlers?: SSEHandlers) => {
+    async (sessionId: string, question: string, options?: ConnectOptions, handlers?: SSEHandlers) => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
       }
@@ -66,13 +73,13 @@ export function useSSE() {
       let assistantMessageAdded = false
 
       try {
-        // 1. 获取 Token
+        // 1. 获取 Token (修复变量定义)
         let token = ''
         const authData = localStorage.getItem('auth-storage')
         if (authData) {
           try {
             const parsed = JSON.parse(authData)
-            token = parsed.state?.token
+            token = parsed.state?.token || ''
           } catch (e) {
             console.error('Failed to parse auth-storage in useSSE', e)
           }
@@ -84,6 +91,8 @@ export function useSSE() {
           ? '/api/chat/stream'
           : 'http://127.0.0.1:8003/api/chat/stream'
 
+        console.log(`📡 [SSE] 正在请求: ${apiPath}`, { enable_rag: options?.enable_rag })
+
         const response = await fetch(apiPath, {
           method: 'POST',
           headers: {
@@ -93,7 +102,9 @@ export function useSSE() {
           body: JSON.stringify({
             session_id: sessionId,
             question: question,
-            enable_thinking: isThinkingMode
+            enable_thinking: isThinkingMode,
+            enable_rag: options?.enable_rag || false,
+            rag_engine: options?.rag_engine || 'light'
           }),
           signal: controller.signal
         })
@@ -124,18 +135,19 @@ export function useSSE() {
                 const eventData = event.data || {}
 
                 switch (eventType) {
+                  case 'rag_retrieval':
+                    setThinkingContent('正在检索知识库...')
+                    handlers?.onRagRetrieval?.(eventData.content)
+                    break
                   case 'thinking':
-                    // thinking 事件现在仅用于 UI 状态提示，不保存到消息中
                     setThinkingContent(eventData.content || '')
                     handlers?.onThinking?.(eventData.content)
                     break
                   case 'model_thinking':
-                    // model_thinking 是真正的 AI 思考过程
                     assistantModelThinking += eventData.content || ''
                     setThinkingContent(assistantModelThinking)
                     handlers?.onModelThinking?.(eventData.content)
                     
-                    // 第一次收到思考内容时，立即创建助手消息
                     if (!assistantMessageAdded) {
                       addMessage({
                         id: assistantMessageId,
@@ -152,15 +164,10 @@ export function useSSE() {
                       })
                     }
                     break
-                  case 'schema_loaded':
-                    break
                   case 'sql_generated':
                     assistantSql = eventData.sql || ''
                     setCurrentSql(assistantSql)
                     handlers?.onSqlGenerated?.(eventData.sql)
-                    break
-                  case 'sql_executing':
-                    setThinkingContent('正在查询数据库...')
                     break
                   case 'sql_result':
                     assistantData = eventData
@@ -174,7 +181,6 @@ export function useSSE() {
                     break
                   case 'summary':
                     assistantContent += eventData.content || ''
-                    // 在收到摘要时，清除 UI 上的思考状态提示，但保留真正的 model_thinking
                     setThinkingContent(assistantModelThinking) 
                     if (!assistantMessageAdded) {
                       addMessage({
@@ -203,7 +209,7 @@ export function useSSE() {
                   case 'done':
                     setIsLoading(false)
                     handlers?.onDone?.(eventData)
-                    handlers?.onMessageSent?.()
+                    options?.onMessageSent?.()
                     break
                   case 'error':
                     setIsLoading(false)
@@ -226,7 +232,7 @@ export function useSSE() {
         }
       }
     },
-    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage]
+    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage, isThinkingMode]
   )
 
   const disconnect = useCallback(() => {

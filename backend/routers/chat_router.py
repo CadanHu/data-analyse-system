@@ -1,5 +1,5 @@
 """
-聊天路由 - 流式 HTTP 响应
+聊天路由 - 流式 HTTP 响应 (日志增强版)
 """
 import uuid
 import json
@@ -18,160 +18,128 @@ import os
 
 router = APIRouter()
 _sql_agent = None
-_sql_agent_with_langchain = None
-
-# 是否使用 LangChain
-USE_LANGCHAIN = os.getenv("USE_LANGCHAIN", "false").lower() == "true"
 
 def get_sql_agent():
     global _sql_agent
     if _sql_agent is None:
+        print("🤖 [Agent] 正在初始化 SQLAgent...")
         _sql_agent = SQLAgent()
+        print("✅ [Agent] SQLAgent 初始化完成")
     return _sql_agent
 
-def get_sql_agent_with_langchain():
-    global _sql_agent_with_langchain
-    if _sql_agent_with_langchain is None:
-        from agents.sql_agent_with_langchain import SQLAgentWithLangChain
-        _sql_agent_with_langchain = SQLAgentWithLangChain()
-    return _sql_agent_with_langchain
-
-
 def generate_session_title(question: str) -> str:
-    """根据用户问题自动生成会话标题"""
     max_length = 30
-    if len(question) <= max_length:
-        return question
-    # 截取前30个字符，确保在中文边界
-    for i in range(max_length, 10, -1):
-        if question[i-1] in "，。！？,.!?:：；;":
-            return question[:i]
-    return question[:max_length] + "..."
-
+    return question[:max_length] if len(question) <= max_length else question[:max_length] + "..."
 
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_current_user)):
-    print(f"\n" + "="*50)
-    print(f"📥 收到流式聊天请求: session_id={request.session_id}")
-    print(f"📝 用户问题: {request.question}")
-    print(f"💡 思考模式: {request.enable_thinking}")
-    print(f"📦 请求体: {request.dict()}")
-    print("="*50)
+    print(f"\n📥 [收到请求] ========================================")
+    print(f"📥 [用户]: {current_user.get('username')} (ID: {current_user.get('id')})")
+    print(f"📥 [会话]: {request.session_id}")
+    print(f"📥 [问题]: {request.question}")
+    print(f"📥 [选项]: RAG={request.enable_rag}, 思考={request.enable_thinking}")
     
     session_db = SessionDB()
     user_id = current_user["id"]
     memory_manager = get_memory_manager()
     from services.schema_service import SchemaService
     
-    # 获取会话当前选中的数据库
-    db_key = await session_db.get_session_database(request.session_id)
-    print(f"🔍 从数据库获取会话 {request.session_id} 的数据库配置: {db_key}")
-    
-    if db_key:
-        print(f"🎯 正在切换 SchemaService 数据库为: {db_key}")
-        SchemaService.set_database(db_key)
-    else:
-        print(f"⚠️ 会话未关联数据库，将使用默认数据库")
-    
-    session = await session_db.get_session(request.session_id, user_id)
-    if not session:
-        print(f"❌ 找不到会话或无权访问: {request.session_id}")
-        raise HTTPException(status_code=404, detail="会话不存在或无权访问")
+    try:
+        print("📂 [会话] 正在从数据库加载会话信息...")
+        session = await session_db.get_session(request.session_id, user_id)
+        if not session:
+            print(f"❌ [会话] 找不到会话: {request.session_id}")
+            raise HTTPException(status_code=404, detail="会话不存在")
+        print(f"📂 [会话] 加载成功: {session.get('title')}")
 
-    # 如果会话标题为空或默认值，自动生成新标题
-    if (session["title"] is None or session["title"] == "" or session["title"] == "新会话") and len(request.question) > 0:
-        new_title = generate_session_title(request.question)
-        await session_db.update_session_title(request.session_id, user_id, new_title)
-        print(f"🏷️ 自动生成会话标题: {new_title}")
+        # 设置数据库 Schema
+        db_key = await session_db.get_session_database(request.session_id)
+        if db_key:
+            print(f"🎯 [数据库] 切换至会话指定库: {db_key}")
+            SchemaService.set_database(db_key)
 
-    # 获取历史对话（从 Memory Manager 或数据库）
-    # 注意：在添加当前问题之前获取，这样 history_str 只包含真正的“历史”
-    history_str = await memory_manager.get_history_text(request.session_id)
+        # 保存用户消息
+        print("💾 [数据库] 正在保存用户提问...")
+        await session_db.create_message({
+            "id": str(uuid.uuid4()),
+            "session_id": request.session_id,
+            "role": "user",
+            "content": request.question,
+            "created_at": datetime.now().isoformat()
+        })
+        await memory_manager.add_user_message(request.session_id, request.question)
+        print("✅ [数据库] 用户消息保存成功")
 
-    # 保存用户消息到数据库
-    user_message_id = str(uuid.uuid4())
-    await session_db.create_message({
-        "id": user_message_id,
-        "session_id": request.session_id,
-        "role": "user",
-        "content": request.question,
-        "created_at": datetime.now().isoformat()
-    })
-    
-    # 添加到记忆
-    await memory_manager.add_user_message(request.session_id, request.question)
+    except Exception as e:
+        print(f"❌ [请求阶段错误]: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # --- RAG 检索逻辑 ---
+    rag_context = ""
+    if request.enable_rag:
+        print("🔍 [RAG] 知识库模式已开启，开始检索...")
+        try:
+            from services.vector_store import VectorStore
+            vs = VectorStore()
+            search_results = await vs.search(request.question, top_k=3)
+            if search_results:
+                rag_context = "\n\n【参考知识库内容】:\n" + "\n".join([f"- {r['content']}" for r in search_results])
+                print(f"✅ [RAG] 检索成功，获取到 {len(search_results)} 条片段")
+            else:
+                print("⚠️ [RAG] 知识库检索结果为空")
+        except Exception as e:
+            print(f"❌ [RAG] 检索出错: {str(e)}")
 
     async def event_generator():
         assistant_message_id = str(uuid.uuid4())
+        print(f"🚀 [处理] 启动事件生成器，助手消息 ID: {assistant_message_id}")
+        
+        # 立即发送一个开始信号给前端，确认连接已通
+        yield {"event": "thinking", "data": {"content": "正在启动 AI 引擎..."}}
+
         assistant_sql = ""
         assistant_chart_cfg = ""
         assistant_content = ""
-        assistant_thinking = ""  # 用于记录 UI 状态
-        assistant_reasoning = "" # 用于记录真实的模型推理过程
+        assistant_reasoning = ""
         assistant_data = ""
-        assistant_chart_config = {}
 
         try:
-            print("🚀 开始处理问题...")
-            print(f"📦 使用 {'LangChain' if USE_LANGCHAIN else '原生'} SQL Agent")
+            if rag_context:
+                print("📡 [流] 发送 RAG 检索结果事件...")
+                yield {"event": "rag_retrieval", "data": {"content": rag_context, "status": "completed"}}
+
+            print("🤖 [Agent] 正在调用 AI 模型处理...")
+            agent = get_sql_agent()
+            final_question = request.question + rag_context
             
-            # 选择使用哪个 Agent
-            if USE_LANGCHAIN:
-                agent = get_sql_agent_with_langchain()
-            else:
-                agent = get_sql_agent()
+            history_str = await memory_manager.get_history_text(request.session_id)
             
-            # 传递历史字符串给 SQL Agent
-            async for event in agent.process_question_with_history(request.question, history_str, request.enable_thinking):
+            async for event in agent.process_question_with_history(final_question, history_str, request.enable_thinking):
                 event_type = event.get("event")
                 event_data = event.get("data", {})
-                print(f"📤 正在转发事件: {event_type}")
 
-                if event_type == "thinking":
-                    assistant_thinking = event_data.get("content", "")
-                elif event_type == "model_thinking":
-                    # 累加真实的模型思考过程
+                # 记录核心流事件
+                if event_type in ["summary", "sql_generated", "done"]:
+                    print(f"📡 [流] 模型产生事件: {event_type}")
+
+                if event_type == "model_thinking":
                     assistant_reasoning += event_data.get("content", "")
                 elif event_type == "sql_generated":
                     assistant_sql = event_data.get("sql", "")
-                    print(f"  └─ 生成 SQL: {assistant_sql[:100]}...")
                 elif event_type == "sql_result":
-                    print(f"  └─ 查询结果行数: {event_data.get('row_count', 0)}")
-                    # 使用自定义 json_dumps 处理日期类型数据
                     assistant_data = json_dumps(event_data)
                 elif event_type == "chart_ready":
-                    assistant_chart_config = event_data.get("option", {})
-                    assistant_chart_cfg = json_dumps(assistant_chart_config)
+                    assistant_chart_cfg = json_dumps(event_data.get("option", {}))
                 elif event_type == "summary":
-                    content_chunk = event_data.get("content", "")
-                    assistant_content += content_chunk
+                    assistant_content += event_data.get("content", "")
                 elif event_type == "done":
-                    done_data = event_data
-                    assistant_content = done_data.get("summary", assistant_content)
-                    
-                    # 动态更新会话标题逻辑
-                    model_suggested_title = done_data.get("session_title", "")
-                    if model_suggested_title:
-                        # 检查当前标题是否为默认/通用标题
-                        current_session = await session_db.get_session(request.session_id, user_id)
-                        if current_session and (not current_session.get("title") or current_session["title"] in ["新会话", "未命名会话"] or len(current_session["title"]) > 25):
-                            print(f"🏷️ 模型建议新标题: {model_suggested_title}")
-                            await session_db.update_session_title(request.session_id, user_id, model_suggested_title)
-                    
-                    # done 事件数据中也包含最终的 reasoning
-                    if not assistant_reasoning:
-                        assistant_reasoning = done_data.get("reasoning", "")
-                    print(f"✅ 处理完成，生成摘要字数: {len(assistant_content)}")
+                    assistant_content = event_data.get("summary", assistant_content)
 
-                # 生成事件对象
-                yield {
-                    "event": event_type,
-                    "data": event_data
-                }
+                yield event
 
                 if event_type == "done":
-                    print("💾 正在保存助手消息到数据库...")
-                    # 保存助手消息到数据库
+                    print("💾 [数据库] 正在保存助手回答...")
                     await session_db.create_message({
                         "id": assistant_message_id,
                         "session_id": request.session_id,
@@ -179,37 +147,30 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                         "content": assistant_content,
                         "sql": assistant_sql,
                         "chart_cfg": assistant_chart_cfg,
-                        "thinking": assistant_reasoning, # 存入真实的推理过程
+                        "thinking": assistant_reasoning,
                         "data": assistant_data,
                         "created_at": datetime.now().isoformat()
                     })
-                    # 添加到记忆
                     await memory_manager.add_assistant_message(request.session_id, assistant_content)
                     await session_db.update_session_updated_at(request.session_id)
-                    print(f"✨ 会话状态更新成功")
+                    print("✅ [处理] 全流程结束")
 
         except Exception as e:
-            print(f"❌ 处理过程中出错: {str(e)}")
+            print(f"❌ [生成器内部错误]: {str(e)}")
             traceback.print_exc()
-            yield {
-                "event": "error",
-                "data": {"message": str(e)}
-            }
+            yield {"event": "error", "data": {"message": str(e)}}
 
-    # 使用 StreamableHTTPService 生成流式响应
+    print("📡 [响应] 正在返回 StreamingResponse...")
     return StreamingResponse(
         StreamableHTTPService.generate_stream(event_generator()),
         media_type="application/json",
         headers=StreamableHTTPService.get_response_headers()
     )
 
-
 @router.get("/schema")
 async def get_schema():
     from services.schema_service import SchemaService
-    tables = await SchemaService.get_table_names()
-    full_schema = await SchemaService.get_full_schema()
     return {
-        "tables": tables,
-        "schema": full_schema
+        "tables": await SchemaService.get_table_names(),
+        "schema": await SchemaService.get_full_schema()
     }

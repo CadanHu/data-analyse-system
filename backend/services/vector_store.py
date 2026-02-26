@@ -1,35 +1,64 @@
-"""
-向量存储服务 (Phase 4)
-向量数据库和检索功能
-"""
+import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-
+from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 class VectorStore:
-    """向量存储服务（骨架）"""
+    """向量存储服务：负责文档索引与检索"""
 
-    def __init__(self, persist_dir: Optional[Path] = None):
+    def __init__(self, persist_dir: str = "backend/data/vector_db"):
         self.persist_dir = persist_dir
-        self._initialized = False
+        # 使用本地嵌入模型，无需 API Key
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=100
+        )
+        self.vector_db: Optional[Chroma] = None
 
-    async def initialize(self):
-        """初始化向量数据库"""
-        print("[VectorStore] 初始化向量数据库（骨架实现）")
-        self._initialized = True
+    def initialize(self):
+        """初始化或加载现有的向量库"""
+        if not os.path.exists(self.persist_dir):
+            os.makedirs(self.persist_dir)
+        
+        self.vector_db = Chroma(
+            persist_directory=self.persist_dir,
+            embedding_function=self.embeddings
+        )
+        print(f"✅ [VectorStore] 向量库已就绪: {self.persist_dir}")
+
+    async def add_text(self, text: str, metadata: Dict[str, Any]):
+        """将解析出的文本切片并存入向量库"""
+        if not self.vector_db:
+            self.initialize()
+        
+        docs = [Document(page_content=text, metadata=metadata)]
+        split_docs = self.text_splitter.split_documents(docs)
+        
+        self.vector_db.add_documents(split_docs)
+        print(f"📥 [VectorStore] 已索引 {len(split_docs)} 个片段，来自文件: {metadata.get('filename')}")
         return True
 
-    async def add_documents(self, documents: List[Dict[str, Any]]):
-        """添加文档到向量数据库"""
-        print(f"[VectorStore] 添加 {len(documents)} 个文档（骨架实现）")
-        return True
+    async def search(self, query: str, top_k: int = 4) -> List[Dict[str, Any]]:
+        """执行相似度检索"""
+        if not self.vector_db:
+            self.initialize()
+        
+        results = self.vector_db.similarity_search(query, k=top_k)
+        return [
+            {
+                "content": doc.page_content,
+                "metadata": doc.metadata
+            } for doc in results
+        ]
 
-    async def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """相似度搜索"""
-        print(f"[VectorStore] 搜索: '{query}', top_k={top_k}（骨架实现）")
-        return []
-
-    async def delete_collection(self, collection_name: str):
-        """删除集合"""
-        print(f"[VectorStore] 删除集合: {collection_name}（骨架实现）")
-        return True
+    def delete_all(self):
+        """清空向量库（用于测试或重置）"""
+        if self.vector_db:
+            self.vector_db.delete_collection()
+            self.initialize()

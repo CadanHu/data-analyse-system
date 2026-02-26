@@ -31,9 +31,22 @@ def get_file_type(filename: str) -> Optional[str]:
     return None
 
 
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from typing import Optional
+from services.document_processor import DocumentProcessor
+from services.vector_store import VectorStore
+
+router = APIRouter()
+vector_store = VectorStore()
+
+# ... (保持 UPLOAD_DIR 和 ALLOWED_EXTENSIONS 不变) ...
+
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """上传文件接口"""
+async def upload_file(
+    file: UploadFile = File(...),
+    engine: str = Form("light")  # 默认为轻量级 PyMuPDF
+):
+    """上传并处理文件"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
     
@@ -41,32 +54,44 @@ async def upload_file(file: UploadFile = File(...)):
     if not file_type:
         raise HTTPException(status_code=400, detail="不支持的文件类型")
     
-    file_size = 0
     content = await file.read()
     file_size = len(content)
     
     if file_size > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail=f"文件大小超过限制 (最大 {MAX_FILE_SIZE // (1024*1024)}MB)")
+        raise HTTPException(status_code=400, detail="文件大小超过限制")
     
-    file_ext = Path(file.filename).suffix.lower()
-    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    unique_filename = f"{uuid.uuid4()}{Path(file.filename).suffix.lower()}"
     file_path = UPLOAD_DIR / unique_filename
     
     try:
         with open(file_path, "wb") as f:
             f.write(content)
         
-        file_url = f"/uploads/{unique_filename}"
-        
+        # --- 核心 RAG 流程开始 ---
+        if file_type == "document":
+            # 1. 解析文档
+            text_content = DocumentProcessor.process_document(file_path, engine=engine)
+            
+            # 2. 存入向量库
+            await vector_store.add_text(
+                text=text_content, 
+                metadata={
+                    "filename": file.filename,
+                    "file_path": str(file_path),
+                    "engine": engine
+                }
+            )
+        # --- 核心 RAG 流程结束 ---
+
         return {
             "filename": file.filename,
-            "url": file_url,
-            "size": file_size,
+            "url": f"/api/uploads/{unique_filename}",
             "type": file_type,
-            "uploaded_at": datetime.now().isoformat()
+            "status": "indexed" if file_type == "document" else "saved"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
 
 
 @router.get("/uploads/{filename}")
