@@ -1,5 +1,5 @@
 """
-全局配置文件
+全局配置文件 (SQLAlchemy & MySQL/PostgreSQL 驱动)
 """
 import os
 from pathlib import Path
@@ -37,43 +37,22 @@ LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "tr
 LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY", "")
 LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "data-analyse-system")
 
-# 数据库配置
-DATABASE_DIR = BASE_DIR / "data"
-DATABASE_DIR.mkdir(exist_ok=True)
-SESSION_DB_PATH = DATABASE_DIR / "sessions.db"  # SQLite 会话数据库 (旧)
-
-# 会话数据库配置 (MySQL)
-USE_MYSQL_FOR_SESSIONS = os.getenv("USE_MYSQL_FOR_SESSIONS", "false").lower() == "true"
-MYSQL_SESSION_DATABASE = os.getenv("MYSQL_SESSION_DATABASE", "data_pulse_sessions")
+# 会话数据库配置 (统一使用 SQLAlchemy 适配)
 MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", 3306))
 MYSQL_USER = os.getenv("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "root")
+MYSQL_SESSION_DATABASE = os.getenv("MYSQL_SESSION_DATABASE", "data_pulse_sessions")
 
-# 多数据库配置
+# 多数据库配置 (移除 SQLite)
 DATABASES = {
-    "business": {
-        "type": "sqlite",
-        "path": DATABASE_DIR / "business.db",
-        "name": "业务数据库"
-    },
-    "chinook": {
-        "type": "sqlite",
-        "path": DATABASE_DIR / "Chinook_Sqlite.sqlite",
-        "name": "Chinook 音乐数据库"
-    },
-    "northwind": {
-        "type": "sqlite",
-        "path": DATABASE_DIR / "northwind.db",
-        "name": "Northwind 商业数据库"
-    },
     "mysql_example": {
         "type": "mysql",
-        "host": os.getenv("MYSQL_HOST", "localhost"),
-        "port": int(os.getenv("MYSQL_PORT", 3306)),
+        "host": MYSQL_HOST,
+        "port": MYSQL_PORT,
         "database": os.getenv("MYSQL_DATABASE", "test"),
-        "user": os.getenv("MYSQL_USER", "root"),
-        "password": os.getenv("MYSQL_PASSWORD", ""),
+        "user": MYSQL_USER,
+        "password": MYSQL_PASSWORD,
         "name": "MySQL 示例数据库"
     },
     "classic_business": {
@@ -93,10 +72,20 @@ DATABASES = {
         "user": MYSQL_USER,
         "password": MYSQL_PASSWORD,
         "name": "全场景商业分析库 (MySQL)"
+    },
+    "postgres_example": {
+        "type": "postgresql",
+        "host": os.getenv("POSTGRES_HOST", "localhost"),
+        "port": int(os.getenv("POSTGRES_PORT", 5432)),
+        "database": os.getenv("POSTGRES_DB", "postgres"),
+        "user": os.getenv("POSTGRES_USER", "postgres"),
+        "password": os.getenv("POSTGRES_PASSWORD", ""),
+        "name": "PostgreSQL 示例数据库"
     }
 }
 
-BUSINESS_DB_PATH = DATABASE_DIR / "business.db"  # 默认业务数据库
+# 默认业务数据库 ID
+DEFAULT_BUSINESS_DB = "classic_business"
 
 # 内存配置
 MEMORY_WINDOW_SIZE = 10  # 保留最近 N 轮对话
@@ -114,5 +103,5 @@ RATE_LIMIT_WINDOW = 60
 
 # 日志配置
 LOG_LEVEL = "INFO"  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
-LOG_FILE = BASE_DIR / "logs" / "app.log"  # 日志文件路径
+LOG_FILE = Path(__file__).parent.parent / "logs" / "app.log"  # 日志文件路径
 LOG_JSON_FORMAT = False  # 是否使用 JSON 格式日志

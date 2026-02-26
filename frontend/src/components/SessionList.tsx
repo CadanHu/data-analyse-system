@@ -110,11 +110,11 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
     }
   }
 
-  const filteredSessions = searchQuery.trim() === '' 
+  const filteredSessions = (Array.isArray(sessions) ? (searchQuery.trim() === '' 
     ? sessions 
     : sessions.filter(session =>
         (session.title || '').toLowerCase().includes(searchQuery.toLowerCase())
-      )
+      )) : [])
 
   return (
     <div className="flex flex-col h-full">

@@ -6,7 +6,8 @@
 - **错误处理**：捕获异常时必须打印完整堆栈（使用 `traceback.print_exc()`），并通过流式或 JSON 响应将清晰的错误信息返回给前端。
 
 ## 数据库规范
-- **多数据库兼容**：所有功能必须兼容 SQLite 和 MySQL（后续可能扩展 PostgreSQL）。
+- **多数据库兼容**：所有功能必须兼容 MySQL 和 PostgreSQL（已废除 SQLite 支持）。
+- **SQLAlchemy 驱动**：所有数据库交互必须通过 `DatabaseManager` 获取 SQLAlchemy 异步引擎，禁止直接使用底层驱动（如 `aiomysql`）手动编写 SQL。
 - **Schema 动态加载**：Agent 在处理问题前必须先调用 `SchemaService` 获取当前数据库的最新的 Schema。
 
 ## 前端规范

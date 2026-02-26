@@ -1,316 +1,195 @@
 """
-会话数据库操作 - 支持 SQLite 和 MySQL
+基于 SQLAlchemy 的异步会话数据库操作 (支持 MySQL/PostgreSQL)
 """
-import aiosqlite
-import aiomysql
 import uuid
-import json
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from pathlib import Path
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, text, Index
+from sqlalchemy.future import select
+from sqlalchemy import delete as sqlalchemy_delete
 
 from config import (
-    SESSION_DB_PATH, USE_MYSQL_FOR_SESSIONS,
     MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_SESSION_DATABASE
 )
 
-class SessionDatabase:
-    """会话数据库基类"""
-    async def init_db(self): pass
-    async def create_session(self, user_id: int, title: str = None, database_key: str = 'business') -> str: pass
-    async def get_all_sessions(self, user_id: int) -> List[Dict[str, Any]]: pass
-    async def get_session(self, session_id: str, user_id: int) -> Optional[Dict[str, Any]]: pass
-    async def delete_session(self, session_id: str, user_id: int) -> bool: pass
-    async def update_session_title(self, session_id: str, user_id: int, title: str) -> bool: pass
-    async def update_session_database(self, session_id: str, user_id: int, database_key: str) -> bool: pass
-    async def create_message(self, message_data: Dict[str, Any]) -> str: pass
-    async def get_messages(self, session_id: str) -> List[Dict[str, Any]]: pass
-    async def update_session_updated_at(self, session_id: str) -> bool: pass
-    async def get_session_database(self, session_id: str) -> Optional[str]: pass
+Base = declarative_base()
 
-class SQLiteSessionDatabase(SessionDatabase):
-    def __init__(self, db_path: Path = SESSION_DB_PATH):
-        self.db_path = db_path
+class SessionModel(Base):
+    __tablename__ = 'sessions'
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    title = Column(String(255))
+    database_key = Column(String(64), default='business')
+    status = Column(String(20), default='active')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (Index('idx_user', 'user_id'),)
+
+class MessageModel(Base):
+    __tablename__ = 'messages'
+    id = Column(String(64), primary_key=True)
+    session_id = Column(String(64), ForeignKey('sessions.id'), nullable=False)
+    role = Column(String(20), nullable=False)
+    content = Column(Text, nullable=False)
+    sql = Column(Text)
+    chart_cfg = Column(Text)
+    thinking = Column(Text)
+    data = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('idx_session', 'session_id'),)
+
+class SessionDatabase:
+    """使用 SQLAlchemy 实现的会话数据库"""
+    
+    def __init__(self):
+        # 默认使用 MySQL 驱动
+        self.url = f"mysql+aiomysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_SESSION_DATABASE}?charset=utf8mb4"
+        self.engine = create_async_engine(self.url, echo=False)
+        self.async_session = sessionmaker(
+            self.engine, class_=AsyncSession, expire_on_commit=False
+        )
+
+    async def _ensure_db_exists(self):
+        """确保数据库存在 (MySQL 特有逻辑)"""
+        import pymysql
+        conn = pymysql.connect(host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER, password=MYSQL_PASSWORD)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(f"CREATE DATABASE IF NOT EXISTS {MYSQL_SESSION_DATABASE} CHARACTER SET utf8mb4")
+            conn.commit()
+        finally:
+            conn.close()
 
     async def init_db(self):
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id TEXT PRIMARY KEY,
-                    user_id INTEGER NOT NULL,
-                    title TEXT,
-                    database_key TEXT DEFAULT 'business',
-                    status TEXT DEFAULT 'active',
-                    created_at TEXT,
-                    updated_at TEXT
-                )
-            """)
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    sql TEXT,
-                    chart_cfg TEXT,
-                    thinking TEXT,
-                    data TEXT,
-                    created_at TEXT,
-                    FOREIGN KEY (session_id) REFERENCES sessions(id)
-                )
-            """)
-            await db.commit()
+        """初始化表结构"""
+        await self._ensure_db_exists()
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print(f"✅ 会话数据库已通过 SQLAlchemy 初始化: {MYSQL_SESSION_DATABASE}")
 
-    async def create_session(self, user_id: int, title: str = None, database_key: str = 'business') -> str:
+    async def create_session(self, user_id: int, title: str = None, database_key: str = 'classic_business') -> str:
         session_id = str(uuid.uuid4())
-        now = datetime.now().isoformat()
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "INSERT INTO sessions (id, user_id, title, database_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, user_id, title, database_key, now, now)
+        async with self.async_session() as session:
+            new_session = SessionModel(
+                id=session_id,
+                user_id=user_id,
+                title=title,
+                database_key=database_key,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
             )
-            await db.commit()
+            session.add(new_session)
+            await session.commit()
         return session_id
 
     async def get_all_sessions(self, user_id: int) -> List[Dict[str, Any]]:
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM sessions WHERE user_id = ? ORDER BY updated_at DESC", (user_id,)) as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(SessionModel).where(SessionModel.user_id == user_id).order_by(SessionModel.updated_at.desc())
+            )
+            sessions = result.scalars().all()
+            return [self._to_dict(s) for s in sessions]
 
     async def get_session(self, session_id: str, user_id: int) -> Optional[Dict[str, Any]]:
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM sessions WHERE id = ? AND user_id = ?", (session_id, user_id)) as cursor:
-                row = await cursor.fetchone()
-                return dict(row) if row else None
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user_id)
+            )
+            s = result.scalar_one_or_none()
+            return self._to_dict(s) if s else None
 
     async def delete_session(self, session_id: str, user_id: int) -> bool:
-        async with aiosqlite.connect(self.db_path) as db:
-            # 校验归属权
-            async with db.execute("SELECT id FROM sessions WHERE id = ? AND user_id = ?", (session_id, user_id)) as cursor:
-                if not await cursor.fetchone(): return False
-            await db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-            await db.commit()
+        async with self.async_session() as session:
+            # 校验权限
+            res = await session.execute(select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user_id))
+            if not res.scalar_one_or_none():
+                return False
+            
+            # 删除消息和会话
+            await session.execute(sqlalchemy_delete(MessageModel).where(MessageModel.session_id == session_id))
+            await session.execute(sqlalchemy_delete(SessionModel).where(SessionModel.id == session_id))
+            await session.commit()
             return True
 
     async def update_session_title(self, session_id: str, user_id: int, title: str) -> bool:
-        now = datetime.now().isoformat()
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-                (title, now, session_id, user_id)
-            )
-            await db.commit()
-            return db.changes > 0
+        async with self.async_session() as session:
+            result = await session.execute(select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user_id))
+            s = result.scalar_one_or_none()
+            if s:
+                s.title = title
+                s.updated_at = datetime.utcnow()
+                await session.commit()
+                return True
+            return False
 
     async def update_session_database(self, session_id: str, user_id: int, database_key: str) -> bool:
-        now = datetime.now().isoformat()
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE sessions SET database_key = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-                (database_key, now, session_id, user_id)
-            )
-            await db.commit()
-            return db.changes > 0
+        async with self.async_session() as session:
+            result = await session.execute(select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user_id))
+            s = result.scalar_one_or_none()
+            if s:
+                s.database_key = database_key
+                s.updated_at = datetime.utcnow()
+                await session.commit()
+                return True
+            return False
 
     async def update_session_updated_at(self, session_id: str) -> bool:
-        now = datetime.now().isoformat()
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE sessions SET updated_at = ? WHERE id = ?",
-                (now, session_id)
-            )
-            await db.commit()
-            return db.changes > 0
+        async with self.async_session() as session:
+            result = await session.execute(select(SessionModel).where(SessionModel.id == session_id))
+            s = result.scalar_one_or_none()
+            if s:
+                s.updated_at = datetime.utcnow()
+                await session.commit()
+                return True
+            return False
 
     async def get_session_database(self, session_id: str) -> Optional[str]:
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT database_key FROM sessions WHERE id = ?", (session_id,)) as cursor:
-                row = await cursor.fetchone()
-                return row["database_key"] if row else None
+        async with self.async_session() as session:
+            result = await session.execute(select(SessionModel.database_key).where(SessionModel.id == session_id))
+            return result.scalar_one_or_none()
 
     async def create_message(self, message_data: Dict[str, Any]) -> str:
         message_id = message_data.get("id", str(uuid.uuid4()))
-        now = datetime.now().isoformat()
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                """INSERT INTO messages (id, session_id, role, content, sql, chart_cfg, thinking, data, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    message_id, message_data.get("session_id"), message_data.get("role"),
-                    message_data.get("content"), message_data.get("sql"), message_data.get("chart_cfg"),
-                    message_data.get("thinking"), message_data.get("data"), now
-                )
+        async with self.async_session() as session:
+            new_msg = MessageModel(
+                id=message_id,
+                session_id=message_data.get("session_id"),
+                role=message_data.get("role"),
+                content=message_data.get("content"),
+                sql=message_data.get("sql"),
+                chart_cfg=message_data.get("chart_cfg"),
+                thinking=message_data.get("thinking"),
+                data=message_data.get("data"),
+                created_at=datetime.utcnow()
             )
-            await db.commit()
-        return message_id
-
-    async def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC", (session_id,)) as cursor:
-                rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
-
-class MySQLSessionDatabase(SessionDatabase):
-    def __init__(self):
-        self.config = {
-            "host": MYSQL_HOST, "port": MYSQL_PORT, "user": MYSQL_USER, "password": MYSQL_PASSWORD,
-            "db": MYSQL_SESSION_DATABASE, "autocommit": True, "charset": "utf8mb4"
-        }
-
-    async def _ensure_db_exists(self):
-        conn = await aiomysql.connect(host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER, password=MYSQL_PASSWORD)
-        async with conn.cursor() as cur:
-            await cur.execute(f"CREATE DATABASE IF NOT EXISTS {MYSQL_SESSION_DATABASE} CHARACTER SET utf8mb4")
-        conn.close()
-
-    async def init_db(self):
-        await self._ensure_db_exists()
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor() as cur:
-            await cur.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    id VARCHAR(64) PRIMARY KEY,
-                    user_id INT NOT NULL,
-                    title VARCHAR(255),
-                    database_key VARCHAR(64) DEFAULT 'business',
-                    status VARCHAR(20) DEFAULT 'active',
-                    created_at DATETIME,
-                    updated_at DATETIME,
-                    INDEX idx_user (user_id)
-                ) CHARACTER SET utf8mb4
-            """)
-            await cur.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id VARCHAR(64) PRIMARY KEY,
-                    session_id VARCHAR(64) NOT NULL,
-                    role VARCHAR(20) NOT NULL,
-                    content TEXT NOT NULL,
-                    `sql` TEXT,
-                    chart_cfg TEXT,
-                    thinking TEXT,
-                    `data` TEXT,
-                    created_at DATETIME,
-                    INDEX idx_session (session_id)
-                ) CHARACTER SET utf8mb4
-            """)
-        conn.close()
-
-    async def create_session(self, user_id: int, title: str = None, database_key: str = 'business') -> str:
-        session_id = str(uuid.uuid4())
-        now = datetime.now()
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "INSERT INTO sessions (id, user_id, title, database_key, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
-                (session_id, user_id, title, database_key, now, now)
-            )
-        conn.close()
-        return session_id
-
-    async def get_all_sessions(self, user_id: int) -> List[Dict[str, Any]]:
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute("SELECT * FROM sessions WHERE user_id = %s ORDER BY updated_at DESC", (user_id,))
-            rows = await cur.fetchall()
-            conn.close()
-            return rows
-
-    async def get_session(self, session_id: str, user_id: int) -> Optional[Dict[str, Any]]:
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute("SELECT * FROM sessions WHERE id = %s AND user_id = %s", (session_id, user_id))
-            row = await cur.fetchone()
-            conn.close()
-            return row
-
-    async def delete_session(self, session_id: str, user_id: int) -> bool:
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor() as cur:
-            await cur.execute("DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE id = %s AND user_id = %s)", (session_id, user_id))
-            await cur.execute("DELETE FROM sessions WHERE id = %s AND user_id = %s", (session_id, user_id))
-            affected = cur.rowcount
-        conn.close()
-        return affected > 0
-
-    async def update_session_title(self, session_id: str, user_id: int, title: str) -> bool:
-        now = datetime.now()
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE sessions SET title = %s, updated_at = %s WHERE id = %s AND user_id = %s",
-                (title, now, session_id, user_id)
-            )
-            affected = cur.rowcount
-        conn.close()
-        return affected > 0
-
-    async def update_session_database(self, session_id: str, user_id: int, database_key: str) -> bool:
-        now = datetime.now()
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE sessions SET database_key = %s, updated_at = %s WHERE id = %s AND user_id = %s",
-                (database_key, now, session_id, user_id)
-            )
-            affected = cur.rowcount
-        conn.close()
-        return affected > 0
-    
-    async def update_session_updated_at(self, session_id: str) -> bool:
-        now = datetime.now()
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE sessions SET updated_at = %s WHERE id = %s",
-                (now, session_id)
-            )
-            affected = cur.rowcount
-        conn.close()
-        return affected > 0
-
-    async def get_session_database(self, session_id: str) -> Optional[str]:
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute("SELECT database_key FROM sessions WHERE id = %s", (session_id,))
-            row = await cur.fetchone()
-            conn.close()
-            return row["database_key"] if row else None
+            session.add(new_msg)
+            # 同时更新会话的 updated_at
+            stmt = select(SessionModel).where(SessionModel.id == message_data.get("session_id"))
+            res = await session.execute(stmt)
+            s = res.scalar_one_or_none()
+            if s:
+                s.updated_at = datetime.utcnow()
             
-    async def create_message(self, message_data: Dict[str, Any]) -> str:
-        message_id = message_data.get("id", str(uuid.uuid4()))
-        now = datetime.now()
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """INSERT INTO messages (id, session_id, role, content, `sql`, chart_cfg, thinking, `data`, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (
-                    message_id, message_data.get("session_id"), message_data.get("role"),
-                    message_data.get("content"), message_data.get("sql"), message_data.get("chart_cfg"),
-                    message_data.get("thinking"), message_data.get("data"), now
-                )
-            )
-        conn.close()
+            await session.commit()
         return message_id
 
     async def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
-        conn = await aiomysql.connect(**self.config)
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute("SELECT * FROM messages WHERE session_id = %s ORDER BY created_at ASC", (session_id,))
-            rows = await cur.fetchall()
-            conn.close()
-            return rows
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(MessageModel).where(MessageModel.session_id == session_id).order_by(MessageModel.created_at.asc())
+            )
+            messages = result.scalars().all()
+            return [self._to_dict(m) for m in messages]
 
-if USE_MYSQL_FOR_SESSIONS:
-    session_db = MySQLSessionDatabase()
-else:
-    session_db = SQLiteSessionDatabase()
+    def _to_dict(self, model_obj):
+        if not model_obj: return None
+        return {c.name: getattr(model_obj, c.name) for c in model_obj.__table__.columns}
 
-# 为了兼容 chat_router.py 等文件的导入
-SessionDB = session_db.__class__
+# 全局单例
+session_db = SessionDatabase()
+# 导出类名供其他模块引用
+SessionDB = SessionDatabase

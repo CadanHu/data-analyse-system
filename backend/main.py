@@ -25,10 +25,11 @@ app = FastAPI(
 # 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # 添加频率限制中间件
@@ -43,7 +44,6 @@ async def startup_event():
     """应用启动时初始化数据库"""
     await session_db.init_db()
     await user_db.init_db()
-    await init_business_db()
     print("✅ 数据库初始化完成")
 
 
@@ -58,6 +58,7 @@ async def root():
 
 
 @app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """健康检查接口"""
     return {

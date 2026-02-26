@@ -32,7 +32,7 @@ export default function MessageList() {
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-      {storeMessages.map((message) => (
+      {Array.isArray(storeMessages) && storeMessages.map((message) => (
         <MessageItem key={message.id} message={message} />
       ))}
       {isLoading && storeMessages.length === 0 && (

@@ -1,33 +1,23 @@
 """
-Schema 提取服务
+Schema 提取服务 (SQLAlchemy 驱动)
 """
 from typing import List, Dict, Optional
-from pathlib import Path
-from config import DATABASES, BUSINESS_DB_PATH
+from config import DATABASES, DEFAULT_BUSINESS_DB
 from databases.database_manager import DatabaseManager
 
 
 class SchemaService:
     _cached_schema: Optional[str] = None
     _cached_tables: Optional[List[str]] = None
-    _current_db_key: str = "business"
+    _current_db_key: str = DEFAULT_BUSINESS_DB
 
     @classmethod
-    def set_database(cls, db_key: str = "business"):
+    def set_database(cls, db_key: str = DEFAULT_BUSINESS_DB):
         """设置当前使用的数据库"""
         if db_key in DATABASES:
             cls._current_db_key = db_key
             cls.clear_cache()
             DatabaseManager.register_database(db_key, DATABASES[db_key])
-
-    @classmethod
-    def get_current_db_path(cls) -> Optional[Path]:
-        """获取当前数据库路径（仅 SQLite）"""
-        if cls._current_db_key in DATABASES:
-            config = DATABASES[cls._current_db_key]
-            if config.get("type") == "sqlite":
-                return config.get("path")
-        return BUSINESS_DB_PATH
 
     @classmethod
     def get_current_db_key(cls) -> str:
@@ -59,7 +49,7 @@ class SchemaService:
             if not adapter.connected:
                 await adapter.connect()
             
-            # 优先使用适配器提供的完整 DDL
+            # 优先使用适配器提供的 DDL (MySQL 很有用)
             create_sql = await adapter.get_create_table_sql(table_name)
             if create_sql:
                 return create_sql
@@ -93,11 +83,7 @@ class SchemaService:
 
     @classmethod
     async def get_full_schema(cls, include_sample: bool = True) -> str:
-        """获取完整数据库结构（可选包含样本数据）"""
-        # 缓存逻辑暂时移除或针对 include_sample 优化，因为样本数据可能变化
-        # if cls._cached_schema is not None:
-        #     return cls._cached_schema
-
+        """获取完整数据库结构"""
         tables = await cls.get_table_names()
         schemas = []
         for table in tables:
@@ -112,7 +98,7 @@ class SchemaService:
 
         full_schema = "\n\n".join(schemas)
         
-        # 限制 schema 大小，避免 token 超限
+        # 限制 schema 大小
         max_chars = 40000
         if len(full_schema) > max_chars:
             full_schema = full_schema[:max_chars] + "\n\n-- (schema truncated due to size limit)"
@@ -124,32 +110,24 @@ class SchemaService:
     async def get_sample_data(cls, table_name: str, limit: int = 3) -> str:
         """获取表的样本数据"""
         adapter = DatabaseManager.get_adapter(cls._current_db_key)
-        if not adapter:
+        if not adapter or not adapter.connected:
             return ""
-        
-        if not adapter.connected:
-            await adapter.connect()
         
         try:
             rows = await adapter.execute_query(f"SELECT * FROM {table_name} LIMIT {limit}")
-            if not rows:
-                return ""
-            columns = list(rows[0].keys()) if rows else []
+            if not rows: return ""
+            columns = list(rows[0].keys())
             sample_lines = []
             for row in rows:
                 values = []
                 for col in columns:
                     val = row[col]
-                    if val is None:
-                        values.append("NULL")
-                    elif isinstance(val, str):
-                        values.append(f"'{val}'")
-                    else:
-                        values.append(str(val))
+                    if val is None: values.append("NULL")
+                    elif isinstance(val, str): values.append(f"'{val}'")
+                    else: values.append(str(val))
                 sample_lines.append(f"  ({', '.join(values)})")
             return "\n".join(sample_lines)
-        except Exception as e:
-            print(f"获取样本数据失败: {e}")
+        except:
             return ""
 
     @classmethod

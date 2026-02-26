@@ -135,10 +135,17 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                     assistant_content += event_data.get("content", "")
                 elif event_type == "done":
                     assistant_content = event_data.get("summary", assistant_content)
+                    
+                    # --- 核心修复：在 yield 之前完成所有操作 ---
+                    # 1. 自动更新标题逻辑
+                    current_title = session.get("title", "")
+                    new_title = event_data.get("session_title") or generate_session_title(request.question)
+                    if current_title == "新会话" or not current_title:
+                        print(f"📝 [会话] 自动更新标题为: {new_title}")
+                        await session_db.update_session_title(request.session_id, user_id, new_title)
+                        event_data["session_title"] = new_title # 注入到即将发送的事件中
 
-                yield event
-
-                if event_type == "done":
+                    # 2. 保存助手回答到消息表
                     print("💾 [数据库] 正在保存助手回答...")
                     await session_db.create_message({
                         "id": assistant_message_id,
@@ -153,6 +160,10 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                     })
                     await memory_manager.add_assistant_message(request.session_id, assistant_content)
                     await session_db.update_session_updated_at(request.session_id)
+
+                yield event
+
+                if event_type == "done":
                     print("✅ [处理] 全流程结束")
 
         except Exception as e:

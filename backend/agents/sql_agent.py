@@ -419,11 +419,11 @@ class SQLAgent:
         
         current_db_key = SchemaService.get_current_db_key()
         database_name = "业务数据库"
-        db_type = "sqlite"
+        db_type = "mysql"
         
         if current_db_key in DATABASES:
             database_name = DATABASES[current_db_key]["name"]
-            db_type = DATABASES[current_db_key].get("type", "sqlite")
+            db_type = DATABASES[current_db_key].get("type", "mysql")
         
         print(f"💾 当前数据库类型: {db_type}, 数据库名称: {database_name}")
         
@@ -436,8 +436,8 @@ class SQLAgent:
             table_list_query = "请使用：SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
             quote_char = '"'
         else:
-            database_type_info = ""
-            table_list_query = "请使用：SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            database_type_info = f"【数据库类型】\n{db_type}"
+            table_list_query = "请根据数据库类型使用标准 SQL 查询表列表"
             quote_char = '"'
 
         yield {"event": "thinking", "data": {"content": "正在理解您的问题..."}}

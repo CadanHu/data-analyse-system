@@ -1,119 +1,64 @@
 # 智能数据分析助理 (DataPulse)
 
-基于 AI 的智能数据分析系统，通过自然语言对话实现数据查询、分析和可视化。
+基于 AI 的智能数据分析系统，通过自然语言对话实现结构化数据查询（SQL）与非结构化文档分析（RAG）的双引擎商业平台。
 
-## 🎯 功能特性
+## 🎯 核心能力
 
-### 核心功能
-- ✅ **全平台移动端原生支持**：基于 Capacitor 6 实现，支持 **iOS (iPhone)** 和 **Android** 平台。
-- ✅ **智能意图识别**：自动区分“闲聊”与“数据查询”，提升 Agent 响应智慧度。
-- ✅ **用户认证系统**：基于 JWT 的注册、登录、Token 验证，支持多用户隔离。
-- ✅ **自然语言查询**：用中文提问，自动生成 SQL 查询。
-- ✅ **实时流式输出**：通过 Streamable HTTP 实时显示 AI 思考过程。
-- ✅ **智能 SQL 修正**：SQL 执行失败时自动重试修正。
-- ✅ **数据可视化**：自动生成柱状图、折线图、饼图和表格，支持全屏深度分析。
-- ✅ **会话管理**：支持多会话，历史记录自动同步至 MySQL。
-- ✅ **全平台适配**：完美适配移动端（iOS）和桌面端 (Web)。
+### 双引擎分析逻辑
+- ✅ **智能 SQL 引擎**：基于 SQLAlchemy 驱动，支持 MySQL、PostgreSQL。自动识别 Schema，将自然语言转换为高精度 SQL 语句。
+- ✅ **RAG 知识库增强**：支持上传 PDF/Markdown/TXT，集成 **PyMuPDF** 高效解析与 **ChromaDB** 向量存储，辅助 AI 进行口径对齐与业务指标解读。
 
-### AI 能力
-- 🤖 **DeepSeek R1 推理模型**：集成最新 DeepSeek AI，支持深度思考链（CoT）展示。
-- 💡 **思考模式**：展示 AI 的分析思路，帮助用户理解复杂数据查询逻辑。
-- 🧠 **智能总结**：自动生成有意义的会话标题。
-- 💬 **多轮对话**：支持基于上下文的追问和深入分析。
+### 移动端原生体验
+- 📱 **全平台适配**：基于 Capacitor 6 构建，原生支持 **iOS (iPhone)** 与 **Android (Pixel/Samsung)**。
+- 👁️ **Mieru (见得) 视觉方案**：标准 SSE 流式传输，实时展示 DeepSeek R1 推理思维链，让 AI 推理过程透明可见。
 
-### 数据管理
-- 🗄️ **多数据源支持**：支持 MySQL、PostgreSQL、SQLite 等多种数据库。
-- 📊 **预置数据集**：集成 Chinook、Northwind 以及**经典商业分析库**和**全场景商业分析库 (MySQL)**。
-- 🔄 **灵活切换**：每个会话独立选择数据库，自动记住设置。
-- 💾 **持久化升级**：支持将聊天会话和历史消息存储在 MySQL 数据库中，提升系统稳定性。
-
-### 增强功能
-- 📁 **文件上传**：支持上传图片和文档，AI 自动分析内容。
-- 📝 **SQL 代码管理**：查看、复制、折叠 SQL 查询语句。
-- 🎨 **图表类型切换**：支持多种图表类型，可手动切换。
-- ⏰ **时区优化**：统一使用本地时区（CST）记录时间，解决 8 小时显示偏差问题。
-
-### 用户体验
-- 📖 **教程页面**：详细的 6 步教程，帮助快速上手。
-- 📋 **功能特性页面**：展示 12 个核心功能的详细介绍。
-- 📅 **更新日志页面**：追踪系统更新和改进历史。
-- 🔒 **数据安全**：多层安全机制，保护数据隐私。
-
-## 🚀 技术栈
-
-### 后端
-- **框架**: FastAPI
-- **AI**: LangChain + DeepSeek AI
-- **数据库**: SQLite3 (aiosqlite) & MySQL (aiomysql)
-- **API 文档**: Swagger UI
-- **流式传输**: Streamable HTTP
-
-### 前端
-- **框架**: React 18 + TypeScript
-- **构建工具**: Vite 5
-- **状态管理**: Zustand
-- **样式**: Tailwind CSS
-- **图表**: ECharts 5
-- **路由**: React Router 6
-
-## 📦 项目结构
-
-```
-data-analyse-system/
-├── backend/            # 后端项目 (FastAPI, LangChain, Agents)
-├── frontend/           # 前端项目 (React, Tailwind)
-│   ├── ios/           # iOS 原生工程
-│   └── android/       # Android 原生工程
-├── docs/               # 项目文档与技术指南
-│   ├── archive/       # 历史文档与快照
-│   └── requirements/  # 历史需求文档
-├── scripts/            # 数据库初始化、验证及数据填充脚本
-├── docker-compose.yml  # Docker 部署配置
-└── setup.sh            # 快捷启动脚本
-```
-
-## 🎮 快速开始
-
-1. **后端配置**:
-   - 在 `backend/.env` 中填入 `DEEPSEEK_API_KEY`。
-   - 配置 MySQL 信息并设置 `USE_MYSQL_FOR_SESSIONS=true`。
-2. **启动服务**:
-   - 后端: `cd backend && source venv312/bin/activate && python3 -m uvicorn main:app --host 0.0.0.0 --port 8003 --reload`
-   - 前端: `cd frontend && npm run dev`
-3. **移动端调试**:
-   - 安卓: `cd frontend && npm run android:open`
-   - iOS: `cd frontend && npx cap open ios`
-4. **访问**: `http://localhost:5173`
-
-## 📝 版本历史
-
-### v1.5.0 (2026-02-26)
-- **Android 支持**: 正式引入 Android 原生支持，完成全平台覆盖。
-- **架构精简**: 重新组织了根目录结构，将散乱脚本和文档分类归档至 `scripts/` 和 `docs/`。
-- **统一主分支**: 合并了功能分支，实现单分支多端维护。
-
-### v1.4.0 (2026-02-24)
-- **用户认证**: 实现了完整的注册、登录、Token 验证流程，支持多用户隔离。
-- **智能意图识别**: 引入意图分类逻辑，能够区分“数据查询(SQL)”与“普通对话(Chat)”，并提供基于上下文的智能回复。
-- **iOS 平台适配**: 深度适配 iOS 移动端，处理了状态栏安全区域、软键盘遮挡及 API 宿主机访问逻辑。
-- **API 架构优化**: 统一使用拦截器注入认证信息，支持 SSE 流式认证与自动重连。
-- **数据库健壮性**: 修复了 SQLite 关键字引用导致的语法错误，增强了 Northwind 等复杂库的稳定性。
-
-### v1.3.0 (2026-02-23)
-- **持久化升级**: 支持将会话和消息持久化存储在 MySQL。
-- **商业分析增强**: 预置了“经典商业分析库”和“全场景商业分析库 (MySQL)”，支持真实销售数据演示。
-- **时区修复**: 解决会话列表时间显示“8 小时前”的偏差问题。
-- **序列化修复**: 解决 MySQL 日期类型数据无法 JSON 序列化的问题。
-- **功能精简**: 删除了“清空上下文”冗余功能，优化会话列表 UI。
-- **端口优化**: 统一前端 API 路径，支持通过 Vite 代理自动适配后端端口。
-
-### v1.2.0 (2025-02-20)
-- 新增 DeepSeek 推理模型支持
-- 添加思考模式切换开关
-- 新增文件上传功能
-- 集成 Chinook 和 Northwind 数据库
+### 企业级后端架构
+- 🏗️ **统一适配层**：基于 SQLAlchemy 实现跨库通用 Schema 提取与异步查询执行。
+- 🔒 **用户认证系统**：完整的 JWT 注册、登录、Token 验证流程，支持多用户数据隔离。
+- ⚡ **性能优化**：异步 FastAPI 架构，结合标准 Event-Stream 协议，确保秒级响应。
 
 ---
 
-**最后更新**: 2026-02-24
-**当前版本**: v1.5.0
+## 📦 项目结构 (整理后)
+
+```
+data-analyse-system/
+├── backend/            # 后端项目 (FastAPI, SQLAlchemy, Agents)
+│   ├── agents/        # AI Agent 核心逻辑
+│   ├── database/      # SQLAlchemy 模型与存储逻辑
+│   ├── databases/     # 数据库适配器 (MySQL/PostgreSQL)
+│   ├── services/      # 文档处理、向量存储、流服务
+│   ├── routers/       # API 路由
+│   └── tests/         # 单元测试与测试文档 (整理至此)
+│       └── knowledge_base/ # 商业指标测试集
+├── frontend/           # 前端项目 (React, Vite, Tailwind)
+│   ├── ios/           # iOS 原生工程
+│   └── android/       # Android 原生工程
+├── scripts/            # 环境验证与初始化脚本
+├── docs/               # 部署与安装指南
+└── docker-compose.yml  # 容器化部署配置
+```
+
+---
+
+## 🚀 快速开始
+
+### 1. 环境准备
+- **后端**: Python 3.12+, MySQL 8.0+
+- **前端**: Node.js 18+
+
+### 2. 本地安装
+详细步骤请参阅：[本地安装与测试运行方案](./docs/LOCAL_INSTALLATION.md)
+
+### 3. 环境验证
+运行以下脚本检查您的 MySQL 与 API 配置：
+```bash
+python3 scripts/check_db_env.py
+```
+
+---
+
+## 📝 架构演进
+- **v1.6.0 (2026-02-27)**: 彻底废除 SQLite，全面转向 SQLAlchemy (MySQL/PG)；标准化 SSE 流式协议；目录结构规范化整理。
+- **v1.5.0**: 实现 Android/iOS 移动端适配，引入 Mieru 思考可视化方案。
+- **v1.4.0**: 集成 RAG 知识库功能，支持复杂 PDF 解析。

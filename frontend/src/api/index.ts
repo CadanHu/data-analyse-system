@@ -3,11 +3,36 @@ import type { Session, Message, User, LoginCredentials, RegisterCredentials, Tok
 import { useAuthStore } from '@/stores/authStore'
 
 // 动态获取 API 基础路径
-const getBaseURL = () => {
-  if (typeof window !== 'undefined' && window.location.origin.startsWith('http')) {
-    return '/api'
+export const getBaseURL = () => {
+  // 如果手动指定了后端地址 (可通过 .env 或 Window 注入)
+  if ((window as any).BACKEND_URL) return (window as any).BACKEND_URL;
+
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    // 1. 如果是标准的 Web 开发环境或生产环境相对路径
+    if (origin.startsWith('http') && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+      return '/api'
+    }
+    
+    // 2. 识别是否在 Capacitor 容器内运行
+    const isCapacitor = origin.includes('localhost') || origin.startsWith('capacitor') || origin.startsWith('http://10.0.2.2');
+    
+    if (isCapacitor) {
+      // 3. 识别 Android 模拟器
+      if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
+        console.log('[API] Android Environment detected, using 10.0.2.2:8000');
+        return 'http://10.0.2.2:8000/api';
+      }
+      // 4. 识别 iOS 模拟器
+      if (typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        // iOS 模拟器 localhost 指向宿主机，直接使用 127.0.0.1
+        return 'http://127.0.0.1:8000/api';
+      }
+      // 5. 局域网开发 fallback (针对真机，您需要改为您的电脑真实 IP)
+      return 'http://127.0.0.1:8000/api';
+    }
   }
-  return 'http://127.0.0.1:8003/api'
+  return '/api';
 }
 
 const api = axios.create({
@@ -53,10 +78,10 @@ api.interceptors.response.use(
 // 认证 API
 export const authApi = {
   async login(credentials: LoginCredentials): Promise<TokenResponse> {
-    const formData = new FormData()
-    formData.append('username', credentials.username)
-    formData.append('password', credentials.password)
-    const response = await api.post('/auth/login', formData)
+    const response = await api.post('/auth/login', {
+      username: credentials.username,
+      password: credentials.password
+    })
     return response.data
   },
 

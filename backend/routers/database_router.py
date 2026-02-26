@@ -1,6 +1,5 @@
 """
-数据库管理路由 (Phase 2)
-支持多种数据库类型，保持与旧 API 向后兼容
+数据库管理路由 (SQLAlchemy 驱动)
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -14,6 +13,7 @@ from config import DATABASES
 from databases.database_manager import DatabaseManager
 from databases.base_adapter import TableInfo
 from routers.auth_router import get_current_user
+from services.schema_service import SchemaService
 
 router = APIRouter(prefix="/api", tags=["databases"])
 
@@ -42,19 +42,16 @@ async def startup_event():
 
 @router.get("/databases")
 async def get_databases(current_user: dict = Depends(get_current_user)):
-    """获取所有可用数据库 - 保持旧 API 格式兼容"""
-    from config import DATABASES
-    from services.schema_service import SchemaService
-    
-    current_db_path = SchemaService.get_current_db_path()
+    """获取所有可用数据库"""
+    current_key = SchemaService.get_current_db_key()
     
     databases = []
     for key, config in DATABASES.items():
         databases.append({
             "key": key,
             "name": config["name"],
-            "path": str(config.get("path", "")),
-            "is_current": str(config.get("path", "")) == str(current_db_path)
+            "type": config.get("type"),
+            "is_current": (key == current_key)
         })
     
     return {"databases": databases}
@@ -62,10 +59,7 @@ async def get_databases(current_user: dict = Depends(get_current_user)):
 
 @router.post("/database/switch")
 async def switch_database(request: SwitchDatabaseRequest, current_user: dict = Depends(get_current_user)):
-    """切换数据库 - 保持旧 API 格式兼容"""
-    from config import DATABASES
-    from services.schema_service import SchemaService
-    
+    """切换数据库"""
     db_key = request.database_key
     if db_key not in DATABASES:
         raise HTTPException(status_code=400, detail=f"数据库 {db_key} 不存在")
@@ -83,14 +77,14 @@ async def switch_database(request: SwitchDatabaseRequest, current_user: dict = D
 
 @router.get("/databases/list", response_model=List[Dict[str, Any]])
 async def get_databases_list():
-    """获取所有可用数据库（新 API 格式）"""
+    """获取所有可用数据库（详细列表）"""
     configs = DatabaseManager.get_configs()
     result = []
     for key, config in configs.items():
         result.append({
             "key": key,
             "name": config.get("name", key),
-            "type": config.get("type", "sqlite")
+            "type": config.get("type", "mysql") # 默认改为 mysql
         })
     return result
 

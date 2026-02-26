@@ -11,7 +11,7 @@ class UserCreate(UserBase):
     verification_code: str = Field(..., min_length=6, max_length=6)
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    username: str  # 对应用户输入的邮箱
     password: str
 
 class UserResponse(UserBase):

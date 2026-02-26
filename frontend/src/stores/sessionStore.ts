@@ -15,6 +15,7 @@ interface SessionState {
   updateLastMessage: (updates: Partial<Message>) => void
   setLoading: (loading: boolean) => void
   removeSession: (sessionId: string) => void
+  updateSession: (sessionId: string, updates: Partial<Session>) => void
   clearMessages: () => void
 }
 
@@ -30,6 +31,16 @@ export const useSessionStore = create<SessionState>((set) => ({
   addMessage: (message) => set((state) => ({ 
     messages: [...state.messages, message] 
   })),
+  updateSession: (sessionId, updates) => set((state) => {
+    const newSessions = state.sessions.map(s => 
+      s.id === sessionId ? { ...s, ...updates } : s
+    );
+    // 如果更新的是当前选中的会话，同步更新 currentSession
+    const currentUpdates = state.currentSession?.id === sessionId 
+      ? { currentSession: { ...state.currentSession, ...updates } } 
+      : {};
+    return { sessions: newSessions, ...currentUpdates };
+  }),
   updateLastMessage: (updates) => set((state) => {
     const newMessages = [...state.messages]
     if (newMessages.length > 0) {

@@ -40,21 +40,23 @@ class StreamableHTTPService:
             event_data = event.get("data", {})
             
             # 记录流式输出事件
-            if event_type not in ["model_thinking"]:  # 避免 model_thinking 这种高频事件刷屏
+            if event_type not in ["model_thinking"]:
                 print(f"📡 [Stream] 发送事件给前端: {event_type}")
             
-            # 生成流式 JSON 格式，使用自定义编码器处理日期等类型
-            yield json.dumps({
+            # 标准 SSE 格式: data: <content>\n\n
+            json_str = json.dumps({
                 "event": event_type,
                 "data": event_data
-            }, ensure_ascii=False, cls=CustomJSONEncoder) + "\n"
+            }, ensure_ascii=False, cls=CustomJSONEncoder)
+            
+            yield f"data: {json_str}\n\n"
 
     @staticmethod
     def get_response_headers() -> Dict[str, str]:
         """获取流式响应的 HTTP 头"""
         return {
-            "Content-Type": "application/json; charset=utf-8",
-            "Transfer-Encoding": "chunked",
-            "Cache-Control": "no-cache",
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
             "X-Accel-Buffering": "no"
         }

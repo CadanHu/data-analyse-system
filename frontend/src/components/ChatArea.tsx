@@ -86,7 +86,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-            {showDbSelector && (
+            {showDbSelector && Array.isArray(databases) && (
               <div className="absolute right-0 top-full mt-2 bg-white/90 backdrop-blur-md rounded-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12)] z-50 min-w-[150px]">
                 {databases.map((db) => (
                   <button

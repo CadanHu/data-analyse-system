@@ -67,6 +67,11 @@ export default function App() {
     
     try {
       const data = await sessionApi.getMessages(sessionId)
+      if (!Array.isArray(data)) {
+        console.error('[App] Messages data is not an array:', data)
+        setMessages([])
+        return
+      }
       const processedData = data.map(msg => {
         if (typeof msg.data === 'string' && msg.data) {
           try {

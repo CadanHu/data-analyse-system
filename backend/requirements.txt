@@ -14,16 +14,17 @@ openai>=1.0.0
 
 # 向量数据库与解析
 chromadb>=0.5.0
-pypdf
 pymupdf
 sentence-transformers
 tabulate
 
 # 数据库
-aiosqlite
 SQLAlchemy>=2.0.0
 aiomysql
 PyMySQL
+asyncpg
+psycopg2-binary
+databases[postgresql,mysql]
 
 # 数据处理
 numpy<2.0.0

@@ -1,19 +1,17 @@
 from typing import Any, Dict, Optional
 from pathlib import Path
 import sys
-import os
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from .base_adapter import BaseDatabaseAdapter, DatabaseType
-from .sqlite_adapter import SQLiteAdapter
 from .mysql_adapter import MySQLAdapter
 from .postgresql_adapter import PostgreSQLAdapter
 from .mongodb_adapter import MongoDBAdapter
 
 
 class DatabaseManager:
-    """数据库管理器 - 统一管理多种数据库连接"""
+    """数据库管理器 - 统一管理多种数据库连接 (SQLAlchemy 驱动)"""
 
     _adapters: Dict[str, BaseDatabaseAdapter] = {}
     _configs: Dict[str, Dict[str, Any]] = {}
@@ -33,12 +31,10 @@ class DatabaseManager:
             return None
 
         config = cls._configs[db_key]
-        db_type = config.get("type", DatabaseType.SQLITE)
+        db_type = config.get("type")
 
         adapter = None
-        if db_type == DatabaseType.SQLITE:
-            adapter = SQLiteAdapter(config)
-        elif db_type == DatabaseType.MYSQL:
+        if db_type == DatabaseType.MYSQL:
             adapter = MySQLAdapter(config)
         elif db_type == DatabaseType.POSTGRESQL:
             adapter = PostgreSQLAdapter(config)
@@ -55,6 +51,7 @@ class DatabaseManager:
         """连接到指定数据库"""
         adapter = cls.get_adapter(db_key)
         if not adapter:
+            print(f"❌ 数据库未注册: {db_key}")
             return False
         return await adapter.connect()
 

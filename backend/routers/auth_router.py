@@ -96,14 +96,12 @@ async def register(user_in: UserCreate):
     return new_user
 
 @router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """用户登录（强制使用邮箱登录）"""
-    # OAuth2PasswordRequestForm 的 username 字段在这里将被视为 email
-    email = form_data.username
-    
+async def login(login_data: UserLogin):
+    """用户登录 (JSON 格式)"""
+    print(f"📥 [Login] 收到登录请求: {login_data.username}")
     # 验证用户
-    user = await user_db.get_user_by_email(email)
-    if not user or not verify_password(form_data.password, user["password_hash"]):
+    user = await user_db.get_user_by_email(login_data.username)
+    if not user or not verify_password(login_data.password, user["password_hash"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="邮箱或密码错误",
