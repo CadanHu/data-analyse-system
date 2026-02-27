@@ -31,6 +31,9 @@ frontend.log
 # Local vite config (custom ports)
 frontend/vite.config.local.ts
 
+# Local API config (custom ports)
+frontend/src/api/index.local.ts
+
 # IDE
 .idea
 .vscode
