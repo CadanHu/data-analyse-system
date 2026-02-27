@@ -6,7 +6,12 @@ const CHART_TYPES = [
   { key: 'auto', label: '智能推荐', icon: '🧠' },
   { key: 'bar', label: '柱状图', icon: '📊' },
   { key: 'line', label: '折线图', icon: '📈' },
+  { key: 'area', label: '面积图', icon: '🌊' },
   { key: 'pie', label: '饼图', icon: '🥧' },
+  { key: 'radar', label: '雷达图', icon: '🕸️' },
+  { key: 'scatter', label: '散点图', icon: '✨' },
+  { key: 'funnel', label: '漏斗图', icon: '⏳' },
+  { key: 'gauge', label: '仪表盘', icon: '⏲️' },
   { key: 'table', label: '表格', icon: '📋' }
 ]
 
@@ -121,15 +126,33 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
   const y = numericCols[0] || columns[1] || columns[0];
 
   const base = {
-    title: { text: '分析结果', left: 'center' },
+    title: { text: '分析结果', left: 'center', top: 10 },
     tooltip: { trigger: 'axis' },
+    grid: { top: 60, bottom: 40, left: 60, right: 20 },
     xAxis: { type: 'category', data: rows.map((r: any) => String(r[x])) },
     yAxis: { type: 'value' },
   };
 
-  if (type === 'bar') return { ...base, series: [{ name: y, type: 'bar', data: rows.map((r: any) => r[y]) }] };
-  if (type === 'line') return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true }] };
-  if (type === 'pie') return { title: base.title, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: '60%', data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] })) }] };
+  if (type === 'bar') return { ...base, series: [{ name: y, type: 'bar', data: rows.map((r: any) => r[y]), itemStyle: { borderRadius: [4, 4, 0, 0] } }] };
+  if (type === 'line') return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, symbol: 'circle', symbolSize: 8 }] };
+  if (type === 'area') return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, areaStyle: { opacity: 0.3 } }] };
+  if (type === 'scatter') return { ...base, xAxis: { type: 'value' }, series: [{ type: 'scatter', data: rows.map((r: any) => [r[columns[0]], r[columns[1]]]) }] };
+  if (type === 'pie') return { title: base.title, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['40%', '70%'], avoidLabelOverlap: true, data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] })) }] };
+  if (type === 'radar') {
+    const indicators = numericCols.map((col: string) => ({ name: col, max: Math.max(...rows.map((r: any) => r[col])) * 1.2 }));
+    return {
+      title: base.title,
+      tooltip: {},
+      radar: { indicator: indicators },
+      series: [{
+        type: 'radar',
+        data: rows.slice(0, 3).map((r: any) => ({
+          value: numericCols.map((col: string) => r[col]),
+          name: String(r[x])
+        }))
+      }]
+    };
+  }
   return null;
 }
 

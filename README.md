@@ -6,11 +6,11 @@
 
 ### 双引擎分析逻辑
 - ✅ **智能 SQL 引擎**：基于 SQLAlchemy 驱动，支持 MySQL、PostgreSQL。自动识别 Schema，将自然语言转换为高精度 SQL 语句。
-- ✅ **RAG 知识库增强**：支持上传 PDF/Markdown/TXT，集成 **PyMuPDF** 高效解析与 **ChromaDB** 向量存储，辅助 AI 进行口径对齐与业务指标解读。
+- ✅ **RAG 知识库增强**：支持上传 PDF/Markdown/TXT，集成 **PyMuPDF** 与 **MinerU** 高效解析，配合 **ChromaDB** 向量存储，辅助 AI 进行口径对齐与业务指标解读。
 
 ### 移动端原生体验
 - 📱 **全平台适配**：基于 Capacitor 6 构建，原生支持 **iOS (iPhone)** 与 **Android (Pixel/Samsung)**。
-- 👁️ **Mieru (见得) 视觉方案**：标准 SSE 流式传输，实时展示 DeepSeek R1 推理思维链，让 AI 推理过程透明可见。
+- 👁️ **AI 思考过程可视化**：标准 SSE 流式传输，实时展示 DeepSeek R1 推理思维链，让 AI 推理过程透明可见。
 
 ### 企业级后端架构
 - 🏗️ **统一适配层**：基于 SQLAlchemy 实现跨库通用 Schema 提取与异步查询执行。
@@ -59,6 +59,7 @@ python3 scripts/check_db_env.py
 ---
 
 ## 📝 架构演进
-- **v1.6.0 (2026-02-27)**: 彻底废除 SQLite，全面转向 SQLAlchemy (MySQL/PG)；标准化 SSE 流式协议；目录结构规范化整理。
-- **v1.5.0**: 实现 Android/iOS 移动端适配，引入 Mieru 思考可视化方案。
-- **v1.4.0**: 集成 RAG 知识库功能，支持复杂 PDF 解析。
+- **v1.7.0 (2026-02-27)**: 扩展 15+ 种进阶可视化图表（雷达图、漏斗图等）；引入 AI 驱动的 ECharts 动态配置生成引擎，实现系统自动适配展示类型。
+- **v1.6.0**: 彻底废除 SQLite，全面转向 SQLAlchemy (MySQL/PG)；标准化 SSE 流式协议；目录结构规范化整理。
+- **v1.5.0**: 实现 Android/iOS 移动端适配，引入思考可视化方案。
+- **v1.4.0**: 集成 RAG 知识库功能，支持 **MinerU** 与 **PyMuPDF** 复杂 PDF 解析。

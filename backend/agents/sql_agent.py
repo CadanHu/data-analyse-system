@@ -238,7 +238,17 @@ class SQLAgent:
             if not rows or not columns:
                 return self._get_default_chart_config(chart_type)
 
-            # 智能映射 X/Y 轴
+            # 对于复杂图表，调用 AI 生成配置
+            complex_types = [
+                "area", "scatter", "radar", "funnel", "gauge", "heatmap", 
+                "treemap", "sankey", "boxplot", "waterfall", "candlestick"
+            ]
+            if chart_type in complex_types:
+                ai_config = await self._generate_complex_chart_config(sql_result, chart_type)
+                if ai_config:
+                    return ai_config
+
+            # 智能映射 X/Y 轴 (基础图表回退方案)
             x_axis = viz_config.get("x") if viz_config.get("x") in columns else None
             y_axis = viz_config.get("y") if viz_config.get("y") in columns else None
 
@@ -261,14 +271,25 @@ class SQLAgent:
                     "yAxis": {"type": "value"},
                     "series": [{"name": y_axis, "type": "bar", "data": [row[y_axis] for row in rows], "itemStyle": {"borderRadius": [4, 4, 0, 0]}}]
                 }
-            elif chart_type == "line":
+            elif chart_type == "line" or chart_type == "area":
+                series_config = {
+                    "name": y_axis, 
+                    "type": "line", 
+                    "data": [row[y_axis] for row in rows], 
+                    "smooth": True, 
+                    "symbol": "circle", 
+                    "symbolSize": 8
+                }
+                if chart_type == "area":
+                    series_config["areaStyle"] = {"opacity": 0.3}
+                
                 return {
                     "title": {"text": title, "left": "center", "top": 10},
                     "tooltip": {"trigger": "axis"},
                     "grid": {"top": 60, "bottom": 40, "left": 60, "right": 20},
                     "xAxis": {"type": "category", "data": [str(row[x_axis]) for row in rows]},
                     "yAxis": {"type": "value"},
-                    "series": [{"name": y_axis, "type": "line", "data": [row[y_axis] for row in rows], "smooth": True, "symbol": "circle", "symbolSize": 8}]
+                    "series": [series_config]
                 }
             elif chart_type == "pie":
                 return {
@@ -288,6 +309,30 @@ class SQLAgent:
         except Exception as e:
             print(f"❌ 图表生成错误: {str(e)}")
             return self._get_default_chart_config(chart_type)
+
+    async def _generate_complex_chart_config(self, sql_result: Dict[str, Any], chart_type: str) -> Optional[Dict[str, Any]]:
+        """调用 AI 生成复杂图表的 ECharts 配置"""
+        try:
+            prompt = CHART_CONFIG_PROMPT.format(
+                sql_result=json.dumps(sql_result, ensure_ascii=False, indent=2),
+                chart_type=chart_type
+            )
+            messages = [
+                {"role": "system", "content": "你是一个专业的数据可视化专家，擅长使用 ECharts。"},
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = await self._chat_completion(messages, temperature=0.2)
+            
+            # 提取 JSON
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                config = json.loads(json_match.group(0))
+                return config
+            return None
+        except Exception as e:
+            print(f"❌ AI 复杂图表生成失败: {str(e)}")
+            return None
 
     def _get_default_chart_config(self, chart_type: str) -> Dict[str, Any]:
         return {

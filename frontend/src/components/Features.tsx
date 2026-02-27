@@ -29,8 +29,8 @@ const features: Feature[] = [
   },
   {
     id: 2,
-    title: '实时数据可视化',
-    description: '支持多种图表类型，实时展示数据分析结果，让数据洞察一目了然。',
+    title: '进阶多维可视化',
+    description: '支持 15+ 种专业图表类型，系统根据数据特征自动选择最佳展示方案。',
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -38,10 +38,10 @@ const features: Feature[] = [
     ),
     category: '核心功能',
     details: [
-      '多种图表类型：柱状图、折线图、饼图、散点图、表格等',
-      '智能推荐：AI 根据数据类型自动推荐最佳图表',
-      '交互式操作：支持缩放、筛选、排序等交互',
-      '导出功能：支持导出为 PNG、SVG、CSV 等格式'
+      '丰富图表库：雷达图、漏斗图、桑基图、热力图、甘特图等',
+      '自动适配引擎：AI 识别数据意图，秒级生成 ECharts 动态配置',
+      '交互式深度分析：支持多指标对比、趋势预测与相关性分析',
+      '自适应布局：图表完美适配移动端与大屏展示'
     ]
   },
   {

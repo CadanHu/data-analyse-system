@@ -20,10 +20,11 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 必须返回合法的 JSON 格式，不要包含任何其他文字：
 {{
   "sql": "SELECT ...",
-  "chart_type": "bar|line|pie|card|table",
+  "chart_type": "bar|line|pie|card|table|area|scatter|radar|funnel|gauge|heatmap|treemap|sankey|boxplot|waterfall|candlestick",
   "viz_config": {{
     "x": "x轴字段名",
     "y": "y轴字段名/数值字段名",
+    "y_multi": ["y1", "y2"],
     "title": "图表标题",
     "goal": "分析目标描述"
   }},
@@ -34,8 +35,19 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 可视化选择准则：
 - **card**: 当结果只有【单行单列】（如：总数、平均值、单一百分比）时，必须选择 card。
 - **line**: 当 X 轴涉及【时间、日期、月份、年份】时，优先选择 line。
-- **pie**: 当需要展示【占比、构成、分类分布】且分类数量 < 10 时，选择 pie。
-- **bar**: 当进行【项目对比、排名】时，选择 bar。
+- **area**: 用于展示随时间变化的【累计收入】或总量趋势。
+- **bar**: 当进行【项目对比、排名、各地区对比】时，选择 bar。
+- **pie**: 当需要展示【占比、构成、分类分布、市场份额】且分类数量 < 10 时，选择 pie。
+- **radar**: 用于【多维度产品/指标对比】。
+- **scatter**: 用于分析【分布与相关性】（如广告投入 vs 转化率）。
+- **heatmap**: 用于展示【数据密度、用户行为热区或相关性矩阵】。
+- **funnel**: 用于展示【用户转化漏斗、流程损耗】。
+- **gauge**: 用于展示【目标达成率、关键指标进度】。
+- **treemap**: 用于展示【复杂层级结构、产品类目占比】。
+- **sankey**: 用于展示【流量来源、流失路径、资金流向】。
+- **boxplot**: 用于展示【数据离散程度、异常值分布】。
+- **waterfall**: 用于展示【利润构成分析、变动因素分解】。
+- **candlestick**: 用于展示【股价波动、价格区间】。
 - **table**: 当数据列数过多 (>4列) 或不符合上述特征时，选择 table。
 
 请根据用户的问题生成正确的 SQL 查询。
@@ -136,10 +148,27 @@ CHART_CONFIG_PROMPT = """你是一个专业的数据可视化专家，需要根�
 【查询结果】
 {sql_result}
 
-【图表类型】
+【建议图表类型】
 {chart_type}
 
 【输出要求】
-返回合法的 ECharts option JSON 配置，只包含 JSON，不要有其他文字。
-确保配置可以直接用于 ECharts 渲染。
+返回合法的 ECharts option JSON 配置，只包含 JSON 内容，不要包含 ```json 等 Markdown 标记，也不要有其他任何文字。
+确保配置可以直接用于 ECharts 渲染，符合以下美学与交互标准：
+1. **通用配置**：
+   - 标题：居中显示 `title: {{ text: "...", left: "center" }}`
+   - 提示框：开启 `tooltip: {{ trigger: "axis" }}` (饼图/漏斗图设为 "item")
+   - 调色盘：使用清新专业的配色方案。
+2. **趋势类 (line/area/candlestick)**：
+   - 折线图：`smooth: true`, `symbol: "circle"`, `symbolSize: 8`
+   - 面积图：在 line 基础上添加 `areaStyle: {{ opacity: 0.3 }}`
+3. **比较类 (bar/radar/gauge)**：
+   - 柱状图：`itemStyle: {{ borderRadius: [4, 4, 0, 0] }}`, 较多数据时开启 `dataZoom`
+   - 雷达图：需定义 `radar: {{ indicator: [...] }}`
+4. **占比类 (pie/treemap/sankey)**：
+   - 饼图/环形图：`radius: ["40%", "70%"]`, `avoidLabelOverlap: true`
+   - 漏斗图：`sort: "descending"`
+5. **地理与空间**：使用 `heatmap` 或 `scatter` 配合坐标转换。
+6. **KPI 指标**：仪表盘 `gauge` 或 进度条。
+
+请严格根据【查询结果】中的数据字段映射到 ECharts 的 series 中。
 """
