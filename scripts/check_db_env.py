@@ -18,9 +18,7 @@ except ImportError as e:
     sys.exit(1)
 
 async def check_env():
-    print("
-🔍 正在检查数据库环境...
-")
+    print("\n🔍 正在检查数据库环境...\n")
     
     # 1. 检查会话数据库 (MySQL)
     print(f"📡 正在测试会话数据库连接: {MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_SESSION_DATABASE}")
@@ -32,8 +30,7 @@ async def check_env():
         print("   请检查 .env 中的 MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD 是否正确。")
 
     # 2. 检查多数据库配置
-    print(f"
-📚 正在检查业务数据库配置 ({len(DATABASES)} 个):")
+    print(f"\n📚 正在检查业务数据库配置 ({len(DATABASES)} 个):")
     for key, config in DATABASES.items():
         db_type = config.get("type")
         db_name = config.get("name")
@@ -52,8 +49,7 @@ async def check_env():
         except Exception as e:
             print(f"❌ 出错: {str(e)}")
 
-    print("
-✨ 环境检查完成。")
+    print("\n✨ 环境检查完成。")
 
 if __name__ == "__main__":
     asyncio.run(check_env())
