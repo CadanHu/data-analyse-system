@@ -33,14 +33,9 @@ export const getBaseURL = () => {
     }
 
     // --- 优先级 3: 浏览器网页环境 (使用 Vite 代理) ---
-    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      return '/api';
-    }
-    
-    // 生产环境相对路径
-    if (origin.startsWith('http')) {
-      return '/api';
-    }
+    // 网页端返回 /api，axios 会将其作为所有请求的前缀
+    // 请求 api.post('/auth/login') 将变为 /api/auth/login，完美匹配 Vite 代理
+    return '/api';
   }
   return '/api';
 }

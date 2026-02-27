@@ -11,10 +11,20 @@ class VectorStore:
 
     def __init__(self, persist_dir: str = "backend/data/vector_db"):
         self.persist_dir = persist_dir
-        # 使用本地嵌入模型，无需 API Key
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
+        # 配置 HuggingFace 镜像，防止连接超时导致启动阻塞
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        
+        try:
+            print("⏳ [VectorStore] 正在加载嵌入模型...")
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cpu'}
+            )
+            print("✅ [VectorStore] 嵌入模型加载成功")
+        except Exception as e:
+            print(f"⚠️ [VectorStore] 嵌入模型加载失败 (将影响 RAG 功能): {str(e)}")
+            self.embeddings = None
+
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=100
@@ -23,6 +33,10 @@ class VectorStore:
 
     def initialize(self):
         """初始化或加载现有的向量库"""
+        if not self.embeddings:
+            print("❌ [VectorStore] 无法初始化向量库：嵌入模型未就绪")
+            return
+
         if not os.path.exists(self.persist_dir):
             os.makedirs(self.persist_dir)
         
