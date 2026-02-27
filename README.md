@@ -20,12 +20,12 @@
 
 ### 移动端原生体验
 - 📱 **全平台适配**：基于 Capacitor 6 构建，原生支持 **iOS (iPhone)** 与 **Android (Pixel/Samsung)**。
-- 👁️ **AI 思考过程可视化**：标准 SSE 流式传输，实时展示 DeepSeek R1 推理思维链，让 AI 推理过程透明可见。
+- 👁️ **AI 思考过程可视化**：标准 Streamable HTTP 流式传输，实时展示 DeepSeek R1 推理思维链，让 AI 推理过程透明可见。
 
 ### 企业级后端架构
 - 🏗️ **统一适配层**：基于 SQLAlchemy 实现跨库通用 Schema 提取与异步查询执行。
 - 🔒 **用户认证系统**：完整的 JWT 注册、登录、Token 验证流程，支持多用户数据隔离。
-- ⚡ **性能优化**：异步 FastAPI 架构，结合标准 Event-Stream 协议，确保秒级响应。
+- ⚡ **性能优化**：异步 FastAPI 架构，结合标准 Streamable HTTP 协议，确保秒级响应。
 
 ---
 
