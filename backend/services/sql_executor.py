@@ -2,6 +2,7 @@
 SQL 执行服务
 """
 import asyncio
+import re
 from typing import List, Dict, Any, Optional
 from config import MAX_SQL_EXECUTION_TIME
 from services.schema_service import SchemaService
@@ -13,9 +14,11 @@ class SQLExecutor:
     def validate_sql(sql: str) -> tuple[bool, Optional[str]]:
         sql_lower = sql.strip().lower()
         
+        # 使用正则表达式确保关键字是独立的单词，避免误伤 created_at 等字段
         forbidden_keywords = ['insert', 'update', 'delete', 'drop', 'alter', 'create', 'truncate', 'replace']
         for keyword in forbidden_keywords:
-            if keyword in sql_lower:
+            pattern = rf'\b{keyword}\b'
+            if re.search(pattern, sql_lower):
                 return False, f"禁止使用 {keyword.upper()} 操作，只允许 SELECT/SHOW 查询"
         
         allowed_prefixes = ['select', 'show tables', 'show columns', 'describe', 'desc']

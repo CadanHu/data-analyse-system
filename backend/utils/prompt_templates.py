@@ -52,11 +52,12 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 
 请根据用户的问题生成正确的 SQL 查询。
 
-重要规则：
-1. 只允许使用 SELECT 语句，禁止使用 INSERT、UPDATE、DELETE、DROP、CREATE、ALTER 等修改操作
-2. "数据库信息"中的 CREATE TABLE 只是告诉你表结构，不是让你重新创建表
-3. 如果要查询有哪些表，{table_list_query}
-4. 如果表名或列名是 SQL 关键字（如 Order、Group、Select 等），请用{quote_char}将它们括起来
+重要规则 (绝对禁止违反)：
+1. 只允许生成 SELECT 语句进行数据查询。
+2. **严禁**使用 DROP, DELETE, TRUNCATE, UPDATE, INSERT, ALTER 等任何修改数据库结构或数据的语句。
+3. 如果你认为需要创建临时表，请改用子查询 (Subquery) 或 Common Table Expressions (WITH 语句) 来实现。
+4. "数据库信息"中的 CREATE TABLE 语句仅用于参考结构，不要在输出的 SQL 中包含它们。
+5. 如果表名或列名是 SQL 关键字，请务必使用{quote_char}进行转义。
 5. **重要（关于窗口函数）**：
    - 如果数据库是 MySQL 且版本低于 8.0（如 5.7），**严禁使用** LAG, LEAD, RANK, OVER 等窗口函数。请改用子查询或自连接来实现。
    - 如果数据库是 SQLite，确保使用的语法与 SQLite 兼容。

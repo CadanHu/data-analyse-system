@@ -410,14 +410,20 @@ class SQLAgent:
             return
 
         execution_question = question
+        last_error = ""
         if is_executing_after_plan:
-            execution_question = f"根据你刚才提出的分析方案，请立即生成最终的 SQL 语句并执行查询。不要再次确认，直接开始分析。当前指令：{question}"
+            execution_question = f"根据你刚才提出的分析方案，请立即生成最终的 SELECT SQL 语句并执行查询。严禁使用 DROP/CREATE 等操作。当前指令：{question}"
 
         for attempt in range(MAX_RETRY_COUNT + 1):
             try:
+                # 如果是重试，将错误信息加入上下文
+                current_question = execution_question
+                if last_error:
+                    current_question = f"你上一次生成的 SQL 执行失败了，错误信息是：{last_error}。请修正 SQL 并重新生成。只允许 SELECT 语句。原始指令：{execution_question}"
+
                 full_reasoning = ""
                 sql_response = None
-                async for stream_event in self.generate_sql_stream(execution_question, schema, history_str, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char):
+                async for stream_event in self.generate_sql_stream(current_question, schema, history_str, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char):
                     if stream_event["type"] == "reasoning":
                         full_reasoning += stream_event["content"]
                         yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
@@ -455,9 +461,8 @@ class SQLAgent:
                 break
 
             except Exception as e:
-                print(f"❌ [Agent] SQL 执行尝试 {attempt + 1} 失败: {str(e)}")
-                import traceback
-                traceback.print_exc()
+                last_error = str(e)
+                print(f"❌ [Agent] SQL 执行尝试 {attempt + 1} 失败: {last_error}")
                 if attempt >= MAX_RETRY_COUNT:
-                    yield {"event": "error", "data": {"message": f"分析失败: {str(e)}"}}
+                    yield {"event": "error", "data": {"message": f"分析失败: {last_error}"}}
                     return
