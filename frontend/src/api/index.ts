@@ -4,42 +4,42 @@ import { useAuthStore } from '@/stores/authStore'
 
 // 动态获取 API 基础路径
 export const getBaseURL = () => {
-  // --- 优先级 1: 如果手动指定了后端地址 (通过浏览器控制台设置 window.BACKEND_URL = 'http://192.168.x.x:8000') ---
+  // --- 优先级 1: 手动注入 ---
   if (typeof window !== 'undefined' && (window as any).BACKEND_URL) {
     return (window as any).BACKEND_URL + '/api';
   }
 
-  // --- 优先级 2: 这里请修改为您的电脑在局域网中的真实 IP 地址 ---
-  // 例如：'http://192.168.31.100:8000/api'
-  const DEV_HOST_IP = 'http://192.168.1.100'; // <--- 您可以在这里改一下
-
   if (typeof window !== 'undefined') {
     const origin = window.location.origin;
     
-    // 1. 如果是标准的 Web 开发环境或生产环境相对路径
-    if (origin.startsWith('http') && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
-      return '/api'
-    }
-    
-    // 2. 识别是否在 Capacitor 容器内运行
-    const isCapacitor = origin.includes('localhost') || origin.startsWith('capacitor') || origin.startsWith('http://10.0.2.2');
+    // --- 优先级 2: 显式识别 Capacitor (App 环境) ---
+    // @ts-ignore
+    const isCapacitor = window.Capacitor || origin.startsWith('capacitor') || origin.startsWith('http://10.0.2.2');
     
     if (isCapacitor) {
-      // 3. 识别 Android
+      // Android
       if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
-        // 如果是模拟器，使用 10.0.2.2
         const isEmulator = /sdk|google/i.test(navigator.userAgent);
-        if (isEmulator) {
-          return 'http://10.0.2.2:8000/api';
-        }
-        // 如果是真机通过 USB 连接，配合 `adb reverse tcp:8000 tcp:8000` 使用 localhost
-        console.log('[API] Android Real Device via USB detected');
+        if (isEmulator) return 'http://10.0.2.2:8000/api';
+        // 真机 USB 调试 (adb reverse tcp:8000 tcp:8000)
         return 'http://localhost:8000/api';
       }
-      // 4. iOS 模拟器/真机
+      // iOS
       if (typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
         return 'http://localhost:8000/api';
       }
+      // Capacitor 默认
+      return 'http://localhost:8000/api';
+    }
+
+    // --- 优先级 3: 浏览器网页环境 (使用 Vite 代理) ---
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return '/api';
+    }
+    
+    // 生产环境相对路径
+    if (origin.startsWith('http')) {
+      return '/api';
     }
   }
   return '/api';
