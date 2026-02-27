@@ -159,11 +159,11 @@ export default function App() {
                       </svg>
                     </button>
 
-                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm landscape:h-10" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm landscape:h-auto" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
                       <div className="flex pl-12 landscape:pl-16">
                         <button
                           onClick={() => setActiveTab('sessions')}
-                          className={`flex-1 px-4 py-3 landscape:py-2 text-sm landscape:text-xs font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-1.5 text-sm landscape:text-[10px] font-medium transition-all ${
                             activeTab === 'sessions'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -173,7 +173,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setActiveTab('chat')}
-                          className={`flex-1 px-4 py-3 landscape:py-2 text-sm landscape:text-xs font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-1.5 text-sm landscape:text-[10px] font-medium transition-all ${
                             activeTab === 'chat'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -183,7 +183,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setActiveTab('charts')}
-                          className={`flex-1 px-4 py-3 landscape:py-2 text-sm landscape:text-xs font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-1.5 text-sm landscape:text-[10px] font-medium transition-all ${
                             activeTab === 'charts'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'

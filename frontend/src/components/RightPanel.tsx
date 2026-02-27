@@ -174,12 +174,12 @@ export default function RightPanel() {
   const displayConfig = useMemo(() => {
     if (!currentSqlResult) return null
     
-    // 如果用户手动切换了类型，则覆盖 AI 的建议
+    // 目标类型：如果用户选了 auto，则用 AI 建议；否则用用户选的
     const targetType = activeType === 'auto' ? (currentChartType || 'table') : activeType
     
     if (targetType === 'table') return { type: 'table' }
     
-    // 如果是 card 模式（AI 建议或者是单行单列）
+    // 如果是 card 模式
     if (targetType === 'card' || (currentSqlResult.rows.length === 1 && currentSqlResult.columns.length === 1)) {
       const col = currentSqlResult.columns[0]
       return {
@@ -189,11 +189,24 @@ export default function RightPanel() {
       }
     }
 
-    return { type: 'chart', option: currentChartOption }
+    // 关键逻辑：如果用户手动切换了类型，且该类型与 AI 建议的类型不同，则必须走 fallback 生成逻辑
+    // 只有在 activeType === 'auto' 且有 currentChartOption 时才使用 AI 的原始配置
+    if (activeType === 'auto' && currentChartOption) {
+      return { type: 'chart', option: currentChartOption }
+    }
+
+    // 否则，基于当前 SQL 结果手动生成对应类型的配置
+    const generatedOption = fallbackGenerateChart(currentSqlResult, targetType)
+    return { type: 'chart', option: generatedOption }
   }, [currentSqlResult, currentChartOption, currentChartType, activeType])
 
   const renderInnerContent = () => {
-    if (!displayConfig) return <div className="p-8 text-center text-gray-400">暂无分析数据</div>
+    if (!displayConfig) return (
+      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4">
+        <div className="text-4xl opacity-20">📊</div>
+        <p className="text-sm font-medium">暂无分析数据</p>
+      </div>
+    )
 
     switch (displayConfig.type) {
       case 'card':
@@ -201,43 +214,46 @@ export default function RightPanel() {
       case 'table':
         return <DataTable sqlResult={currentSqlResult} onExportCsv={() => {}} />
       case 'chart':
-        // 优先使用 AI 生成的 option，如果没有或类型不匹配，则尝试自动生成
-        const finalOption = displayConfig.option || fallbackGenerateChart(currentSqlResult, activeType === 'auto' ? (currentChartType || 'bar') : activeType)
-        return finalOption ? <EChartsRenderer option={finalOption} /> : <div className="p-8 text-center text-gray-400">该数据格式不适合展示为{activeType}</div>
+        return displayConfig.option 
+          ? <EChartsRenderer option={displayConfig.option} /> 
+          : <div className="p-8 text-center text-gray-400">该数据格式不适合展示为 {activeType}</div>
       default:
         return null
     }
   }
 
   return (
-    <div className="flex-none flex flex-col h-full bg-gradient-to-br from-[#f8f9fa] to-white">
+    <div className="flex-none flex flex-col h-full bg-gradient-to-br from-[#f8f9fa] to-white overflow-hidden">
       {/* 顶部控制栏 */}
-      <div className="p-4 border-b border-white/30">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-800 tracking-tight">数据透视</h2>
-          <div className="flex gap-2">
-            <button onClick={() => setFullScreen(!isFullScreen)} className="p-2 bg-white/80 rounded-xl border border-white shadow-sm hover:bg-white transition-all">
+      <div className="p-3 sm:p-4 border-b border-white/30 flex-none">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg sm:text-xl font-bold text-gray-800 tracking-tight truncate mr-2">数据透视</h2>
+          <div className="flex gap-1.5 sm:gap-2 flex-none">
+            <button onClick={() => setFullScreen(!isFullScreen)} className="p-1.5 sm:p-2 bg-white/80 rounded-xl border border-white shadow-sm hover:bg-white transition-all text-sm">
               {isFullScreen ? '↙️' : '⛶'}
             </button>
-            <button onClick={() => setRightPanelVisible(false)} className="p-2 bg-white/80 rounded-xl border border-white shadow-sm text-gray-400">✕</button>
+            <button onClick={() => setRightPanelVisible(false)} className="p-1.5 sm:p-2 bg-white/80 rounded-xl border border-white shadow-sm text-gray-400 hover:text-gray-600 transition-all text-sm">✕</button>
           </div>
         </div>
 
-        <div className="flex gap-1.5 p-1.5 bg-gray-100/50 rounded-2xl">
-          {CHART_TYPES.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setActiveType(t.key)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-semibold transition-all ${
-                activeType === t.key 
-                  ? 'bg-white text-gray-800 shadow-sm' 
-                  : 'text-gray-400 hover:text-gray-600'
-              }`}
-            >
-              <span>{t.icon}</span>
-              <span className="hidden sm:inline">{t.label}</span>
-            </button>
-          ))}
+        {/* 优化的图表类型选择器：支持横向滚动，防止窄屏挤压 */}
+        <div className="overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
+          <div className="flex gap-1 p-1 bg-gray-100/50 rounded-2xl w-max min-w-full">
+            {CHART_TYPES.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setActiveType(t.key)}
+                className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all whitespace-nowrap ${
+                  activeType === t.key 
+                    ? 'bg-white text-gray-800 shadow-sm border-white' 
+                    : 'text-gray-400 hover:text-gray-600 border-transparent'
+                } border`}
+              >
+                <span className="text-base">{t.icon}</span>
+                <span className="hidden lg:inline">{t.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
