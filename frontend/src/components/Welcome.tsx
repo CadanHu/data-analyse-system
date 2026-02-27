@@ -154,9 +154,9 @@ export default function Welcome() {
                     <div className="absolute top-0 right-0 p-2 opacity-20">🧠</div>
                     <div className="text-[10px] text-[#3b82f6] mb-2 uppercase font-black tracking-widest">DeepSeek R1 Thinking</div>
                     <div className="text-[10px] text-gray-400 font-mono leading-relaxed space-y-1">
-                      <p className="animate-pulse">>> 正在提取多维指标 (Profit, Growth)...</p>
-                      <p className="opacity-60">>> 自动识别最佳图表: 雷达图 (Radar)...</p>
-                      <p className="opacity-40">>> 生成趋势预测曲线...</p>
+                      <p className="animate-pulse">&gt;&gt; 正在提取多维指标 (Profit, Growth)...</p>
+                      <p className="opacity-60">&gt;&gt; 自动识别最佳图表: 雷达图 (Radar)...</p>
+                      <p className="opacity-40">&gt;&gt; 生成趋势预测曲线...</p>
                     </div>
                   </div>
                 </div>
