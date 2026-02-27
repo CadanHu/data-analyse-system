@@ -90,11 +90,11 @@ export default function Welcome() {
             </div>
             <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">DataPulse AI</span>
           </div>
-          <div className="flex items-center gap-4 md:gap-8 text-sm">
-            <Link to="/features" className="text-gray-400 hover:text-white transition-colors hidden md:block font-medium">功能</Link>
-            <Link to="/tutorial" className="text-gray-400 hover:text-white transition-colors hidden md:block font-medium">教程</Link>
-            <Link to="/about" className="text-gray-400 hover:text-white transition-colors hidden md:block font-medium">关于</Link>
-            <button onClick={() => navigate('/login')} className="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-xl hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all active:scale-95">
+          <div className="flex items-center gap-4 sm:gap-8 text-sm">
+            <Link to="/features" className="text-gray-400 hover:text-white transition-colors font-medium">功能</Link>
+            <Link to="/tutorial" className="text-gray-400 hover:text-white transition-colors font-medium">教程</Link>
+            <Link to="/about" className="text-gray-400 hover:text-white transition-colors font-medium">关于</Link>
+            <button onClick={() => navigate('/login')} className="px-4 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-xl hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all active:scale-95">
               进入应用
             </button>
           </div>
