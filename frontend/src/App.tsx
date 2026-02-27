@@ -230,6 +230,8 @@ export default function App() {
                   </div>
                 ) : (
                   <ResizableSplit
+                    defaultLeftWidth={180}
+                    minLeftWidth={150}
                     left={
                       <div className="h-full bg-gradient-to-br from-[#E6E6FA]/40 to-[#BFFFD9]/30 backdrop-blur-md border-r border-white/40">
                         <SessionList

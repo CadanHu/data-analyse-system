@@ -4,15 +4,23 @@ import { useChatStore } from '../stores/chatStore'
 
 const CHART_TYPES = [
   { key: 'auto', label: '智能推荐', icon: '🧠' },
-  { key: 'bar', label: '柱状图', icon: '📊' },
   { key: 'line', label: '折线图', icon: '📈' },
   { key: 'area', label: '面积图', icon: '🌊' },
-  { key: 'pie', label: '饼图', icon: '🥧' },
+  { key: 'bar', label: '柱状/条形', icon: '📊' },
+  { key: 'pie', label: '饼图/环形', icon: '🥧' },
+  { key: 'scatter', label: '散点/气泡', icon: '✨' },
   { key: 'radar', label: '雷达图', icon: '🕸️' },
-  { key: 'scatter', label: '散点图', icon: '✨' },
   { key: 'funnel', label: '漏斗图', icon: '⏳' },
   { key: 'gauge', label: '仪表盘', icon: '⏲️' },
-  { key: 'table', label: '表格', icon: '📋' }
+  { key: 'candlestick', label: '蜡烛图', icon: '🕯️' },
+  { key: 'heatmap', label: '热力图', icon: '🔥' },
+  { key: 'treemap', label: '树状图', icon: '🌳' },
+  { key: 'sankey', label: '桑基图', icon: '🔀' },
+  { key: 'boxplot', label: '箱线图', icon: '📦' },
+  { key: 'waterfall', label: '瀑布图', icon: '⛲' },
+  { key: 'map', label: '地理地图', icon: '🗺️' },
+  { key: 'gantt', label: '甘特图', icon: '📅' },
+  { key: 'table', label: '原始表格', icon: '📋' }
 ]
 
 /**
@@ -25,7 +33,7 @@ function MetricCard({ value, label, unit }: { value: any; label: string; unit?: 
     : value;
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-gradient-to-br from-white/80 to-[#BFFFD9]/20 backdrop-blur-md rounded-3xl border border-white/50 shadow-[0_8px_32px_rgba(191,255,217,0.15)]">
+    <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-gradient-to-br from-white/80 to-[#BFFFD9]/20 backdrop-blur-md rounded-3xl border border-white/50 shadow-[0_8px_32px_rgba(191,255,217,0.15)] min-h-[300px]">
       <div className="text-gray-400 text-sm font-medium mb-2 uppercase tracking-widest">{label}</div>
       <div className="flex items-baseline gap-1">
         <span className="text-5xl md:text-6xl font-black bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
@@ -224,57 +232,60 @@ export default function RightPanel() {
 
   return (
     <div className="flex-none flex flex-col h-full bg-gradient-to-br from-[#f8f9fa] to-white overflow-hidden">
-      {/* 顶部控制栏 */}
-      <div className="p-3 sm:p-4 border-b border-white/30 flex-none">
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg sm:text-xl font-bold text-gray-800 tracking-tight truncate mr-2">数据透视</h2>
-          <div className="flex gap-1.5 sm:gap-2 flex-none">
-            <button onClick={() => setFullScreen(!isFullScreen)} className="p-1.5 sm:p-2 bg-white/80 rounded-xl border border-white shadow-sm hover:bg-white transition-all text-sm">
-              {isFullScreen ? '↙️' : '⛶'}
-            </button>
-            <button onClick={() => setRightPanelVisible(false)} className="p-1.5 sm:p-2 bg-white/80 rounded-xl border border-white shadow-sm text-gray-400 hover:text-gray-600 transition-all text-sm">✕</button>
-          </div>
-        </div>
-
-        {/* 优化的图表类型选择器：弹性换行适配，确保所有宽度下按钮都可见 */}
-        <div className="p-1.5 bg-gray-100/50 rounded-2xl">
-          <div className="flex flex-wrap gap-1.5 justify-start">
-            {CHART_TYPES.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setActiveType(t.key)}
-                className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all ${
-                  activeType === t.key 
-                    ? 'bg-white text-gray-800 shadow-sm border-white' 
-                    : 'text-gray-400 hover:text-gray-600 border-transparent'
-                } border`}
-              >
-                <span className="text-base">{t.icon}</span>
-                <span className={`${activeType === t.key ? 'inline' : 'hidden'} md:inline`}>{t.label}</span>
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {/* 顶部控制栏 */}
+        <div className="p-3 sm:p-4 border-b border-white/30">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg sm:text-xl font-bold text-gray-800 tracking-tight truncate mr-2">数据透视</h2>
+            <div className="flex gap-1.5 sm:gap-2 flex-none">
+              <button onClick={() => setFullScreen(!isFullScreen)} className="p-1.5 sm:p-2 bg-white/80 rounded-xl border border-white shadow-sm hover:bg-white transition-all text-sm">
+                {isFullScreen ? '↙️' : '⛶'}
               </button>
-            ))}
+              <button onClick={() => setRightPanelVisible(false)} className="p-1.5 sm:p-2 bg-white/80 rounded-xl border border-white shadow-sm text-gray-400 hover:text-gray-600 transition-all text-sm">✕</button>
+            </div>
+          </div>
+
+          {/* 优化的图表类型选择器：网格布局 + 自动换行，确保所有按钮都可见 */}
+          <div className="p-1.5 bg-gray-100/50 rounded-2xl">
+            <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-3 gap-1.5">
+              {CHART_TYPES.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setActiveType(t.key)}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-[10px] font-semibold transition-all ${
+                    activeType === t.key 
+                      ? 'bg-white text-gray-800 shadow-sm border-white' 
+                      : 'text-gray-400 hover:text-gray-600 border-transparent'
+                  } border`}
+                >
+                  <span className="text-sm">{t.icon}</span>
+                  <span className="truncate">{t.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* SQL 查看器 (默认收起) */}
-      {currentSql && (
-        <details className="mx-4 mt-4 group">
-          <summary className="cursor-pointer list-none flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors">
-            <span className="group-open:rotate-90 transition-transform">▶</span> 执行的 SQL
-          </summary>
-          <pre className="mt-2 p-4 bg-gray-900 rounded-2xl text-[11px] text-emerald-400 font-mono overflow-auto border border-white/10 shadow-inner">
-            {currentSql}
-          </pre>
-        </details>
-      )}
+        {/* SQL 查看器 (默认收起) */}
+        {currentSql && (
+          <details className="mx-4 mt-4 group">
+            <summary className="cursor-pointer list-none flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors">
+              <span className="group-open:rotate-90 transition-transform">▶</span> 执行的 SQL
+            </summary>
+            <pre className="mt-2 p-4 bg-gray-900 rounded-2xl text-[11px] text-emerald-400 font-mono overflow-auto border border-white/10 shadow-inner">
+              {currentSql}
+            </pre>
+          </details>
+        )}
 
-      {/* 主画布 */}
-      <div className="flex-1 p-4 min-h-0 overflow-hidden">
-        <div className="w-full h-full rounded-[2rem] overflow-hidden">
-          {renderInnerContent()}
+        {/* 主画布 */}
+        <div className="p-4 min-h-[400px]">
+          <div className="w-full h-full rounded-[2rem] overflow-hidden">
+            {renderInnerContent()}
+          </div>
         </div>
       </div>
     </div>
+  )
   )
 }
