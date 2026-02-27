@@ -287,5 +287,4 @@ export default function RightPanel() {
       </div>
     </div>
   )
-  )
 }
