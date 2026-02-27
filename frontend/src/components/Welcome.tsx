@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useTranslation } from '../hooks/useTranslation'
+import LanguageSwitcher from './LanguageSwitcher'
 
 export default function Welcome() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const navigate = useNavigate()
   const [scrolled, setScrolled] = useState(false)
+  const { t } = useTranslation()
 
   // 粒子背景动画
   useEffect(() => {
@@ -90,13 +93,16 @@ export default function Welcome() {
             </div>
             <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">DataPulse AI</span>
           </div>
-          <div className="flex items-center gap-4 sm:gap-8 text-sm">
-            <Link to="/features" className="text-gray-400 hover:text-white transition-colors font-medium">功能</Link>
-            <Link to="/tutorial" className="text-gray-400 hover:text-white transition-colors font-medium">教程</Link>
-            <Link to="/about" className="text-gray-400 hover:text-white transition-colors font-medium">关于</Link>
-            <button onClick={() => navigate('/login')} className="px-4 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-xl hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all active:scale-95">
-              进入应用
-            </button>
+          <div className="flex items-center gap-3 sm:gap-6">
+            <LanguageSwitcher className="hidden sm:flex" />
+            <div className="flex items-center gap-4 sm:gap-6 text-sm">
+              <Link to="/features" className="text-gray-400 hover:text-white transition-colors font-medium">{t('nav.features')}</Link>
+              <Link to="/tutorial" className="text-gray-400 hover:text-white transition-colors font-medium">{t('nav.tutorial')}</Link>
+              <Link to="/about" className="text-gray-400 hover:text-white transition-colors font-medium">{t('nav.about')}</Link>
+              <button onClick={() => navigate('/login')} className="px-4 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-xl hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] transition-all active:scale-95">
+                {t('nav.enterApp')}
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -106,27 +112,26 @@ export default function Welcome() {
         <div className="max-w-5xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-[#06d6a0] font-mono mb-10 opacity-0 animate-[fadeInUp_0.8s_ease-out_forwards]">
             <span className="w-2 h-2 rounded-full bg-[#06d6a0] animate-pulse" />
-            V1.7.0 · 进阶多维可视化与 AI 自动适配已就绪
+            {t('welcome.version')}
           </div>
 
           <h1 className="text-6xl md:text-8xl font-black leading-[1.1] mb-8 tracking-tighter opacity-0 animate-[fadeInUp_0.8s_ease-out_0.1s_forwards]">
-            对话即<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#3b82f6] via-[#06d6a0] to-[#3b82f6] bg-[length:200%_auto] animate-gradient-flow">洞察</span>
+            {t('welcome.title1')}<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#3b82f6] via-[#06d6a0] to-[#3b82f6] bg-[length:200%_auto] animate-gradient-flow">{t('welcome.title2')}</span>
             <br />
-            全场景数据分析引擎
+            {t('welcome.dashboardTitle')}
           </h1>
 
           <p className="text-xl text-gray-400 max-w-2xl mx-auto mb-12 leading-relaxed font-light opacity-0 animate-[fadeInUp_0.8s_ease-out_0.2s_forwards]">
-            基于 DeepSeek R1 深度思考能力，通过自然语言轻松驾驭 MySQL 与 PostgreSQL。
-            15+ 种进阶图表、AI 自动适配展示方案、RAG 知识库增强，让数据决策从未如此简单。
+            {t('welcome.description')}
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-5 mb-20 opacity-0 animate-[fadeInUp_0.8s_ease-out_0.3s_forwards]">
             <button onClick={() => navigate('/login')} className="group relative w-full sm:w-auto px-10 py-5 text-base font-bold text-white overflow-hidden rounded-2xl transition-all active:scale-95">
               <div className="absolute inset-0 bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] transition-transform group-hover:scale-110" />
-              <span className="relative z-10">开始免费使用</span>
+              <span className="relative z-10">{t('welcome.startFree')}</span>
             </button>
             <button onClick={() => navigate('/learn-more')} className="w-full sm:w-auto px-10 py-5 text-base font-bold text-gray-300 border border-white/10 rounded-2xl hover:bg-white/5 hover:border-white/20 transition-all flex items-center justify-center gap-2 group active:scale-95">
-              查看技术架构
+              {t('welcome.viewArchitecture')}
               <svg className="w-4.5 h-4.5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
             </button>
           </div>
@@ -254,39 +259,39 @@ export default function Welcome() {
       <section id="features" className="relative z-10 py-40 px-6 bg-[#050810]">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-24">
-            <h2 className="text-4xl md:text-6xl font-black mb-6 text-white tracking-tight">生产力级分析套件</h2>
-            <p className="text-gray-500 max-w-xl mx-auto text-base font-light">融合前沿 AI 技术与工业级数据架构，为专业决策而生</p>
+            <h2 className="text-4xl md:text-6xl font-black mb-6 text-white tracking-tight">{t('features.title')}</h2>
+            <p className="text-gray-500 max-w-xl mx-auto text-base font-light">{t('features.subtitle')}</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-10">
             <RealFeatureCard
-              title="进阶多维可视化"
-              desc="支持雷达图、漏斗图、桑基图等 15+ 种进阶图表。AI 自动识别数据特征，秒级生成最佳展示方案。"
+              title={t('feature.viz.title')}
+              desc={t('feature.viz.desc')}
               icon="📊"
             />
             <RealFeatureCard
-              title="DeepSeek R1 推理"
-              desc="集成最强开源 R1 模型。不仅提供答案，更完整展示思维链逻辑，确保分析过程透明可追溯。"
+              title={t('feature.thinking.title')}
+              desc={t('feature.thinking.desc')}
               icon="🧠"
             />
             <RealFeatureCard
-              title="RAG 知识库增强"
-              desc="支持 PDF/Word/Excel 上传。结合语义搜索技术，让 AI 基于您的私有文档进行专业口径解读。"
+              title={t('feature.file.title')}
+              desc={t('feature.file.desc')}
               icon="📚"
             />
             <RealFeatureCard
-              title="全场景数据库支持"
-              desc="原生兼容 MySQL 与 PostgreSQL 核心架构。支持复杂 JOIN 查询、窗口函数及百万级数据分析。"
+              title={t('feature.database.title')}
+              desc={t('feature.database.desc')}
               icon="🗄️"
             />
             <RealFeatureCard
-              title="移动端原生体验"
-              desc="基于 Capacitor 6 构建。在 iOS 与 Android 上均可享受丝滑的流式响应与离线记录查阅。"
+              title={t('feature.mobile.title')}
+              desc={t('feature.mobile.desc')}
               icon="📱"
             />
             <RealFeatureCard
-              title="企业级安全架构"
-              desc="完整的 JWT 认证系统，支持多用户隔离与私有化部署，确保核心业务数据隐私安全。"
-              icon="🔒"
+              title="HITL 人机协同"
+              desc="AI 先给出分析建议，与用户确认业务口径后再执行，确保分析方向准确。"
+              icon="🤝"
             />
           </div>
         </div>
@@ -311,7 +316,7 @@ export default function Welcome() {
           DataPulse AI · Intelligence Driven · Privacy First
         </p>
         <p className="text-gray-500 text-xs font-light">
-          © 2026 DataPulse AI 智能分析平台 · 核心引擎 v1.7.0
+          © 2026 DataPulse AI · Core Engine v1.7.0
         </p>
       </footer>
 

@@ -1,37 +1,39 @@
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function Tutorial() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   const steps = [
     {
       id: 1,
-      title: '连接与切换数据库',
-      description: '在进入对话后，点击右上角的数据库按钮，选择您想要分析的数据源（如：全场景商业分析库）。',
+      title: t('tutorial.step1'),
+      description: t('tutorial.step1Desc'),
       icon: '🗄️'
     },
     {
       id: 2,
-      title: '发起自然语言查询',
-      description: '像平时聊天一样提问，例如：“分析去年每个月的营收增长情况”，AI 会自动生成 SQL 并执行。',
+      title: t('tutorial.step2'),
+      description: t('tutorial.step2Desc'),
       icon: '💬'
     },
     {
       id: 3,
-      title: '开启深度思考模式',
-      description: '如果您的问题很复杂（涉及多表关联），建议开启“思考模式”，查看 DeepSeek R1 的完整分析逻辑。',
+      title: t('tutorial.step3'),
+      description: t('tutorial.step3Desc'),
       icon: '🧠'
     },
     {
       id: 4,
-      title: '交互式可视化探索',
-      description: '分析结果生成后，点击“查看可视化图表”。您可以在右侧面板手动切换雷达图、漏斗图等 15+ 种类型。',
+      title: t('tutorial.step4'),
+      description: t('tutorial.step4Desc'),
       icon: '📊'
     },
     {
       id: 5,
-      title: 'RAG 知识库增强分析',
-      description: '上传业务 PDF 或 Excel，AI 将结合文档内容进行指标解读，确保分析口径与业务文档一致。',
+      title: t('tutorial.step5'),
+      description: t('tutorial.step5Desc'),
       icon: '📚'
     }
   ]
@@ -49,7 +51,7 @@ export default function Tutorial() {
             <span className="text-xl font-bold tracking-tight">DataPulse</span>
           </button>
           <button onClick={() => navigate('/app')} className="px-4 py-2 text-sm font-medium text-white border border-white/20 rounded-lg hover:border-[#06d6a0]/50 hover:bg-[#06d6a0]/10 transition-all">
-            进入应用
+            {t('features.enterApp')}
           </button>
         </div>
       </nav>
@@ -58,12 +60,12 @@ export default function Tutorial() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-20">
             <h1 className="text-5xl md:text-6xl font-bold mb-6">
-              快速上手
+              {t('tutorial.title1')}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#3b82f6] to-[#06d6a0]">
-                指南
+                {t('tutorial.title2')}
               </span>
             </h1>
-            <p className="text-xl text-gray-400">只需五步，开启您的 AI 驱动数据洞察之旅</p>
+            <p className="text-xl text-gray-400">{t('tutorial.description')}</p>
           </div>
 
           <div className="relative border-l-2 border-dashed border-white/10 ml-4 md:ml-8 space-y-16">
@@ -82,10 +84,10 @@ export default function Tutorial() {
           </div>
 
           <div className="mt-24 text-center p-12 bg-gradient-to-r from-[#3b82f6]/10 to-[#06d6a0]/10 border border-white/10 rounded-[2.5rem]">
-            <h2 className="text-3xl font-bold mb-6">准备好大显身手了吗？</h2>
-            <p className="text-gray-400 mb-10 text-lg">立即登录并选择示例数据库，体验 v1.7.0 的强大分析能力。</p>
+            <h2 className="text-3xl font-bold mb-6">{t('tutorial.ready')}</h2>
+            <p className="text-gray-400 mb-10 text-lg">{t('tutorial.startDesc')}</p>
             <button onClick={() => navigate('/login')} className="px-10 py-4 bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-2xl font-bold hover:shadow-[0_0_25px_rgba(59,130,246,0.4)] transition-all active:scale-95">
-              立即开始分析
+              {t('tutorial.start')}
             </button>
           </div>
         </div>

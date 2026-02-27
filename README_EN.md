@@ -6,11 +6,19 @@ An AI-driven intelligent data analysis system, a dual-engine commercial platform
 
 ## 📸 Interface Preview
 
-| 🖥️ Web Dashboard | 📱 Mobile Native |
-| :--- | :--- |
-| ![Web Mockup](./docs/assets/web_mockup.svg) | ![Mobile Mockup](./docs/assets/mobile_mockup.svg) |
+### 🖥️ Web Dashboard
 
-> *Note: The above are high-fidelity visual models demonstrating the integrated workspace of DeepSeek R1 reasoning chains and the advanced visualization engine.*
+![Web Dashboard](./docs/assets/web_mockup.svg)
+
+> **Desktop Features**: Three-column layout · Real-time streaming output · AI thought visualization · Multi-chart type switching · SQL code preview
+
+### 📱 Mobile Native
+
+| Portrait Mode | Landscape Mode |
+| :---: | :---: |
+| ![Mobile Portrait](./docs/assets/mobile_mockup.svg) | ![iOS Landscape](./docs/assets/ios_mockup.svg) |
+
+> **Mobile Features**: Capacitor 6 native adaptation · Notch screen compatible · Auto landscape/portrait switching · Touch-optimized · Safe Area support
 
 ## 🎯 Core Capabilities
 

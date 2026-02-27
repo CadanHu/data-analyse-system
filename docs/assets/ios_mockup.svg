@@ -1,0 +1,165 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1200" height="800" rx="24" fill="#0A0F1A"/>
+  
+  <!-- Ambient Glow -->
+  <circle cx="200" cy="400" r="150" fill="#BFFFD9" fill-opacity="0.08" filter="blur(80px)"/>
+  <circle cx="1000" cy="400" r="150" fill="#E0FFFF" fill-opacity="0.08" filter="blur(80px)"/>
+
+  <!-- Title -->
+  <text x="600" y="50" fill="white" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="700" font-size="24" text-anchor="middle">iOS 移动端原生界面</text>
+  <text x="600" y="78" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="14" text-anchor="middle">Capacitor 6 · 适配 iPhone 刘海屏与横竖屏切换</text>
+
+  <!-- ==================== LEFT: iPhone Portrait Mode ==================== -->
+  <g transform="translate(100, 100)">
+    <!-- Device Frame -->
+    <rect x="0" y="0" width="380" height="600" rx="45" fill="#0A0F1A" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="3"/>
+    <rect x="8" y="8" width="364" height="584" rx="38" fill="#000000"/>
+    
+    <!-- Notch -->
+    <rect x="122" y="18" width="116" height="30" rx="15" fill="#000000"/>
+    
+    <!-- Screen -->
+    <rect x="15" y="55" width="350" height="530" rx="32" fill="url(#screen-gradient)"/>
+    
+    <!-- Status Bar -->
+    <text x="30" y="82" fill="white" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="14">DataPulse</text>
+    <text x="340" y="82" fill="white" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="12" text-anchor="end">🔋 100%</text>
+    
+    <!-- Tab Selector -->
+    <rect x="30" y="105" width="320" height="42" rx="14" fill="#FFFFFF" fill-opacity="0.05"/>
+    <rect x="38" y="111" width="100" height="30" rx="10" fill="#BFFFD9" fill-opacity="0.15"/>
+    <text x="88" y="131" fill="#BFFFD9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="13" text-anchor="middle">会话</text>
+    <rect x="145" y="111" width="100" height="30" rx="10" fill="#FFFFFF" fill-opacity="0.03"/>
+    <text x="195" y="131" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="500" font-size="13" text-anchor="middle">对话</text>
+    <rect x="252" y="111" width="100" height="30" rx="10" fill="#FFFFFF" fill-opacity="0.03"/>
+    <text x="302" y="131" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="500" font-size="13" text-anchor="middle">图表</text>
+    
+    <!-- Session List -->
+    <rect x="30" y="160" width="320" height="60" rx="14" fill="url(#session-active)"/>
+    <rect x="30" y="160" width="3" height="60" rx="1.5" fill="url(#gradient-primary)"/>
+    <circle cx="50" cy="190" r="12" fill="#BFFFD9" fill-opacity="0.2"/>
+    <text x="50" y="195" fill="#BFFFD9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="14" text-anchor="middle">📊</text>
+    <text x="72" y="186" fill="white" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="13">多维产品对比方案</text>
+    <text x="72" y="204" fill="#BFFFD9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="11">刚刚 · Business</text>
+    
+    <rect x="30" y="228" width="320" height="60" rx="14" fill="#FFFFFF" fill-opacity="0.03"/>
+    <circle cx="50" cy="258" r="12" fill="#3B82F6" fill-opacity="0.2"/>
+    <text x="50" y="263" fill="#3B82F6" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="14" text-anchor="middle">📈</text>
+    <text x="72" y="254" fill="#E5E7EB" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="500" font-size="13">去年销售额趋势</text>
+    <text x="72" y="272" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="11">2 小时前</text>
+    
+    <rect x="30" y="296" width="320" height="60" rx="14" fill="#FFFFFF" fill-opacity="0.03"/>
+    <circle cx="50" cy="326" r="12" fill="#06D6A0" fill-opacity="0.2"/>
+    <text x="50" y="331" fill="#06D6A0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="14" text-anchor="middle">🗺️</text>
+    <text x="72" y="322" fill="#E5E7EB" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="500" font-size="13">上海销售密度分析</text>
+    <text x="72" y="340" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="11">昨天</text>
+    
+    <!-- FAB -->
+    <circle cx="330" cy="520" r="28" fill="url(#gradient-primary)"/>
+    <path d="M330 508 V532 M318 520 H342" stroke="#0A0F1A" stroke-width="2" stroke-linecap="round"/>
+    
+    <!-- Home Indicator -->
+    <rect x="150" y="568" width="80" height="4" rx="2" fill="#FFFFFF" fill-opacity="0.3"/>
+    
+    <!-- Label -->
+    <text x="190" y="595" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="12" text-anchor="middle">竖屏模式 (Portrait)</text>
+  </g>
+
+  <!-- ==================== RIGHT: iPhone Landscape Mode ==================== -->
+  <g transform="translate(700, 150)">
+    <!-- Device Frame -->
+    <rect x="0" y="0" width="500" height="300" rx="35" fill="#0A0F1A" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="3"/>
+    <rect x="8" y="8" width="484" height="284" rx="28" fill="#000000"/>
+    
+    <!-- Notch (rotated) -->
+    <rect x="450" y="135" width="30" height="30" rx="8" fill="#000000"/>
+    
+    <!-- Screen -->
+    <rect x="15" y="15" width="470" height="270" rx="22" fill="url(#screen-gradient)"/>
+    
+    <!-- Header -->
+    <text x="35" y="45" fill="white" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="16">多维产品对比方案</text>
+    <rect x="380" y="32" width="85" height="26" rx="8" fill="#BFFFD9" fill-opacity="0.15" stroke="#BFFFD9" stroke-opacity="0.3"/>
+    <text x="395" y="49" fill="#BFFFD9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="11">Business</text>
+    
+    <!-- Chat Messages -->
+    <rect x="35" y="70" width="280" height="36" rx="18" fill="url(#gradient-primary)"/>
+    <text x="47" y="93" fill="#0A0F1A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="13">对比 Model X 和 Y 的性能</text>
+    
+    <!-- AI Response with Thinking -->
+    <rect x="35" y="118" width="430" height="140" rx="12" fill="#FFFFFF" fill-opacity="0.05"/>
+    
+    <!-- Thinking Box -->
+    <rect x="45" y="128" width="410" height="50" rx="8" fill="#FBBF24" fill-opacity="0.08" stroke="#FBBF24" stroke-opacity="0.2"/>
+    <text x="55" y="148" fill="#FBBF24" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="11">🧠 DeepSeek R1 推理中</text>
+    <text x="55" y="165" fill="#FBBF24" fill-opacity="0.6" font-family="'SF Mono', Monaco, monospace" font-size="9">> 检索 product_radar 表 · 推荐：雷达图</text>
+    
+    <!-- Answer -->
+    <text x="45" y="195" fill="#E5E7EB" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="12">Model X 性能领先 (+23%)，Model Y 耐用性更佳 (+31%)</text>
+    
+    <!-- Chart Button -->
+    <rect x="45" y="215" width="90" height="28" rx="8" fill="url(#gradient-primary)"/>
+    <text x="57" y="233" fill="#0A0F1A" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="500" font-size="11">📊 查看图表</text>
+    
+    <!-- Mini Radar Chart Preview -->
+    <g transform="translate(340, 140)">
+      <circle cx="60" cy="55" r="45" fill="none" stroke="#FFFFFF" stroke-opacity="0.1"/>
+      <circle cx="60" cy="55" r="30" fill="none" stroke="#FFFFFF" stroke-opacity="0.1"/>
+      <polygon points="60,25 85,40 80,70 60,85 35,70 35,40" fill="#3B82F6" fill-opacity="0.3" stroke="#3B82F6" stroke-width="1.5"/>
+      <polygon points="60,35 75,45 72,65 60,75 48,65 45,45" fill="#06D6A0" fill-opacity="0.3" stroke="#06D6A0" stroke-width="1.5"/>
+    </g>
+    
+    <!-- Bottom Nav -->
+    <rect x="15" y="245" width="470" height="40" rx="0" fill="#FFFFFF" fill-opacity="0.03"/>
+    <circle cx="95" cy="265" r="16" fill="#BFFFD9" fill-opacity="0.15"/>
+    <text x="95" y="271" fill="#BFFFD9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="14" text-anchor="middle">💬</text>
+    <circle cx="250" cy="265" r="16" fill="#FFFFFF" fill-opacity="0.05"/>
+    <text x="250" y="271" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="14" text-anchor="middle">📊</text>
+    <circle cx="405" cy="265" r="16" fill="#FFFFFF" fill-opacity="0.05"/>
+    <text x="405" y="271" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="14" text-anchor="middle">⚙️</text>
+    
+    <!-- Home Indicator -->
+    <rect x="210" y="275" width="80" height="4" rx="2" fill="#FFFFFF" fill-opacity="0.3"/>
+    
+    <!-- Label -->
+    <text x="250" y="320" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="12" text-anchor="middle">横屏模式 (Landscape) · 适配 iPhone</text>
+  </g>
+
+  <!-- ==================== Feature Badges ==================== -->
+  <g transform="translate(100, 730)">
+    <rect x="0" y="0" width="180" height="48" rx="12" fill="#BFFFD9" fill-opacity="0.1" stroke="#BFFFD9" stroke-opacity="0.3"/>
+    <text x="24" y="20" fill="#BFFFD9" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="13">🎨 原生 UI 组件</text>
+    <text x="24" y="38" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="11">Capacitor 6 + iOS 适配</text>
+    
+    <rect x="195" y="0" width="180" height="48" rx="12" fill="#E0FFFF" fill-opacity="0.1" stroke="#E0FFFF" stroke-opacity="0.3"/>
+    <text x="219" y="20" fill="#E0FFFF" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="13">📐 自动布局适配</text>
+    <text x="219" y="38" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="11">刘海屏 · 横竖屏切换</text>
+    
+    <rect x="390" y="0" width="180" height="48" rx="12" fill="#06D6A0" fill-opacity="0.1" stroke="#06D6A0" stroke-opacity="0.3"/>
+    <text x="414" y="20" fill="#06D6A0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="13">⚡ 流式实时更新</text>
+    <text x="414" y="38" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="11">Streamable HTTP</text>
+    
+    <rect x="585" y="0" width="180" height="48" rx="12" fill="#FBBF24" fill-opacity="0.1" stroke="#FBBF24" stroke-opacity="0.3"/>
+    <text x="609" y="20" fill="#FBBF24" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-weight="600" font-size="13">🧠 AI 思考可视化</text>
+    <text x="609" y="38" fill="#6B7280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial" font-size="11">DeepSeek R1 思维链</text>
+  </g>
+
+  <!-- Gradients -->
+  <defs>
+    <linearGradient id="gradient-primary" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#BFFFD9"/>
+      <stop offset="50%" stop-color="#E0FFFF"/>
+      <stop offset="100%" stop-color="#06D6A0"/>
+    </linearGradient>
+    <linearGradient id="session-active" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#BFFFD9" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#E0FFFF" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="screen-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A0F1A"/>
+      <stop offset="50%" stop-color="#0F1623"/>
+      <stop offset="100%" stop-color="#0A0F1A"/>
+    </linearGradient>
+  </defs>
+</svg>

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { authApi } from '@/api'
+import { useTranslation } from '@/hooks/useTranslation'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 export default function Register() {
   const [username, setUsername] = useState('')
@@ -12,8 +14,9 @@ export default function Register() {
   const [isLoading, setIsLoading] = useState(false)
   const [isSendingCode, setIsSendingCode] = useState(false)
   const [countdown, setCountdown] = useState(0)
-  
+
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   const handleSendCode = async () => {
     if (!email) {
@@ -84,8 +87,11 @@ export default function Register() {
             <div className="w-2 bg-[#06d6a0] rounded-sm h-[70%]" />
             <div className="w-2 bg-[#3b82f6] rounded-sm h-[100%]" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">开启新篇章</h1>
-          <p className="text-gray-400 mt-2">加入 DataPulse AI · 智能数据新体验</p>
+          <h1 className="text-3xl font-bold text-white tracking-tight">{t('register.title')}</h1>
+          <p className="text-gray-400 mt-2">Join DataPulse AI · Intelligent Data Experience</p>
+          <div className="mt-4 flex justify-center">
+            <LanguageSwitcher />
+          </div>
         </div>
 
         <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 md:p-10 shadow-2xl">
@@ -97,7 +103,7 @@ export default function Register() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">用户名</label>
+              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">{t('register.username')}</label>
               <input
                 type="text"
                 required
@@ -105,12 +111,12 @@ export default function Register() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full px-5 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:outline-none focus:border-[#3b82f6]/50 transition-all"
-                placeholder="3-20 位字母或数字"
+                placeholder="3-20 characters"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">邮箱</label>
+              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">{t('login.email')}</label>
               <div className="flex gap-2">
                 <input
                   type="email"
@@ -126,13 +132,13 @@ export default function Register() {
                   onClick={handleSendCode}
                   className="px-4 bg-white/10 hover:bg-white/20 text-xs font-bold rounded-2xl border border-white/10 transition-all disabled:opacity-50 min-w-[100px]"
                 >
-                  {countdown > 0 ? `${countdown}s` : '发送验证码'}
+                  {countdown > 0 ? `${countdown}s` : 'Send Code'}
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">验证码</label>
+              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">Verification Code</label>
               <input
                 type="text"
                 required
@@ -140,12 +146,12 @@ export default function Register() {
                 value={verificationCode}
                 onChange={(e) => setVerificationCode(e.target.value)}
                 className="w-full px-5 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:outline-none focus:border-[#3b82f6]/50 transition-all"
-                placeholder="6 位数字验证码"
+                placeholder="6-digit code"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">密码</label>
+              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">{t('login.password')}</label>
               <input
                 type="password"
                 required
@@ -153,19 +159,19 @@ export default function Register() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-5 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:outline-none focus:border-[#3b82f6]/50 transition-all"
-                placeholder="至少 6 位密码"
+                placeholder="At least 6 characters"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">确认密码</label>
+              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">{t('register.confirmPassword')}</label>
               <input
                 type="password"
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full px-5 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:outline-none focus:border-[#3b82f6]/50 transition-all"
-                placeholder="请再次输入密码"
+                placeholder={t('register.confirmPassword')}
               />
             </div>
 
@@ -174,21 +180,21 @@ export default function Register() {
               disabled={isLoading}
               className="w-full py-4 bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] text-white font-bold rounded-2xl hover:shadow-[0_0_20px_rgba(59,130,246,0.4)] disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-[0.98] mt-4"
             >
-              {isLoading ? '注册中...' : '立即注册'}
+              {isLoading ? t('register.loading') : t('register.submit')}
             </button>
           </form>
 
           <div className="mt-8 text-center text-sm">
-            <span className="text-gray-500">已有账号？</span>
+            <span className="text-gray-500">{t('register.haveAccount')}</span>
             <Link to="/login" className="text-[#06d6a0] hover:text-[#05b88a] font-medium ml-1 transition-colors">
-              立即登录
+              {t('register.login')}
             </Link>
           </div>
         </div>
 
         <footer className="mt-10 text-center">
           <Link to="/" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">
-            ← 返回首页
+            ← {t('login.backToHome')}
           </Link>
         </footer>
       </div>

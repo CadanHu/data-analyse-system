@@ -2,15 +2,18 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { authApi } from '@/api'
 import { useAuthStore } from '@/stores/authStore'
+import { useTranslation } from '@/hooks/useTranslation'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  
+
   const navigate = useNavigate()
   const setAuth = useAuthStore(state => state.setAuth)
+  const { t } = useTranslation()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -47,8 +50,11 @@ export default function Login() {
             <div className="w-2 bg-[#06d6a0] rounded-sm h-[70%]" />
             <div className="w-2 bg-[#3b82f6] rounded-sm h-[100%]" />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">欢迎回来</h1>
-          <p className="text-gray-400 mt-2">智能驱动数据价值 · DataPulse AI</p>
+          <h1 className="text-3xl font-bold text-white tracking-tight">{t('login.welcome')}</h1>
+          <p className="text-gray-400 mt-2">{t('login.subtitle')}</p>
+          <div className="mt-4 flex justify-center">
+            <LanguageSwitcher />
+          </div>
         </div>
 
         <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 md:p-10 shadow-2xl">
@@ -60,26 +66,26 @@ export default function Login() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2 ml-1">邮箱地址</label>
+              <label className="block text-sm font-medium text-gray-400 mb-2 ml-1">{t('login.email')}</label>
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:outline-none focus:border-[#3b82f6]/50 focus:ring-1 focus:ring-[#3b82f6]/50 transition-all"
-                placeholder="请输入邮箱"
+                placeholder={t('login.email')}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-2 ml-1">密码</label>
+              <label className="block text-sm font-medium text-gray-400 mb-2 ml-1">{t('login.password')}</label>
               <input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:outline-none focus:border-[#3b82f6]/50 focus:ring-1 focus:ring-[#3b82f6]/50 transition-all"
-                placeholder="请输入密码"
+                placeholder={t('login.password')}
               />
             </div>
 
@@ -88,21 +94,21 @@ export default function Login() {
               disabled={isLoading}
               className="w-full py-4 bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] text-white font-bold rounded-2xl hover:shadow-[0_0_20px_rgba(59,130,246,0.4)] disabled:opacity-50 disabled:cursor-not-allowed transition-all transform active:scale-[0.98]"
             >
-              {isLoading ? '登录中...' : '立即登录'}
+              {isLoading ? t('login.loading') : t('login.submit')}
             </button>
           </form>
 
           <div className="mt-8 text-center text-sm">
-            <span className="text-gray-500">还没有账号？</span>
+            <span className="text-gray-500">{t('login.noAccount')}</span>
             <Link to="/register" className="text-[#06d6a0] hover:text-[#05b88a] font-medium ml-1 transition-colors">
-              立即注册
+              {t('login.register')}
             </Link>
           </div>
         </div>
 
         <footer className="mt-12 text-center">
           <Link to="/" className="text-gray-500 hover:text-gray-300 text-sm transition-colors">
-            ← 返回首页
+            ← {t('login.backToHome')}
           </Link>
         </footer>
       </div>
