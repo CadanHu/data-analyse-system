@@ -24,7 +24,7 @@ export default function App() {
   const navigate = useNavigate()
   const { isAuthenticated } = useAuthStore()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, clearMessages } = useSessionStore()
-  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab } = useChatStore()
+  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
 
@@ -147,6 +147,13 @@ export default function App() {
 
             <div className="relative z-10 h-full p-4 md:p-6 landscape:p-0">
               <div className="h-full rounded-3xl landscape:rounded-none overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 landscape:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
+                {/* 全屏覆盖层 */}
+                {isFullScreen && isRightPanelVisible && (
+                  <div className="absolute inset-0 z-[200] bg-white">
+                    <RightPanel />
+                  </div>
+                )}
+                
                 {isMobile ? (
                   <div className="h-full flex flex-col relative">
                     <button 

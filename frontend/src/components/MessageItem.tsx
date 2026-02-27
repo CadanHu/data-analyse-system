@@ -148,7 +148,7 @@ export default function MessageItem({ message }: MessageItemProps) {
           
           {/* 优化后的操作栏：图标化按钮并排 */}
           {!isUser && (
-            <div className="mt-4 flex items-center justify-end gap-1.5 border-t border-gray-100 pt-3 opacity-0 hover:opacity-100 transition-opacity">
+            <div className="mt-4 flex items-center justify-end gap-1.5 border-t border-gray-100 pt-3 transition-all">
               {message.sql && (
                 <div className="relative group/action">
                   <button

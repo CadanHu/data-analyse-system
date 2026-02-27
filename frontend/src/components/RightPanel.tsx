@@ -134,11 +134,15 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
   const y = numericCols[0] || columns[1] || columns[0];
 
   const base = {
-    title: { text: '分析结果', left: 'center', top: 10 },
+    title: { text: '分析结果', left: 'center', top: 10, textStyle: { fontSize: 14 } },
     tooltip: { trigger: 'axis' },
-    grid: { top: 60, bottom: 40, left: 60, right: 20 },
-    xAxis: { type: 'category', data: rows.map((r: any) => String(r[x])) },
-    yAxis: { type: 'value' },
+    grid: { top: 60, bottom: 80, left: 60, right: 40, containLabel: true },
+    xAxis: { 
+      type: 'category', 
+      data: rows.map((r: any) => String(r[x])),
+      axisLabel: { rotate: 35, fontSize: 10, interval: 'auto' }
+    },
+    yAxis: { type: 'value', axisLabel: { fontSize: 10 } },
   };
 
   switch (type) {
@@ -157,7 +161,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
       return {
         title: base.title,
         tooltip: {},
-        radar: { indicator: indicators },
+        radar: { indicator: indicators, center: ['50%', '55%'], radius: '60%' },
         series: [{
           type: 'radar',
           data: rows.slice(0, 3).map((r: any) => ({
@@ -172,7 +176,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
         tooltip: { trigger: 'item' },
         series: [{
           type: 'funnel',
-          left: '10%', top: 60, bottom: 60, width: '80%',
+          left: '10%', top: 80, bottom: 40, width: '80%',
           data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] }))
         }]
       };
@@ -180,33 +184,46 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
       return {
         series: [{
           type: 'gauge',
-          detail: { formatter: '{value}%' },
+          detail: { formatter: '{value}%', fontSize: 18 },
           data: [{ value: rows[0][y], name: String(rows[0][x]) }]
         }]
       };
     case 'heatmap':
+      const xData = Array.from(new Set(rows.map((r: any) => String(r[columns[0]]))))
+      const yData = Array.from(new Set(rows.map((r: any) => String(r[columns[1]]))))
       return {
         title: base.title,
         tooltip: { position: 'top' },
-        grid: { height: '50%', top: '10%' },
-        xAxis: { type: 'category', data: Array.from(new Set(rows.map((r: any) => String(r[columns[0]])))) },
-        yAxis: { type: 'category', data: Array.from(new Set(rows.map((r: any) => String(r[columns[1]])))) },
-        visualMap: { min: 0, max: Math.max(...rows.map((r: any) => r[y])), calculable: true, orient: 'horizontal', left: 'center', bottom: '15%' },
-        series: [{ type: 'heatmap', data: rows.map((r: any) => [String(r[columns[0]]), String(r[columns[1]]), r[y]]) }]
+        grid: { top: 80, bottom: 80, left: 80, right: 40, containLabel: true },
+        xAxis: { type: 'category', data: xData, axisLabel: { fontSize: 10 } },
+        yAxis: { type: 'category', data: yData, axisLabel: { fontSize: 10 } },
+        visualMap: { 
+          min: 0, 
+          max: Math.max(...rows.map((r: any) => r[y])), 
+          calculable: true, 
+          orient: 'horizontal', 
+          left: 'center', 
+          bottom: 10,
+          inRange: { color: ['#e0ffff', '#06d6a0', '#ff5f56'] }
+        },
+        series: [{ type: 'heatmap', data: rows.map((r: any) => [String(r[columns[0]]), String(r[columns[1]]), r[y]]), label: { show: rows.length < 50 } }]
       };
     case 'treemap':
       return {
         title: base.title,
         series: [{
           type: 'treemap',
+          breadcrumb: { show: false },
           data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] }))
         }]
       };
     case 'candlestick':
-      // 期待数据列顺序：开盘, 收盘, 最低, 最高
       return {
+        title: base.title,
+        grid: base.grid,
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
         xAxis: base.xAxis,
-        yAxis: { scale: true },
+        yAxis: { scale: true, axisLabel: { fontSize: 10 } },
         series: [{
           type: 'candlestick',
           data: rows.map((r: any) => [r['open'] || r[columns[1]], r['close'] || r[columns[2]], r['low'] || r[columns[3]], r['high'] || r[columns[4]]])
@@ -215,17 +232,23 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
     case 'waterfall':
       return {
         title: base.title,
-        xAxis: base.xAxis,
-        yAxis: { type: 'value' },
+        grid: { top: 80, bottom: 100, left: 60, right: 40, containLabel: true },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        xAxis: { ...base.xAxis, axisLabel: { rotate: 45, fontSize: 10 } },
+        yAxis: { type: 'value', axisLabel: { fontSize: 10 } },
         series: [
           {
             name: 'Placeholder',
             type: 'bar',
             stack: 'Total',
             itemStyle: { borderColor: 'transparent', color: 'transparent' },
+            emphasis: { itemStyle: { borderColor: 'transparent', color: 'transparent' } },
             data: rows.map((r: any, i: number) => {
               let sum = 0;
-              for (let j = 0; j < i; j++) sum += rows[j][y];
+              for (let j = 0; j < i; j++) {
+                const val = rows[j][y];
+                if (val > 0) sum += val;
+              }
               return sum;
             })
           },
@@ -233,9 +256,25 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
             name: 'Value',
             type: 'bar',
             stack: 'Total',
+            label: { show: true, position: 'top', fontSize: 9 },
             data: rows.map((r: any) => r[y])
           }
         ]
+      };
+    case 'gantt':
+      return {
+        title: base.title,
+        tooltip: { formatter: (params: any) => params.name + ': ' + params.value[1] + ' to ' + params.value[2] },
+        grid: { left: 100, top: 80, bottom: 40 },
+        xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+        yAxis: { type: 'category', data: rows.map((r: any) => String(r[x])), axisLabel: { fontSize: 10 } },
+        series: [{
+          type: 'bar',
+          data: rows.map((r: any, idx: number) => ({
+            name: String(r[x]),
+            value: [idx, r['start_date'] || r[columns[1]], r['end_date'] || r[columns[2]]]
+          }))
+        }]
       };
     default:
       return null;

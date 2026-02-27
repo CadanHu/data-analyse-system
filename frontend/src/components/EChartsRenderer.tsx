@@ -19,9 +19,17 @@ export default function EChartsRenderer({ option, style }: EChartsRendererProps)
     const handleResize = () => {
       chartInstanceRef.current?.resize()
     }
+    
+    // 使用 ResizeObserver 监听容器大小变化
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize()
+    })
+    resizeObserver.observe(chartRef.current)
+
     window.addEventListener('resize', handleResize)
 
     return () => {
+      resizeObserver.disconnect()
       window.removeEventListener('resize', handleResize)
       chartInstanceRef.current?.dispose()
       chartInstanceRef.current = null

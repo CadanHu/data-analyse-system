@@ -88,14 +88,19 @@ def setup_global_analysis_db():
         durability INT,
         design INT,
         price_score INT,
-        service INT
+        service INT,
+        battery_range INT,
+        safety_score INT,
+        ai_smart INT
     )""")
     radar_data = [
-        ('Model X', 95, 80, 90, 60, 85),
-        ('Model Y', 85, 90, 75, 80, 80),
-        ('Model Z', 70, 75, 85, 95, 70)
+        ('Model X', 98, 85, 92, 55, 88, 95, 96, 99),
+        ('Model Y', 88, 92, 85, 82, 84, 90, 94, 95),
+        ('Model 3', 90, 80, 88, 90, 80, 85, 92, 94),
+        ('ET7', 94, 82, 95, 60, 95, 92, 95, 98),
+        ('Taycan', 99, 88, 98, 40, 90, 80, 96, 85)
     ]
-    cur.executemany("INSERT INTO product_radar VALUES (%s, %s, %s, %s, %s, %s)", radar_data)
+    cur.executemany("INSERT INTO product_radar VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", radar_data)
 
     # --- 3. 占比与构成 (Proportion & Composition) ---
     # 市场份额 (Pie), 渠道构成 (Stacked Bar), 类目占比 (Treemap)
