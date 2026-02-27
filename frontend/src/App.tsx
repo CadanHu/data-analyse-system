@@ -145,25 +145,25 @@ export default function App() {
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40rem] h-[40rem] bg-gradient-to-br from-[#E0FFFF]/20 via-[#BFFFD9]/15 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '4s' }} />
             </div>
 
-            <div className="relative z-10 h-full p-4 md:p-6">
-              <div className="h-full rounded-3xl overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
+            <div className="relative z-10 h-full p-4 md:p-6 landscape:p-0">
+              <div className="h-full rounded-3xl landscape:rounded-none overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 landscape:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
                 {isMobile ? (
                   <div className="h-full flex flex-col relative">
                     <button 
                       onClick={() => navigate('/')}
-                      className="absolute left-4 z-[100] p-1.5 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-gray-700 transition-all shadow-sm"
+                      className="absolute left-2 z-[100] p-1 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-gray-700 transition-all shadow-sm landscape:top-1"
                       style={{ top: 'calc(env(safe-area-inset-top) + 0.4rem)' }}
                     >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
 
-                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm landscape:h-auto" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-                      <div className="flex pl-12 landscape:pl-16">
+                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm landscape:bg-white/60" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                      <div className="flex pl-10 landscape:pl-12">
                         <button
                           onClick={() => setActiveTab('sessions')}
-                          className={`flex-1 px-4 py-3 landscape:py-1.5 text-sm landscape:text-[10px] font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-1 text-sm landscape:text-[11px] font-medium transition-all ${
                             activeTab === 'sessions'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -173,7 +173,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setActiveTab('chat')}
-                          className={`flex-1 px-4 py-3 landscape:py-1.5 text-sm landscape:text-[10px] font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-1 text-sm landscape:text-[11px] font-medium transition-all ${
                             activeTab === 'chat'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -183,7 +183,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setActiveTab('charts')}
-                          className={`flex-1 px-4 py-3 landscape:py-1.5 text-sm landscape:text-[10px] font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 landscape:py-1 text-sm landscape:text-[11px] font-medium transition-all ${
                             activeTab === 'charts'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'

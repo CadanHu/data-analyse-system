@@ -117,19 +117,19 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
       )) : [])
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-white/30" style={{ paddingTop: '1rem' }}>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-gray-700">会话列表</h2>
+    <div className="flex flex-col h-full bg-white/40 backdrop-blur-md">
+      <div className="p-4 border-b border-white/30 landscape:p-1.5 landscape:px-4" style={{ paddingTop: '1rem' }}>
+        <div className="flex items-center justify-between mb-3 landscape:mb-1">
+          <h2 className="text-lg font-semibold text-gray-700 landscape:text-xs">会话列表</h2>
           <button
             onClick={handleCreateSession}
-            className="px-3 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:from-[#C0EFFF] rounded-xl text-sm font-medium text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)]"
+            className="px-3 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:from-[#C0EFFF] rounded-xl text-sm font-medium text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)] landscape:py-0.5 landscape:px-2 landscape:text-[10px]"
           >
             + 新建
           </button>
         </div>
         
-        <div className="relative">
+        <div className="relative landscape:hidden">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -143,30 +143,26 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto p-2 landscape:p-1">
         {loading ? (
           <SessionListSkeleton />
         ) : filteredSessions.length === 0 ? (
-          <div className="text-center text-gray-400 py-8">
-            <p className="text-sm">{searchQuery ? '没有找到匹配的会话' : '暂无会话'}</p>
-            {!searchQuery && (
-              <p className="text-xs mt-1">点击"新建"创建第一个会话</p>
-            )}
+          <div className="text-center text-gray-400 py-8 landscape:py-2">
+            <p className="text-sm landscape:text-xs">{searchQuery ? '没有找到匹配的会话' : '暂无会话'}</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 landscape:space-y-1">
             {filteredSessions.map((session) => (
               <div
                 key={session.id}
                 onClick={() => {
                   if (!editingSessionId) {
                     setCurrentSession(session)
-                    // 必须传入 session 对象，确保 App.tsx 能立即触发 loadMessages
                     onSelectSession(session.id, session)
                   }
                 }}
                 className={`
-                  group p-3 rounded-xl cursor-pointer transition-all
+                  group p-3 rounded-xl cursor-pointer transition-all landscape:p-1.5 landscape:rounded-lg
                   ${selectedSessionId === session.id
                     ? 'bg-[#BFFFD9]/30 border border-[#BFFFD9]/50 shadow-[0_4px_12px_rgba(191,255,217,0.2)]'
                     : 'hover:bg-white/40 border border-transparent'
@@ -184,17 +180,17 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
                         onBlur={() => handleFinishRename(session.id)}
                         onKeyDown={(e) => handleKeyDown(e, session.id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="w-full bg-white/80 border border-[#BFFFD9]/70 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none"
+                        className="w-full bg-white/80 border border-[#BFFFD9]/70 rounded-lg px-2 py-1 text-sm text-gray-700 focus:outline-none landscape:text-xs landscape:py-0.5"
                       />
                     ) : (
                       <>
                         <h3 
-                          className="text-sm font-medium truncate text-gray-700"
+                          className="text-sm font-medium truncate text-gray-700 landscape:text-xs"
                           onDoubleClick={(e) => handleStartRename(e, session)}
                         >
                           {session.title || '未命名会话'}
                         </h3>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-xs text-gray-400 mt-1 landscape:mt-0 landscape:text-[9px]">
                           {formatDate(session.updated_at)}
                         </p>
                       </>
@@ -204,10 +200,10 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
                     <div className="flex gap-1">
                       <button
                         onClick={(e) => handleDeleteSession(e, session.id)}
-                        className="md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-[#E6E6FA]/40 rounded-lg transition-all"
+                        className="md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-[#E6E6FA]/40 rounded-lg transition-all landscape:p-0.5"
                         title="删除会话"
                       >
-                        <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-4 h-4 text-purple-500 landscape:w-3 landscape:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                         </svg>
                       </button>
@@ -221,15 +217,15 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
       </div>
 
       {/* 用户信息与退出登录 */}
-      <div className="p-4 border-t border-white/30 bg-white/20 backdrop-blur-md">
+      <div className="p-4 border-t border-white/30 bg-white/20 backdrop-blur-md landscape:p-1.5 landscape:px-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#06d6a0] flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#06d6a0] flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0 landscape:w-6 landscape:h-6 landscape:text-[10px]">
               {user?.username?.charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-700 truncate">{user?.username}</p>
-              <p className="text-[10px] text-gray-400 truncate">{user?.email}</p>
+              <p className="text-sm font-medium text-gray-700 truncate landscape:text-[10px]">{user?.username}</p>
+              <p className="text-[10px] text-gray-400 truncate landscape:hidden">{user?.email}</p>
             </div>
           </div>
           <button
@@ -238,10 +234,10 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
                 logout()
               }
             }}
-            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all landscape:p-1"
             title="退出登录"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 landscape:w-4 landscape:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
           </button>

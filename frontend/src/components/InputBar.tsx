@@ -31,7 +31,9 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`
+      const isLandscape = window.innerWidth > window.innerHeight;
+      const maxHeight = isLandscape ? 60 : 150;
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, maxHeight)}px`
     }
   }, [input])
 
@@ -93,38 +95,36 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
   }
 
   return (
-    <div className="relative">
+    <div className="relative landscape:px-2 landscape:pb-1">
       {/* 解析引擎选择弹窗 */}
       {showEngineSelect && (
-        <div className="absolute bottom-full left-0 mb-4 p-4 bg-white/90 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl z-50 w-72 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <h3 className="text-sm font-bold text-gray-800 mb-2">选择 PDF 解析模式</h3>
-          <div className="space-y-2">
-            <button 
-              onClick={() => selectEngine('light')}
-              className="w-full text-left p-2 rounded-xl hover:bg-[#BFFFD9]/30 transition-colors border border-transparent hover:border-[#BFFFD9]"
-            >
-              <div className="text-xs font-bold text-gray-700">⚡ 标准模式 (PyMuPDF)</div>
-              <div className="text-[10px] text-gray-500">解析快速、免费、适合纯文字 PDF</div>
-            </button>
-            <button 
-              onClick={() => selectEngine('pro')}
-              className="w-full text-left p-2 rounded-xl hover:bg-[#E0FFFF]/30 transition-colors border border-transparent hover:border-[#E0FFFF]"
-            >
-              <div className="text-xs font-bold text-gray-700">🧠 深度模式 (MinerU)</div>
-              <div className="text-[10px] text-gray-500">解析精准、支持公式图表、适合论文/报表</div>
-            </button>
-          </div>
+        <div className="absolute bottom-full left-0 mb-2 p-3 bg-white/90 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl z-50 w-64 landscape:w-80 landscape:grid landscape:grid-cols-2 landscape:gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <h3 className="text-sm font-bold text-gray-800 mb-2 landscape:col-span-2">选择 PDF 解析模式</h3>
+          <button 
+            onClick={() => selectEngine('light')}
+            className="w-full text-left p-2 rounded-xl hover:bg-[#BFFFD9]/30 transition-colors border border-transparent hover:border-[#BFFFD9]"
+          >
+            <div className="text-xs font-bold text-gray-700">⚡ 标准模式</div>
+            <div className="text-[9px] text-gray-500">快速、适合纯文字</div>
+          </button>
+          <button 
+            onClick={() => selectEngine('pro')}
+            className="w-full text-left p-2 rounded-xl hover:bg-[#E0FFFF]/30 transition-colors border border-transparent hover:border-[#E0FFFF]"
+          >
+            <div className="text-xs font-bold text-gray-700">🧠 深度模式</div>
+            <div className="text-[9px] text-gray-500">表格、公式精准识别</div>
+          </button>
         </div>
       )}
 
-      <div className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)]">
-        <div className="flex items-start gap-2 px-4 pt-4">
+      <div className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] landscape:rounded-xl">
+        <div className="flex items-start gap-2 px-4 pt-4 landscape:px-2 landscape:pt-2">
           <button
             onClick={handleFileUpload}
-            className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)]"
+            className="flex-shrink-0 w-9 h-9 landscape:w-7 landscape:h-7 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:shadow-none"
             title="上传文件"
           >
-            <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 landscape:w-4 landscape:h-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
           </button>
@@ -142,47 +142,47 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
             onKeyDown={handleKeyDown}
             placeholder={!sessionId ? '请先选择一个会话' : '输入你的问题...'}
             disabled={isLoading || !sessionId}
-            className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed landscape:text-xs landscape:leading-tight"
             rows={1}
           />
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1.5 landscape:flex-row landscape:gap-1">
             <button
               onClick={() => setThinkingMode(!isThinkingMode)}
-              className={`flex-shrink-0 px-2 h-7 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+              className={`flex-shrink-0 px-2 h-7 landscape:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
                 isThinkingMode 
                   ? 'bg-[#FFD700] text-gray-800 font-medium' 
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
               title={isThinkingMode ? '思考模式已开启' : '思考模式已关闭'}
             >
-              <span className="text-[10px]">思考模式</span>
+              <span className="text-[10px] landscape:text-[9px]">思考模式</span>
             </button>
             <button
               onClick={() => setRAGMode(!isRAGMode)}
-              className={`flex-shrink-0 px-2 h-7 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+              className={`flex-shrink-0 px-2 h-7 landscape:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
                 isRAGMode 
                   ? 'bg-[#00BFFF] text-white font-medium' 
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
               title={isRAGMode ? `知识库模式: ${ragEngine === 'light' ? '标准' : '深度'}` : '知识库模式关闭'}
             >
-              <span className="text-[10px]">知识库</span>
+              <span className="text-[10px] landscape:text-[9px]">知识库</span>
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-between px-4 pb-3">
-          <div className="text-xs text-gray-400">
-            {isLoading ? '正在处理中...' : 'Enter 发送 | Shift+Enter 换行'}
+        <div className="flex items-center justify-between px-4 pb-3 landscape:px-2 landscape:pb-1 landscape:mt-1">
+          <div className="text-xs text-gray-400 landscape:text-[9px]">
+            {isLoading ? '正在处理中...' : 'Enter 发送'}
           </div>
           <button
             onClick={handleSubmit}
             disabled={!input.trim() || !sessionId || isLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)] disabled:shadow-none"
+            className="flex items-center gap-2 px-4 py-2 landscape:px-3 landscape:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:shadow-none"
           >
-            <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-4.5 h-4.5 landscape:w-3 landscape:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
-            <span className="text-sm font-medium">发送</span>
+            <span className="text-sm font-medium landscape:text-xs">发送</span>
           </button>
         </div>
       </div>

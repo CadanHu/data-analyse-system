@@ -65,24 +65,24 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-none p-4 border-b border-white/30" style={{ paddingTop: '1rem' }}>
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex-none p-4 sm:p-4 border-b border-white/30 landscape:p-1.5 landscape:px-4" style={{ paddingTop: '1rem' }}>
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-gray-700 truncate">
+          <div className="flex flex-col landscape:flex-row landscape:items-center landscape:gap-3">
+            <h2 className="text-xl font-bold text-gray-700 truncate landscape:text-xs">
               {currentSession?.title || '未命名会话'}
             </h2>
-            <p className="text-xs text-gray-400 mt-1">智能数据分析助理</p>
+            <p className="text-xs text-gray-400 mt-1 landscape:mt-0 landscape:text-[9px]">智能数据分析助理</p>
           </div>
           <div className="relative">
             <button
               onClick={() => setShowDbSelector(!showDbSelector)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-xl text-xs text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)]"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-xl text-xs text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:py-0.5 landscape:px-2 landscape:text-[10px]"
             >
-              <span className="font-medium truncate max-w-[70px]">
+              <span className="font-medium truncate max-w-[70px] landscape:max-w-[100px]">
                 {databases.find(d => d.key === currentDb)?.name || '数据库'}
               </span>
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-3 h-3 landscape:w-2 landscape:h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
