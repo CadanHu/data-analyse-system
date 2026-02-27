@@ -70,10 +70,10 @@ pip install -r requirements.txt -q
 python init_db.py
 
 # 启动后端（后台运行）
-python3 -m uvicorn main:app --host 0.0.0.0 --port 8003 --reload &
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8008 --reload &
 BACKEND_PID=$!
 echo "✅ 后端服务已启动 (PID: $BACKEND_PID)"
-echo "📄 API 文档：http://localhost:8003/docs"
+echo "📄 API 文档：http://localhost:8008/docs"
 
 cd ..
 
@@ -88,10 +88,10 @@ if [ ! -d "node_modules" ]; then
 fi
 
 # 启动前端（后台运行）
-npm run dev &
+npm run dev -- --port 5188 &
 FRONTEND_PID=$!
 echo "✅ 前端服务已启动 (PID: $FRONTEND_PID)"
-echo "🌐 访问地址：http://localhost:5173"
+echo "🌐 访问地址：http://localhost:5188"
 
 # 等待服务启动
 echo ""
@@ -102,13 +102,13 @@ sleep 5
 echo ""
 echo "📊 服务状态检查..."
 
-if curl -s http://localhost:8003/docs > /dev/null; then
+if curl -s http://localhost:8008/docs > /dev/null; then
     echo "✅ 后端服务：运行中"
 else
     echo "❌ 后端服务：启动失败"
 fi
 
-if curl -s http://localhost:5173 > /dev/null; then
+if curl -s http://localhost:5188 > /dev/null; then
     echo "✅ 前端服务：运行中"
 else
     echo "❌ 前端服务：启动失败"
@@ -120,9 +120,9 @@ echo "🎉 测试环境启动完成！"
 echo "=========================================="
 echo ""
 echo "📌 访问地址:"
-echo "   前端：http://localhost:5173"
-echo "   后端 API: http://localhost:8003"
-echo "   API 文档：http://localhost:8003/docs"
+echo "   前端：http://localhost:5188"
+echo "   后端 API: http://localhost:8008"
+echo "   API 文档：http://localhost:8008/docs"
 echo ""
 echo "🛑 停止服务：按 Ctrl+C 或运行 ./stop-test.sh"
 echo ""
@@ -316,7 +316,7 @@ import { test, expect } from '@playwright/test';
 test.describe('国际化功能测试', () => {
   
   test('首页语言切换', async ({ page }) => {
-    await page.goto('http://localhost:5173');
+    await page.goto('http://localhost:5188');
     
     // 检查默认语言（中文）
     await expect(page.locator('text=功能')).toBeVisible();
@@ -331,7 +331,7 @@ test.describe('国际化功能测试', () => {
   });
 
   test('登录页国际化', async ({ page }) => {
-    await page.goto('http://localhost:5173/login');
+    await page.goto('http://localhost:5188/login');
     
     // 中文检查
     await expect(page.locator('text=欢迎回来')).toBeVisible();
@@ -346,7 +346,7 @@ test.describe('国际化功能测试', () => {
   });
 
   test('语言持久化', async ({ page }) => {
-    await page.goto('http://localhost:5173');
+    await page.goto('http://localhost:5188');
     
     // 切换到英文
     await page.click('text=EN');
