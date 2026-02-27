@@ -4,7 +4,7 @@ import sys
 import random
 from datetime import datetime, timedelta
 
-sys.path.insert(0, '/Users/huyitao/trae/data-analyse-system/backend')
+sys.path.insert(0, str(Path(__file__).parent.parent / 'backend'))
 from config import DATABASES
 from databases.database_manager import DatabaseManager
 

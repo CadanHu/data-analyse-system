@@ -10,13 +10,11 @@
 - **SQLAlchemy 驱动**：所有数据库交互必须通过 `DatabaseManager` 获取 SQLAlchemy 异步引擎，禁止直接使用底层驱动（如 `aiomysql`）手动编写 SQL。
 - **Schema 动态加载**：Agent 在处理问题前必须先调用 `SchemaService` 获取当前数据库的最新的 Schema。
 
-## 前端规范
-- **代理优先**：所有 API 请求必须使用 `/api` 相对路径，禁止硬编码 `localhost:8000` 或其他具体端口。
-- **状态同步**：删除或修改操作后，必须确保本地 Store 与后端状态同步。
+## 通讯协议规范
+- **标准 SSE**：流式接口必须遵循标准 Server-Sent Events 协议，数据以 `data: ` 开头，以 `\n\n` 结尾。
+- **无缓冲传输**：后端响应头必须包含 `X-Accel-Buffering: no` 和 `Cache-Control: no-transform`，确保移动端流式体验。
 
-## 功能变更记录
-- 已删除“清空会话上下文”功能（包括前端按钮、API 接口及相关前端 Service 调用）。
-- **[NEW] 用户认证系统**: 实现了完整的注册、登录、Token 验证流程，支持多用户隔离。
-- **[NEW] 智能意图识别**: 引入意图分类逻辑，能够区分“数据查询(SQL)”与“普通对话(Chat)”，并提供智能回复。
-- **[NEW] 架构优化**: 整合了 API 服务层，统一使用 Axios 拦截器注入 Token，支持流式 SSE 认证。
-- **[FIX] 数据库兼容性**: 修复了 SQLite 关键字引用 bug，确保 Northwind 等数据库的稳定运行。
+## 前端规范
+- **防御性渲染**：在对后端返回的列表数据（如 sessions, databases, messages）执行 `.map()` 操作前，必须进行 `Array.isArray()` 校验。
+- **URL 发现**：禁止在组件中硬编码 API 地址，统一调用 `api/index.ts` 中的 `getBaseURL()`。
+- **状态同步**：切换会话或回看历史消息时，必须通过 `chatStore.setCurrentAnalysis` 同步可视化状态。

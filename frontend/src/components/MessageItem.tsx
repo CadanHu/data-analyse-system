@@ -15,7 +15,7 @@ export default function MessageItem({ message }: MessageItemProps) {
   const isUser = message.role === 'user'
   // 如果消息中有思考内容且内容还未完成（处于加载状态），默认展开
   const [thinkingCollapsed, setThinkingCollapsed] = useState(!(message.thinking && !message.content))
-  const { setChartOption, setSqlResult, setCurrentSql, setRightPanelVisible, setActiveTab, isLoading } = useChatStore()
+  const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
 
   // 监听思考内容变化，如果是在加载中且有新内容，保持展开
   useEffect(() => {
@@ -31,17 +31,26 @@ export default function MessageItem({ message }: MessageItemProps) {
         chartConfig = JSON.parse(message.chart_cfg)
       } catch (e) {
         console.error('解析图表配置失败:', e)
-        return
+      }
+    }
+
+    let sqlData = message.data
+    if (typeof sqlData === 'string') {
+      try {
+        sqlData = JSON.parse(sqlData)
+      } catch (e) {
+        console.error('解析 SQL 结果失败:', e)
       }
     }
     
-    if (chartConfig && message.data) {
-      setChartOption(chartConfig, 'bar')
-      setSqlResult(message.data)
-      if (message.sql) {
-        setCurrentSql(message.sql)
-      }
-      setRightPanelVisible(true)
+    if (sqlData) {
+      // 使用统一的 action 同步到右侧面板
+      setCurrentAnalysis(
+        message.sql || '',
+        sqlData,
+        (chartConfig as any)?.chart_type || 'table',
+        chartConfig
+      )
       setActiveTab('charts')
     }
   }

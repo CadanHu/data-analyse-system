@@ -2,5 +2,13 @@
 	"appId": "com.cadanhu.datapulse",
 	"appName": "DataPulse",
 	"webDir": "dist",
+	"server": {
+		"androidScheme": "http",
+		"allowNavigation": [
+			"10.0.2.2",
+			"localhost"
+		],
+		"cleartext": true
+	},
 	"packageClassList": []
 }

@@ -38,6 +38,17 @@ export const useChatStore = create<ChatState & {
 
   setFullScreen: (enabled: boolean) => set({ isFullScreen: enabled }),
 
+  // 关键修复：从历史消息中同步分析结果到右侧面板
+  setCurrentAnalysis: (sql: string, result: SQLResult | null, chartType?: string, chartOption?: ChartOption | null) => {
+    set({
+      currentSql: sql,
+      currentSqlResult: result,
+      currentChartType: chartType || 'table',
+      currentChartOption: chartOption || null,
+      isRightPanelVisible: true
+    });
+  },
+
   setThinkingMode: (enabled: boolean) =>
     set({ isThinkingMode: enabled }),
 

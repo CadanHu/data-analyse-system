@@ -105,6 +105,34 @@ function DataTable({ sqlResult, onExportCsv }: { sqlResult: any; onExportCsv: ()
   )
 }
 
+/**
+ * 降级方案：自动生成图表配置
+ */
+function fallbackGenerateChart(sqlResult: any, type: string) {
+  if (!sqlResult?.rows?.length || !sqlResult?.columns?.length) return null;
+  const columns = sqlResult.columns;
+  const rows = sqlResult.rows;
+  
+  // 识别数值列
+  const numericCols = columns.filter((c: string) => typeof rows[0][c] === 'number');
+  const categoryCols = columns.filter((c: string) => !numericCols.includes(c));
+  
+  const x = categoryCols[0] || columns[0];
+  const y = numericCols[0] || columns[1] || columns[0];
+
+  const base = {
+    title: { text: '分析结果', left: 'center' },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: rows.map((r: any) => String(r[x])) },
+    yAxis: { type: 'value' },
+  };
+
+  if (type === 'bar') return { ...base, series: [{ name: y, type: 'bar', data: rows.map((r: any) => r[y]) }] };
+  if (type === 'line') return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true }] };
+  if (type === 'pie') return { title: base.title, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: '60%', data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] })) }] };
+  return null;
+}
+
 export default function RightPanel() {
   const { 
     currentChartOption, 
@@ -150,7 +178,9 @@ export default function RightPanel() {
       case 'table':
         return <DataTable sqlResult={currentSqlResult} onExportCsv={() => {}} />
       case 'chart':
-        return displayConfig.option ? <EChartsRenderer option={displayConfig.option} /> : <div className="p-8 text-center text-gray-400">该格式暂不支持图表</div>
+        // 优先使用 AI 生成的 option，如果没有或类型不匹配，则尝试自动生成
+        const finalOption = displayConfig.option || fallbackGenerateChart(currentSqlResult, activeType === 'auto' ? (currentChartType || 'bar') : activeType)
+        return finalOption ? <EChartsRenderer option={finalOption} /> : <div className="p-8 text-center text-gray-400">该数据格式不适合展示为{activeType}</div>
       default:
         return null
     }
