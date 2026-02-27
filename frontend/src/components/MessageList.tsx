@@ -5,6 +5,7 @@ import MessageSkeleton from './MessageSkeleton'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 
+export default function MessageList() {
   const { isLoading, thinkingContent, setPendingMessage } = useChatStore()
   const { messages: storeMessages } = useSessionStore()
   const scrollRef = useRef<HTMLDivElement>(null)
