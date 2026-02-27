@@ -52,7 +52,10 @@ data-analyse-system/
 ### 2. Local Installation
 For detailed steps, please refer to: [Local Installation and Testing Guide](./docs/LOCAL_INSTALLATION.md)
 
-### 3. Environment Verification
+### 3. Architecture
+For detailed technical design, please refer to: [Architectural Design Document](./docs/ARCHITECTURE_EN.md)
+
+### 4. Environment Verification
 Run the following script to check your MySQL and API configurations:
 ```bash
 python3 scripts/check_db_env.py
