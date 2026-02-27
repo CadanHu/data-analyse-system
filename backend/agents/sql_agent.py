@@ -312,9 +312,10 @@ class SQLAgent:
 
     async def _generate_complex_chart_config(self, sql_result: Dict[str, Any], chart_type: str) -> Optional[Dict[str, Any]]:
         """调用 AI 生成复杂图表的 ECharts 配置"""
+        from utils.json_utils import json_dumps
         try:
             prompt = CHART_CONFIG_PROMPT.format(
-                sql_result=json.dumps(sql_result, ensure_ascii=False, indent=2),
+                sql_result=json_dumps(sql_result, indent=2),
                 chart_type=chart_type
             )
             messages = [
