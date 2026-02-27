@@ -4,6 +4,14 @@
 
 基于 AI 的智能数据分析系统，通过自然语言对话实现结构化数据查询（SQL）与非结构化文档分析（RAG）的双引擎商业平台。
 
+## 📸 界面预览 (Interface Preview)
+
+| 🖥️ 桌面端画布 (Web Dashboard) | 📱 移动端原生 (Mobile Native) |
+| :--- | :--- |
+| ![Web Mockup](./docs/assets/web_mockup.svg) | ![Mobile Mockup](./docs/assets/mobile_mockup.svg) |
+
+> *注：以上为高保真视觉模型，展示了 DeepSeek R1 推理思维链与进阶可视化引擎的协同工作界面。*
+
 ## 🎯 核心能力
 
 ### 双引擎分析逻辑

@@ -4,6 +4,14 @@
 
 An AI-driven intelligent data analysis system, a dual-engine commercial platform that enables structured data query (SQL) and unstructured document analysis (RAG) through natural language conversation.
 
+## 📸 Interface Preview
+
+| 🖥️ Web Dashboard | 📱 Mobile Native |
+| :--- | :--- |
+| ![Web Mockup](./docs/assets/web_mockup.svg) | ![Mobile Mockup](./docs/assets/mobile_mockup.svg) |
+
+> *Note: The above are high-fidelity visual models demonstrating the integrated workspace of DeepSeek R1 reasoning chains and the advanced visualization engine.*
+
 ## 🎯 Core Capabilities
 
 ### Dual-Engine Analysis Logic
