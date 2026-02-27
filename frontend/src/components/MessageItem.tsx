@@ -15,6 +15,8 @@ export default function MessageItem({ message }: MessageItemProps) {
   const isUser = message.role === 'user'
   // 如果消息中有思考内容且内容还未完成（处于加载状态），默认展开
   const [thinkingCollapsed, setThinkingCollapsed] = useState(!(message.thinking && !message.content))
+  const [sqlCollapsed, setSqlCollapsed] = useState(true)
+  const [copied, setCopied] = useState(false)
   const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
 
   // 监听思考内容变化，如果是在加载中且有新内容，保持展开
@@ -68,7 +70,10 @@ export default function MessageItem({ message }: MessageItemProps) {
   // 复制功能
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
-      .then(() => alert('已复制到剪贴板'))
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      })
       .catch(err => console.error('复制失败:', err))
   }
 
@@ -138,32 +143,71 @@ export default function MessageItem({ message }: MessageItemProps) {
           </div>
           
           {!isUser && message.sql && (
-            <SqlBlock sql={message.sql} />
+            <SqlBlock sql={message.sql} collapsed={sqlCollapsed} />
           )}
           
-          {/* 优化后的操作栏：按钮更小且并排 */}
+          {/* 优化后的操作栏：图标化按钮并排 */}
           {!isUser && (
-            <div className="mt-4 flex items-center justify-end gap-2 border-t border-gray-100 pt-3">
-              {(message.chartConfig || message.chart_cfg) && message.data && (
-                <button
-                  onClick={handleShowChart}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] rounded-lg text-[11px] font-bold text-gray-700 transition-all shadow-sm active:scale-95"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                  可视看板
-                </button>
+            <div className="mt-4 flex items-center justify-end gap-1.5 border-t border-gray-100 pt-3 opacity-0 hover:opacity-100 transition-opacity">
+              {message.sql && (
+                <div className="relative group/action">
+                  <button
+                    onClick={() => setSqlCollapsed(!sqlCollapsed)}
+                    className={`p-1.5 rounded-lg transition-all active:scale-95 border ${
+                      !sqlCollapsed 
+                        ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                        : 'bg-white text-gray-400 border-gray-100 hover:text-emerald-500 hover:bg-emerald-50 hover:border-emerald-100'
+                    }`}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                  </button>
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
+                    {sqlCollapsed ? '显示 SQL' : '隐藏 SQL'}
+                  </span>
+                </div>
               )}
-              <button
-                onClick={handleCopy}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 rounded-lg text-[11px] font-bold text-gray-500 transition-all active:scale-95 border border-gray-200"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                </svg>
-                复制
-              </button>
+
+              {(message.chartConfig || message.chart_cfg) && message.data && (
+                <div className="relative group/action">
+                  <button
+                    onClick={handleShowChart}
+                    className="p-1.5 bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-500 rounded-lg border border-gray-100 hover:border-blue-100 transition-all active:scale-95"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </button>
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
+                    可视看板
+                  </span>
+                </div>
+              )}
+
+              <div className="relative group/action">
+                <button
+                  onClick={handleCopy}
+                  className={`p-1.5 rounded-lg border transition-all active:scale-95 ${
+                    copied 
+                      ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                      : 'bg-white text-gray-400 border-gray-100 hover:bg-gray-50 hover:text-gray-600'
+                  }`}
+                >
+                  {copied ? (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    </svg>
+                  )}
+                </button>
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
+                  {copied ? '已复制' : '复制内容'}
+                </span>
+              </div>
             </div>
           )}
         </div>

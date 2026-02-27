@@ -141,27 +141,105 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
     yAxis: { type: 'value' },
   };
 
-  if (type === 'bar') return { ...base, series: [{ name: y, type: 'bar', data: rows.map((r: any) => r[y]), itemStyle: { borderRadius: [4, 4, 0, 0] } }] };
-  if (type === 'line') return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, symbol: 'circle', symbolSize: 8 }] };
-  if (type === 'area') return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, areaStyle: { opacity: 0.3 } }] };
-  if (type === 'scatter') return { ...base, xAxis: { type: 'value' }, series: [{ type: 'scatter', data: rows.map((r: any) => [r[columns[0]], r[columns[1]]]) }] };
-  if (type === 'pie') return { title: base.title, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['40%', '70%'], avoidLabelOverlap: true, data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] })) }] };
-  if (type === 'radar') {
-    const indicators = numericCols.map((col: string) => ({ name: col, max: Math.max(...rows.map((r: any) => r[col])) * 1.2 }));
-    return {
-      title: base.title,
-      tooltip: {},
-      radar: { indicator: indicators },
-      series: [{
-        type: 'radar',
-        data: rows.slice(0, 3).map((r: any) => ({
-          value: numericCols.map((col: string) => r[col]),
-          name: String(r[x])
-        }))
-      }]
-    };
+  switch (type) {
+    case 'bar':
+      return { ...base, series: [{ name: y, type: 'bar', data: rows.map((r: any) => r[y]), itemStyle: { borderRadius: [4, 4, 0, 0] } }] };
+    case 'line':
+      return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, symbol: 'circle', symbolSize: 8 }] };
+    case 'area':
+      return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, areaStyle: { opacity: 0.3 } }] };
+    case 'scatter':
+      return { ...base, xAxis: { type: 'value' }, series: [{ type: 'scatter', data: rows.map((r: any) => [r[columns[0]], r[columns[1]]]), symbolSize: 12 }] };
+    case 'pie':
+      return { title: base.title, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['40%', '70%'], avoidLabelOverlap: true, data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] })) }] };
+    case 'radar':
+      const indicators = numericCols.map((col: string) => ({ name: col, max: Math.max(...rows.map((r: any) => r[col])) * 1.2 }));
+      return {
+        title: base.title,
+        tooltip: {},
+        radar: { indicator: indicators },
+        series: [{
+          type: 'radar',
+          data: rows.slice(0, 3).map((r: any) => ({
+            value: numericCols.map((col: string) => r[col]),
+            name: String(r[x])
+          }))
+        }]
+      };
+    case 'funnel':
+      return {
+        title: base.title,
+        tooltip: { trigger: 'item' },
+        series: [{
+          type: 'funnel',
+          left: '10%', top: 60, bottom: 60, width: '80%',
+          data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] }))
+        }]
+      };
+    case 'gauge':
+      return {
+        series: [{
+          type: 'gauge',
+          detail: { formatter: '{value}%' },
+          data: [{ value: rows[0][y], name: String(rows[0][x]) }]
+        }]
+      };
+    case 'heatmap':
+      return {
+        title: base.title,
+        tooltip: { position: 'top' },
+        grid: { height: '50%', top: '10%' },
+        xAxis: { type: 'category', data: Array.from(new Set(rows.map((r: any) => String(r[columns[0]])))) },
+        yAxis: { type: 'category', data: Array.from(new Set(rows.map((r: any) => String(r[columns[1]])))) },
+        visualMap: { min: 0, max: Math.max(...rows.map((r: any) => r[y])), calculable: true, orient: 'horizontal', left: 'center', bottom: '15%' },
+        series: [{ type: 'heatmap', data: rows.map((r: any) => [String(r[columns[0]]), String(r[columns[1]]), r[y]]) }]
+      };
+    case 'treemap':
+      return {
+        title: base.title,
+        series: [{
+          type: 'treemap',
+          data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] }))
+        }]
+      };
+    case 'candlestick':
+      // 期待数据列顺序：开盘, 收盘, 最低, 最高
+      return {
+        xAxis: base.xAxis,
+        yAxis: { scale: true },
+        series: [{
+          type: 'candlestick',
+          data: rows.map((r: any) => [r['open'] || r[columns[1]], r['close'] || r[columns[2]], r['low'] || r[columns[3]], r['high'] || r[columns[4]]])
+        }]
+      };
+    case 'waterfall':
+      return {
+        title: base.title,
+        xAxis: base.xAxis,
+        yAxis: { type: 'value' },
+        series: [
+          {
+            name: 'Placeholder',
+            type: 'bar',
+            stack: 'Total',
+            itemStyle: { borderColor: 'transparent', color: 'transparent' },
+            data: rows.map((r: any, i: number) => {
+              let sum = 0;
+              for (let j = 0; j < i; j++) sum += rows[j][y];
+              return sum;
+            })
+          },
+          {
+            name: 'Value',
+            type: 'bar',
+            stack: 'Total',
+            data: rows.map((r: any) => r[y])
+          }
+        ]
+      };
+    default:
+      return null;
   }
-  return null;
 }
 
 export default function RightPanel() {
