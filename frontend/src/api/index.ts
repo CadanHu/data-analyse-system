@@ -4,11 +4,18 @@ import { useAuthStore } from '@/stores/authStore'
 
 // 动态获取 API 基础路径
 export const getBaseURL = () => {
-  // 如果手动指定了后端地址 (可通过 .env 或 Window 注入)
-  if ((window as any).BACKEND_URL) return (window as any).BACKEND_URL;
+  // --- 优先级 1: 如果手动指定了后端地址 (通过浏览器控制台设置 window.BACKEND_URL = 'http://192.168.x.x:8000') ---
+  if (typeof window !== 'undefined' && (window as any).BACKEND_URL) {
+    return (window as any).BACKEND_URL + '/api';
+  }
+
+  // --- 优先级 2: 这里请修改为您的电脑在局域网中的真实 IP 地址 ---
+  // 例如：'http://192.168.31.100:8000/api'
+  const DEV_HOST_IP = 'http://192.168.1.100'; // <--- 您可以在这里改一下
 
   if (typeof window !== 'undefined') {
     const origin = window.location.origin;
+    
     // 1. 如果是标准的 Web 开发环境或生产环境相对路径
     if (origin.startsWith('http') && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
       return '/api'
@@ -18,18 +25,21 @@ export const getBaseURL = () => {
     const isCapacitor = origin.includes('localhost') || origin.startsWith('capacitor') || origin.startsWith('http://10.0.2.2');
     
     if (isCapacitor) {
-      // 3. 识别 Android 模拟器
+      // 3. 识别 Android
       if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
-        console.log('[API] Android Environment detected, using 10.0.2.2:8000');
-        return 'http://10.0.2.2:8000/api';
+        // 如果是模拟器，使用 10.0.2.2
+        const isEmulator = /sdk|google/i.test(navigator.userAgent);
+        if (isEmulator) {
+          return 'http://10.0.2.2:8000/api';
+        }
+        // 如果是真机通过 USB 连接，配合 `adb reverse tcp:8000 tcp:8000` 使用 localhost
+        console.log('[API] Android Real Device via USB detected');
+        return 'http://localhost:8000/api';
       }
-      // 4. 识别 iOS 模拟器
+      // 4. iOS 模拟器/真机
       if (typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-        // iOS 模拟器 localhost 指向宿主机，直接使用 127.0.0.1
-        return 'http://127.0.0.1:8000/api';
+        return 'http://localhost:8000/api';
       }
-      // 5. 局域网开发 fallback (针对真机，您需要改为您的电脑真实 IP)
-      return 'http://127.0.0.1:8000/api';
     }
   }
   return '/api';
