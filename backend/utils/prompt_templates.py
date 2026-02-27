@@ -156,20 +156,17 @@ CHART_CONFIG_PROMPT = """你是一个专业的数据可视化专家，需要根�
 返回合法的 ECharts option JSON 配置，只包含 JSON 内容，不要包含 ```json 等 Markdown 标记，也不要有其他任何文字。
 确保配置可以直接用于 ECharts 渲染，符合以下美学与交互标准：
 1. **通用配置**：
-   - 标题：居中显示 `title: {{ text: "...", left: "center" }}`
+   - 标题：`title: {{ text: "...", left: "center", top: 10, textStyle: {{ fontSize: 14 }} }}`
+   - 边距：`grid: {{ top: 80, bottom: 90, left: 80, right: 50, containLabel: true }}` (确保给旋转的标签留够空间)
    - 提示框：开启 `tooltip: {{ trigger: "axis" }}` (饼图/漏斗图设为 "item")
-   - 调色盘：使用清新专业的配色方案。
-2. **趋势类 (line/area/candlestick)**：
-   - 折线图：`smooth: true`, `symbol: "circle"`, `symbolSize: 8`
-   - 面积图：在 line 基础上添加 `areaStyle: {{ opacity: 0.3 }}`
-3. **比较类 (bar/radar/gauge)**：
-   - 柱状图：`itemStyle: {{ borderRadius: [4, 4, 0, 0] }}`, 较多数据时开启 `dataZoom`
-   - 雷达图：需定义 `radar: {{ indicator: [...] }}`
-4. **占比类 (pie/treemap/sankey)**：
-   - 饼图/环形图：`radius: ["40%", "70%"]`, `avoidLabelOverlap: true`
-   - 漏斗图：`sort: "descending"`
-5. **地理与空间**：使用 `heatmap` 或 `scatter` 配合坐标转换。
-6. **KPI 指标**：仪表盘 `gauge` 或 进度条。
+2. **坐标轴优化**：
+   - X 轴标签：`axisLabel: {{ rotate: 45, interval: "auto", fontSize: 10 }}`
+   - Y 轴标签：`axisLabel: {{ fontSize: 10 }}`
+3. **防止挤压**：
+   - 开启 `avoidLabelOverlap: true`
+   - 漏斗图：`label: {{ position: "inside", fontSize: 10 }}`
+   - 仪表盘：`detail: {{ fontSize: 18 }}`, `splitLine: {{ length: 10 }}`
+4. **配色**：使用清新、高对比度的专业色盘。
 
 请严格根据【查询结果】中的数据字段映射到 ECharts 的 series 中。
 """

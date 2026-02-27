@@ -45,9 +45,8 @@ export default function EChartsRenderer({ option, style }: EChartsRendererProps)
   return (
     <div
       ref={chartRef}
+      className="w-full h-full min-h-[450px]"
       style={{
-        width: '100%',
-        height: '100%',
         ...style
       }}
     />

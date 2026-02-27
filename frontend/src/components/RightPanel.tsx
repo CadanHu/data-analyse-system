@@ -134,36 +134,83 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
   const y = numericCols[0] || columns[1] || columns[0];
 
   const base = {
-    title: { text: '分析结果', left: 'center', top: 10, textStyle: { fontSize: 14 } },
-    tooltip: { trigger: 'axis' },
-    grid: { top: 60, bottom: 80, left: 60, right: 40, containLabel: true },
+    title: { 
+      text: '分析结果', 
+      left: 'center', 
+      top: 10, 
+      textStyle: { fontSize: 14, color: '#374151', fontWeight: 'bold' } 
+    },
+    tooltip: { 
+      trigger: 'axis',
+      backgroundColor: 'rgba(255, 255, 255, 0.9)',
+      borderWidth: 0,
+      shadowBlur: 10,
+      shadowColor: 'rgba(0, 0, 0, 0.1)',
+      textStyle: { color: '#1f2937' }
+    },
+    grid: { 
+      top: 80, 
+      bottom: 100, // 增加底部空间
+      left: 80,    // 增加左侧空间
+      right: 50, 
+      containLabel: true 
+    },
     xAxis: { 
       type: 'category', 
       data: rows.map((r: any) => String(r[x])),
-      axisLabel: { rotate: 35, fontSize: 10, interval: 'auto' }
+      axisLabel: { 
+        rotate: 45,      // 旋转标签
+        fontSize: 10, 
+        interval: 0,     // 强制显示所有标签
+        color: '#6b7280',
+        hideOverlap: true // 自动隐藏重叠
+      },
+      axisLine: { lineStyle: { color: '#e5e7eb' } },
+      boundaryGap: true // 留出边缘间距
     },
-    yAxis: { type: 'value', axisLabel: { fontSize: 10 } },
+    yAxis: { 
+      type: 'value', 
+      axisLabel: { fontSize: 10, color: '#6b7280' },
+      axisLine: { show: false },
+      splitLine: { lineStyle: { type: 'dashed', color: '#f3f4f6' } }
+    },
   };
 
   switch (type) {
     case 'bar':
-      return { ...base, series: [{ name: y, type: 'bar', data: rows.map((r: any) => r[y]), itemStyle: { borderRadius: [4, 4, 0, 0] } }] };
+      return { ...base, series: [{ name: y, type: 'bar', data: rows.map((r: any) => r[y]), itemStyle: { borderRadius: [4, 4, 0, 0] }, barMaxWidth: 40 }] };
     case 'line':
-      return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, symbol: 'circle', symbolSize: 8 }] };
+      return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 3 } }] };
     case 'area':
-      return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, areaStyle: { opacity: 0.3 } }] };
+      return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, areaStyle: { opacity: 0.2 }, symbolSize: 6 }] };
     case 'scatter':
-      return { ...base, xAxis: { type: 'value' }, series: [{ type: 'scatter', data: rows.map((r: any) => [r[columns[0]], r[columns[1]]]), symbolSize: 12 }] };
+      return { ...base, xAxis: { type: 'value', axisLabel: { fontSize: 10 } }, series: [{ type: 'scatter', data: rows.map((r: any) => [r[columns[0]], r[columns[1]]]), symbolSize: 15, itemStyle: { opacity: 0.7 } }] };
     case 'pie':
-      return { title: base.title, tooltip: { trigger: 'item' }, series: [{ type: 'pie', radius: ['40%', '70%'], avoidLabelOverlap: true, data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] })) }] };
+      return { 
+        title: base.title, 
+        tooltip: { trigger: 'item' }, 
+        series: [{ 
+          type: 'pie', 
+          radius: ['35%', '65%'], 
+          avoidLabelOverlap: true, // 开启防重叠
+          label: { fontSize: 10 },
+          data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] })) 
+        }] 
+      };
     case 'radar':
       const indicators = numericCols.map((col: string) => ({ name: col, max: Math.max(...rows.map((r: any) => r[col])) * 1.2 }));
       return {
         title: base.title,
         tooltip: {},
-        radar: { indicator: indicators, center: ['50%', '55%'], radius: '60%' },
+        radar: { 
+          indicator: indicators, 
+          center: ['50%', '58%'], 
+          radius: '55%',
+          axisName: { color: '#6b7280', fontSize: 10 } 
+        },
         series: [{
           type: 'radar',
+          areaStyle: { opacity: 0.1 },
           data: rows.slice(0, 3).map((r: any) => ({
             value: numericCols.map((col: string) => r[col]),
             name: String(r[x])
@@ -176,15 +223,33 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
         tooltip: { trigger: 'item' },
         series: [{
           type: 'funnel',
-          left: '10%', top: 80, bottom: 40, width: '80%',
+          left: '15%', top: 100, bottom: 40, width: '70%',
+          label: { position: 'inside', fontSize: 10 }, // 强制内部展示
           data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] }))
         }]
       };
     case 'gauge':
       return {
+        title: base.title,
         series: [{
           type: 'gauge',
-          detail: { formatter: '{value}%', fontSize: 18 },
+          center: ['50%', '60%'],
+          radius: '85%',
+          startAngle: 200,
+          endAngle: -20,
+          pointer: { width: 4 },
+          progress: { show: true, width: 8 },
+          axisLine: { lineStyle: { width: 8 } },
+          axisTick: { show: false },
+          splitLine: { length: 10, lineStyle: { width: 2, color: '#999' } }, // 缩短刻度线
+          axisLabel: { distance: 15, color: '#999', fontSize: 9 },
+          detail: { 
+            valueAnimation: true, 
+            formatter: '{value}%', 
+            fontSize: 20, 
+            offsetCenter: [0, '70%'],
+            color: '#1f2937'
+          },
           data: [{ value: rows[0][y], name: String(rows[0][x]) }]
         }]
       };
@@ -194,8 +259,8 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
       return {
         title: base.title,
         tooltip: { position: 'top' },
-        grid: { top: 80, bottom: 80, left: 80, right: 40, containLabel: true },
-        xAxis: { type: 'category', data: xData, axisLabel: { fontSize: 10 } },
+        grid: { top: 100, bottom: 100, left: 100, right: 50, containLabel: true },
+        xAxis: { type: 'category', data: xData, axisLabel: { fontSize: 10, rotate: 30 } },
         yAxis: { type: 'category', data: yData, axisLabel: { fontSize: 10 } },
         visualMap: { 
           min: 0, 
@@ -203,36 +268,48 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
           calculable: true, 
           orient: 'horizontal', 
           left: 'center', 
-          bottom: 10,
-          inRange: { color: ['#e0ffff', '#06d6a0', '#ff5f56'] }
+          bottom: 20, // 移到底部，防止遮挡
+          itemHeight: 120,
+          textStyle: { fontSize: 10 }
         },
-        series: [{ type: 'heatmap', data: rows.map((r: any) => [String(r[columns[0]]), String(r[columns[1]]), r[y]]), label: { show: rows.length < 50 } }]
+        series: [{ 
+          type: 'heatmap', 
+          data: rows.map((r: any) => [String(r[columns[0]]), String(r[columns[1]]), r[y]]), 
+          label: { show: rows.length < 20, fontSize: 9 } 
+        }]
       };
     case 'treemap':
       return {
         title: base.title,
         series: [{
           type: 'treemap',
+          top: 80, bottom: 20,
           breadcrumb: { show: false },
+          label: { fontSize: 10 },
           data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] }))
         }]
       };
     case 'candlestick':
       return {
         title: base.title,
-        grid: base.grid,
+        grid: { ...base.grid, bottom: 120 },
         tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-        xAxis: base.xAxis,
+        xAxis: { ...base.xAxis, axisLabel: { ...base.xAxis.axisLabel, rotate: 45 } },
         yAxis: { scale: true, axisLabel: { fontSize: 10 } },
         series: [{
           type: 'candlestick',
-          data: rows.map((r: any) => [r['open'] || r[columns[1]], r['close'] || r[columns[2]], r['low'] || r[columns[3]], r['high'] || r[columns[4]]])
+          data: rows.map((r: any) => [
+            r['open'] || r[columns[1]], 
+            r['close'] || r[columns[2]], 
+            r['low'] || r[columns[3]], 
+            r['high'] || r[columns[4]]
+          ])
         }]
       };
     case 'waterfall':
       return {
         title: base.title,
-        grid: { top: 80, bottom: 100, left: 60, right: 40, containLabel: true },
+        grid: { top: 80, bottom: 120, left: 80, right: 50, containLabel: true },
         tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
         xAxis: { ...base.xAxis, axisLabel: { rotate: 45, fontSize: 10 } },
         yAxis: { type: 'value', axisLabel: { fontSize: 10 } },
@@ -256,7 +333,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
             name: 'Value',
             type: 'bar',
             stack: 'Total',
-            label: { show: true, position: 'top', fontSize: 9 },
+            label: { show: true, position: 'top', fontSize: 9, color: '#374151' },
             data: rows.map((r: any) => r[y])
           }
         ]
@@ -264,12 +341,18 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
     case 'gantt':
       return {
         title: base.title,
-        tooltip: { formatter: (params: any) => params.name + ': ' + params.value[1] + ' to ' + params.value[2] },
-        grid: { left: 100, top: 80, bottom: 40 },
-        xAxis: { type: 'time', axisLabel: { fontSize: 10 } },
+        tooltip: { 
+          formatter: (params: any) => {
+            const data = rows[params.dataIndex];
+            return `${params.name}<br/>开始: ${data.start_date}<br/>结束: ${data.end_date}`;
+          }
+        },
+        grid: { left: 120, top: 80, bottom: 60, right: 50, containLabel: true },
+        xAxis: { type: 'time', axisLabel: { fontSize: 10, rotate: 30 } },
         yAxis: { type: 'category', data: rows.map((r: any) => String(r[x])), axisLabel: { fontSize: 10 } },
         series: [{
           type: 'bar',
+          itemStyle: { borderRadius: 5, color: '#06d6a0' },
           data: rows.map((r: any, idx: number) => ({
             name: String(r[x]),
             value: [idx, r['start_date'] || r[columns[1]], r['end_date'] || r[columns[2]]]
@@ -355,28 +438,48 @@ export default function RightPanel() {
           <div className="flex justify-between items-center mb-3">
             <h2 className="text-lg sm:text-xl font-bold text-gray-800 tracking-tight truncate mr-2">数据透视</h2>
             <div className="flex gap-1.5 sm:gap-2 flex-none">
-              <button onClick={() => setFullScreen(!isFullScreen)} className="p-1.5 sm:p-2 bg-white/80 rounded-xl border border-white shadow-sm hover:bg-white transition-all text-sm">
-                {isFullScreen ? '↙️' : '⛶'}
+              <button 
+                onClick={() => setFullScreen(!isFullScreen)} 
+                className={`p-2 rounded-xl border transition-all shadow-sm flex items-center justify-center ${
+                  isFullScreen 
+                    ? 'bg-blue-500 text-white border-blue-200' 
+                    : 'bg-white text-gray-600 border-gray-100 hover:bg-gray-50'
+                }`}
+                title={isFullScreen ? "退出全屏" : "全屏展示"}
+              >
+                {isFullScreen ? (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9L4 4m0 0l5 0M4 4l0 5m11 0l5-5m0 0l-5 0m5 0l0 5m-5 11l5 5m0 0l-5 0m5 0l0-5m-11 0l-5 5m0 0l5 0m-5 0l0-5" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  </svg>
+                )}
               </button>
-              <button onClick={() => setRightPanelVisible(false)} className="p-1.5 sm:p-2 bg-white/80 rounded-xl border border-white shadow-sm text-gray-400 hover:text-gray-600 transition-all text-sm">✕</button>
+              <button onClick={() => setRightPanelVisible(false)} className="p-2 bg-white text-gray-400 rounded-xl border border-gray-100 shadow-sm hover:text-gray-600 transition-all">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           </div>
 
-          {/* 优化的图表类型选择器：网格布局 + 自动换行，确保所有按钮都可见 */}
-          <div className="p-1.5 bg-gray-100/50 rounded-2xl">
-            <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-3 gap-1.5">
+          {/* 优化的图表类型选择器：6列紧凑布局 */}
+          <div className="p-1 bg-gray-100/50 rounded-2xl">
+            <div className="grid grid-cols-4 xs:grid-cols-5 sm:grid-cols-6 lg:grid-cols-6 gap-1">
               {CHART_TYPES.map((t) => (
                 <button
                   key={t.key}
                   onClick={() => setActiveType(t.key)}
-                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-[10px] font-semibold transition-all ${
+                  className={`flex flex-col items-center justify-center gap-0.5 py-1.5 px-1 rounded-lg text-[9px] font-bold transition-all ${
                     activeType === t.key 
-                      ? 'bg-white text-gray-800 shadow-sm border-white' 
+                      ? 'bg-white text-blue-600 shadow-sm border-white scale-105 z-10' 
                       : 'text-gray-400 hover:text-gray-600 border-transparent'
                   } border`}
                 >
                   <span className="text-sm">{t.icon}</span>
-                  <span className="truncate">{t.label}</span>
+                  <span className="truncate w-full text-center scale-90">{t.label}</span>
                 </button>
               ))}
             </div>
