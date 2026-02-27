@@ -131,43 +131,107 @@ export default function Welcome() {
             </button>
           </div>
 
-          {/* 实时数据看板演示 */}
+          {/* 实时数据看板演示 - 升级为高保真模拟界面 */}
           <div className="mt-10 relative group opacity-0 animate-[fadeInUp_0.8s_ease-out_0.4s_forwards]">
             <div className="absolute -inset-1 bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-[2.5rem] blur-2xl opacity-10 group-hover:opacity-20 transition duration-1000"></div>
-            <div className="relative bg-[#0a0f1a]/80 backdrop-blur-3xl border border-white/10 rounded-[2rem] overflow-hidden shadow-2xl">
+            <div className="relative bg-[#0a0f1a]/80 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl">
               <div className="flex items-center justify-between px-6 py-4 bg-white/5 border-b border-white/5">
                 <div className="flex gap-2">
                   <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
                   <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
                   <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
                 </div>
-                <div className="text-[10px] text-gray-500 font-mono tracking-[0.3em] font-bold">DATAPULSE INTELLIGENT INTERFACE</div>
-                <div className="w-12" />
-              </div>
-              <div className="p-8 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
-                <div className="space-y-6">
-                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10 shadow-inner">
-                    <div className="text-[10px] text-[#06d6a0] mb-2 uppercase font-black tracking-widest">Query Input</div>
-                    <div className="text-sm text-gray-200 font-medium">对比过去半年各品类的销售毛利与增长率，并分析异常波动原因。</div>
+                <div className="text-[10px] text-gray-500 font-mono tracking-[0.3em] font-bold">DATAPULSE INTELLIGENT ANALYTICS HUB</div>
+                <div className="flex items-center gap-4">
+                  <div className="h-1.5 w-12 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full w-2/3 bg-[#06d6a0] animate-pulse" />
                   </div>
-                  <div className="p-4 rounded-2xl bg-[#3b82f6]/10 border border-[#3b82f6]/20 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-2 opacity-20">🧠</div>
-                    <div className="text-[10px] text-[#3b82f6] mb-2 uppercase font-black tracking-widest">DeepSeek R1 Thinking</div>
-                    <div className="text-[10px] text-gray-400 font-mono leading-relaxed space-y-1">
-                      <p className="animate-pulse">&gt;&gt; 正在提取多维指标 (Profit, Growth)...</p>
-                      <p className="opacity-60">&gt;&gt; 自动识别最佳图表: 雷达图 (Radar)...</p>
-                      <p className="opacity-40">&gt;&gt; 生成趋势预测曲线...</p>
+                </div>
+              </div>
+              
+              <div className="p-8 lg:p-10 grid grid-cols-1 lg:grid-cols-12 gap-10 text-left">
+                {/* 左侧：对话与推理 (Span 5) */}
+                <div className="lg:col-span-5 space-y-6">
+                  <div className="p-5 rounded-2xl bg-white/5 border border-white/10 shadow-inner group/bubble hover:border-[#3b82f6]/50 transition-colors">
+                    <div className="text-[10px] text-[#06d6a0] mb-2 uppercase font-black tracking-widest flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#06d6a0]" /> 
+                      User Query
+                    </div>
+                    <div className="text-sm text-gray-200 font-medium leading-relaxed">
+                      对比过去半年全渠道的销售额趋势，并使用雷达图展示核心产品的多维性能。
+                    </div>
+                  </div>
+
+                  <div className="p-5 rounded-2xl bg-[#3b82f6]/10 border border-[#3b82f6]/20 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-3 opacity-20 text-xl">🧠</div>
+                    <div className="text-[10px] text-[#3b82f6] mb-3 uppercase font-black tracking-widest">DeepSeek R1 Thinking Chain</div>
+                    <div className="text-[11px] text-gray-400 font-mono leading-relaxed space-y-2">
+                      <div className="flex items-start gap-2 animate-[fadeIn_0.5s_ease-out_forwards]">
+                        <span className="text-[#06d6a0]">&gt;</span>
+                        <p>正在解析多表关联 (Orders &amp; Products)...</p>
+                      </div>
+                      <div className="flex items-start gap-2 opacity-80">
+                        <span className="text-[#06d6a0]">&gt;</span>
+                        <p>检测到时间序列特征，自动选择趋势预测模型...</p>
+                      </div>
+                      <div className="flex items-start gap-2 opacity-60">
+                        <span className="text-[#06d6a0]">&gt;</span>
+                        <p>匹配最佳可视化: <span className="text-white font-bold">Radar Chart</span></p>
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div className="md:col-span-2 bg-black/40 rounded-2xl p-6 border border-white/5 flex flex-col justify-center items-center min-h-[240px] relative overflow-hidden group/viz">
+
+                {/* 右侧：高保真可视化展示 (Span 7) */}
+                <div className="lg:col-span-7 bg-black/40 rounded-3xl p-8 border border-white/5 flex flex-col items-center justify-center relative overflow-hidden group/viz">
                    <div className="absolute inset-0 bg-gradient-to-br from-[#3b82f6]/5 to-transparent opacity-0 group-hover/viz:opacity-100 transition-opacity" />
-                   <div className="flex items-end gap-3 h-40 w-full justify-around px-4 relative z-10">
-                      {[40, 75, 55, 95, 80, 65, 85, 50, 90, 70].map((h, i) => (
-                        <div key={i} className="w-full max-w-[20px] bg-gradient-to-t from-[#3b82f6] to-[#06d6a0] rounded-t-lg shadow-[0_0_15px_rgba(6,214,160,0.2)] animate-[growUp_1.5s_ease-out_forwards]" style={{ height: `${h}%`, animationDelay: `${i * 0.08}s` }} />
-                      ))}
+                   
+                   {/* 模拟雷达图背景 */}
+                   <div className="relative w-full h-64 flex items-center justify-center">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                         <div className="w-48 h-48 border border-white/10 rounded-full" />
+                         <div className="absolute w-32 h-32 border border-white/10 rounded-full" />
+                         <div className="absolute w-16 h-16 border border-white/10 rounded-full" />
+                         <div className="absolute h-48 w-px bg-white/5 rotate-0" />
+                         <div className="absolute h-48 w-px bg-white/5 rotate-45" />
+                         <div className="absolute h-48 w-px bg-white/5 rotate-90" />
+                         <div className="absolute h-48 w-px bg-white/5 rotate-135" />
+                      </div>
+                      
+                      <svg className="w-48 h-48 relative z-10 filter drop-shadow-[0_0_15px_rgba(6,214,160,0.4)]" viewBox="0 0 100 100">
+                        <path 
+                          d="M50 10 L85 35 L75 85 L25 85 L15 35 Z" 
+                          fill="url(#viz_grad)" 
+                          fillOpacity="0.5" 
+                          stroke="#06d6a0" 
+                          strokeWidth="1.5"
+                          className="animate-[pulse_3s_infinite]"
+                        />
+                        <circle cx="50" cy="10" r="2" fill="#06d6a0" />
+                        <circle cx="85" cy="35" r="2" fill="#06d6a0" />
+                        <circle cx="75" cy="85" r="2" fill="#06d6a0" />
+                        <circle cx="25" cy="85" r="2" fill="#06d6a0" />
+                        <circle cx="15" cy="35" r="2" fill="#06d6a0" />
+                      </svg>
+                      
+                      <div className="absolute top-4 text-[9px] text-gray-500 font-bold uppercase tracking-widest">Performance</div>
+                      <div className="absolute right-2 top-1/2 text-[9px] text-gray-500 font-bold uppercase tracking-widest">Price</div>
+                      <div className="absolute bottom-4 text-[9px] text-gray-500 font-bold uppercase tracking-widest">Design</div>
+                      <div className="absolute left-2 top-1/2 text-[9px] text-gray-500 font-bold uppercase tracking-widest">Service</div>
                    </div>
-                   <div className="mt-6 text-[10px] text-[#06d6a0] font-bold font-mono uppercase tracking-[0.2em] animate-pulse">
+
+                   <div className="mt-8 flex items-center gap-6 relative z-10">
+                      <div className="flex items-center gap-2">
+                         <div className="w-2.5 h-2.5 rounded-full bg-[#06d6a0]" />
+                         <span className="text-[10px] text-gray-400 font-bold">Model X Series</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                         <div className="w-2.5 h-2.5 rounded-full bg-[#3b82f6] opacity-50" />
+                         <span className="text-[10px] text-gray-400 font-bold">Market Average</span>
+                      </div>
+                   </div>
+                   
+                   <div className="mt-6 px-4 py-1.5 rounded-full bg-[#06d6a0]/10 border border-[#06d6a0]/30 text-[9px] text-[#06d6a0] font-black uppercase tracking-[0.2em] relative z-10 animate-pulse">
                      Adaptive Visualization Engine Active
                    </div>
                 </div>
@@ -176,6 +240,15 @@ export default function Welcome() {
           </div>
         </div>
       </main>
+
+      <svg className="absolute w-0 h-0">
+        <defs>
+          <linearGradient id="viz_grad" x1="0" y1="0" x2="1" y2="1">
+            <stop stopColor="#3b82f6" />
+            <stop offset="1" stopColor="#06d6a0" />
+          </linearGradient>
+        </defs>
+      </svg>
 
       {/* 功能特性卡片区 */}
       <section id="features" className="relative z-10 py-40 px-6 bg-[#050810]">
@@ -244,6 +317,10 @@ export default function Welcome() {
 
       {/* 添加关键动画的 Style 标签 */}
       <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
         @keyframes fadeInUp {
           from { opacity: 0; transform: translateY(40px); }
           to { opacity: 1; transform: translateY(0); }
