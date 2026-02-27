@@ -236,21 +236,21 @@ export default function RightPanel() {
           </div>
         </div>
 
-        {/* 优化的图表类型选择器：支持横向滚动，防止窄屏挤压 */}
-        <div className="overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
-          <div className="flex gap-1 p-1 bg-gray-100/50 rounded-2xl w-max min-w-full">
+        {/* 优化的图表类型选择器：弹性换行适配，确保所有宽度下按钮都可见 */}
+        <div className="p-1.5 bg-gray-100/50 rounded-2xl">
+          <div className="flex flex-wrap gap-1.5 justify-start">
             {CHART_TYPES.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setActiveType(t.key)}
-                className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all whitespace-nowrap ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all ${
                   activeType === t.key 
                     ? 'bg-white text-gray-800 shadow-sm border-white' 
                     : 'text-gray-400 hover:text-gray-600 border-transparent'
                 } border`}
               >
                 <span className="text-base">{t.icon}</span>
-                <span className="hidden lg:inline">{t.label}</span>
+                <span className={`${activeType === t.key ? 'inline' : 'hidden'} md:inline`}>{t.label}</span>
               </button>
             ))}
           </div>
