@@ -1,273 +1,104 @@
-import { Link } from 'react-router-dom'
-
-interface ChangeItem {
-  type: 'new' | 'improved' | 'fixed' | 'removed'
-  description: string
-}
-
-interface Release {
-  version: string
-  date: string
-  status: 'latest' | 'stable' | 'beta'
-  changes: ChangeItem[]
-  highlights?: string[]
-}
-
-const releases: Release[] = [
-  {
-    version: '1.2.0',
-    date: '2024-02-20',
-    status: 'latest',
-    highlights: [
-      '新增 DeepSeek 推理模型支持',
-      '添加文件上传功能',
-      '集成 Chinook 和 Northwind 数据库'
-    ],
-    changes: [
-      { type: 'new', description: '新增 DeepSeek 推理模型，支持普通模式和思考模式' },
-      { type: 'new', description: '添加思考模式切换开关，默认关闭' },
-      { type: 'new', description: '新增文件上传功能，支持图片和文档上传' },
-      { type: 'new', description: '集成 Chinook 音乐数据库和 Northwind 商业数据库' },
-      { type: 'new', description: '添加数据库切换功能，每个会话独立选择数据库' },
-      { type: 'new', description: '新增 SQL 语句显示/折叠按钮' },
-      { type: 'new', description: '添加教程页面，帮助用户快速上手' },
-      { type: 'improved', description: '优化 AI 思考过程展示，默认折叠' },
-      { type: 'improved', description: '改进流式响应性能，提升用户体验' },
-      { type: 'improved', description: '优化会话管理，修复切换会话时的显示问题' },
-      { type: 'fixed', description: '修复新建会话后对话栏未清空的问题' },
-      { type: 'fixed', description: '修复删除会话后聊天区仍显示旧消息的问题' },
-      { type: 'fixed', description: '修复切换会话时聊天内容不更新的问题' },
-      { type: 'fixed', description: '修复 SQL 关键字表名导致语法错误的问题' },
-      { type: 'fixed', description: '修复 HTML 实体编码问题' },
-      { type: 'fixed', description: '修复重复 key 导致的 React 警告' }
-    ]
-  },
-  {
-    version: '1.1.0',
-    date: '2024-02-10',
-    status: 'stable',
-    highlights: [
-      '引入 Streamable HTTP 替代 SSE',
-      '优化 AI 提示词',
-      '新增多个系统测试问题'
-    ],
-    changes: [
-      { type: 'new', description: '将 SSE 更换为 Streamable HTTP，提高兼容性' },
-      { type: 'new', description: '添加多个复杂系统测试问题' },
-      { type: 'improved', description: '优化 AI 提示词，提升 SQL 生成质量' },
-      { type: 'improved', description: '改进错误处理机制，提供更友好的错误提示' },
-      { type: 'improved', description: '优化数据库连接池管理' },
-      { type: 'fixed', description: '修复 Northwind 数据库 token 超限问题' },
-      { type: 'fixed', description: '修复流式输出重复创建消息的问题' },
-      { type: 'fixed', description: '修复数据库连接失败时的错误处理' }
-    ]
-  },
-  {
-    version: '1.0.0',
-    date: '2024-01-20',
-    status: 'stable',
-    highlights: [
-      'DataPulse 首次发布',
-      '支持自然语言查询数据库',
-      '实时数据可视化'
-    ],
-    changes: [
-      { type: 'new', description: '发布 DataPulse 智能数据分析系统' },
-      { type: 'new', description: '支持通过自然语言查询数据库' },
-      { type: 'new', description: '集成 OpenAI GPT 模型进行智能分析' },
-      { type: 'new', description: '实现实时数据可视化功能' },
-      { type: 'new', description: '支持多种图表类型展示' },
-      { type: 'new', description: '添加会话管理功能' },
-      { type: 'new', description: '实现智能会话标题生成' },
-      { type: 'new', description: '支持多轮对话和上下文记忆' },
-      { type: 'new', description: '添加 SQL 代码查看和复制功能' },
-      { type: 'new', description: '实现响应式设计，支持移动端' },
-      { type: 'new', description: '添加欢迎页面和关于页面' },
-      { type: 'improved', description: '优化用户界面设计' },
-      { type: 'improved', description: '提升系统整体性能' }
-    ]
-  }
-]
-
-const changeTypeConfig = {
-  new: {
-    label: '新增',
-    bgColor: 'bg-green-500/10',
-    textColor: 'text-green-400',
-    borderColor: 'border-green-500/20'
-  },
-  improved: {
-    label: '改进',
-    bgColor: 'bg-blue-500/10',
-    textColor: 'text-blue-400',
-    borderColor: 'border-blue-500/20'
-  },
-  fixed: {
-    label: '修复',
-    bgColor: 'bg-yellow-500/10',
-    textColor: 'text-yellow-400',
-    borderColor: 'border-yellow-500/20'
-  },
-  removed: {
-    label: '移除',
-    bgColor: 'bg-red-500/10',
-    textColor: 'text-red-400',
-    borderColor: 'border-red-500/20'
-  }
-}
-
-const statusConfig = {
-  latest: {
-    label: '最新版本',
-    bgColor: 'bg-gradient-to-r from-[#3b82f6] to-[#06d6a0]',
-    textColor: 'text-white'
-  },
-  stable: {
-    label: '稳定版本',
-    bgColor: 'bg-white/10',
-    textColor: 'text-gray-300'
-  },
-  beta: {
-    label: '测试版本',
-    bgColor: 'bg-purple-500/20',
-    textColor: 'text-purple-400'
-  }
-}
+import { useNavigate } from 'react-router-dom'
 
 export default function Changelog() {
+  const navigate = useNavigate()
+
+  const logs = [
+    {
+      version: 'v1.7.0',
+      date: '2026-02-27',
+      title: '多维进阶可视化与极致响应式优化',
+      tags: ['Major', 'UI/UX', 'Engine'],
+      items: [
+        '新增 15+ 种进阶图表支持：包括雷达图、漏斗图、热力图、甘特图等。',
+        '引入 AI 驱动的 ECharts 动态配置引擎，实现图表类型自动适配。',
+        '实施横屏极限空间优化，大幅提升移动端在横屏下的内容展示比例。',
+        '优化空状态引导，新增预设指令一键分析功能。',
+        '修复了 Decimal 类型数据在 JSON 序列化时的崩溃问题。',
+        '增强 SQL 安全拦截，新增 AI 自我修正逻辑。'
+      ]
+    },
+    {
+      version: 'v1.6.0',
+      date: '2026-02-20',
+      title: '架构全面升级与多数据库支持',
+      tags: ['Architecture', 'Database'],
+      items: [
+        '彻底废除 SQLite，全面转向 SQLAlchemy 2.0 异步驱动。',
+        '新增对 MySQL 和 PostgreSQL 的原生适配。',
+        '标准化 SSE 流式协议，响应速度提升 40%。',
+        '引入跨库 Schema 自动提取服务。'
+      ]
+    },
+    {
+      version: 'v1.5.0',
+      date: '2026-02-10',
+      title: '移动端原生适配与思考可视化',
+      tags: ['Mobile', 'Thinking'],
+      items: [
+        '基于 Capacitor 6 实现 iOS/Android 双端适配。',
+        '新增 DeepSeek R1 思考过程可视化方案。',
+        '优化了消息列表的滚动性能与渲染流畅度。'
+      ]
+    }
+  ]
+
   return (
     <div className="min-h-screen bg-[#050810] text-white">
-      <nav className="fixed top-0 left-0 right-0 z-50 px-6 py-4 backdrop-blur-xl border-b border-white/10 bg-[#050810]/95">
+      <nav className="fixed top-0 left-0 right-0 z-[100] px-6 py-4 bg-[#050810]/95 backdrop-blur-xl border-b border-white/10" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3">
+          <button onClick={() => navigate('/')} className="flex items-center gap-3 hover:opacity-80 transition-all">
             <div className="flex items-end gap-1 h-6">
-              <div className="w-1.5 bg-gradient-to-b from-[#3b82f6] to-[#06d6a0] rounded-sm" style={{ height: '40%' }} />
-              <div className="w-1.5 bg-gradient-to-b from-[#3b82f6] to-[#06d6a0] rounded-sm" style={{ height: '70%' }} />
-              <div className="w-1.5 bg-gradient-to-b from-[#3b82f6] to-[#06d6a0] rounded-sm" style={{ height: '100%' }} />
-              <div className="w-1.5 bg-gradient-to-b from-[#3b82f6] to-[#06d6a0] rounded-sm" style={{ height: '60%' }} />
+              <div className="w-1.5 bg-gradient-to-b from-[#3b82f6] to-[#06d6a0] rounded-sm h-[40%]" />
+              <div className="w-1.5 bg-gradient-to-b from-[#3b82f6] to-[#06d6a0] rounded-sm h-[70%]" />
+              <div className="w-1.5 bg-gradient-to-b from-[#3b82f6] to-[#06d6a0] rounded-sm h-[100%]" />
             </div>
             <span className="text-xl font-bold tracking-tight">DataPulse</span>
-          </Link>
-          <div className="flex items-center gap-6">
-            <Link to="/" className="text-sm text-gray-400 hover:text-white transition-colors">首页</Link>
-            <Link to="/features" className="text-sm text-gray-400 hover:text-white transition-colors">功能特性</Link>
-            <Link to="/tutorial" className="text-sm text-gray-400 hover:text-white transition-colors">教程</Link>
-            <Link to="/changelog" className="text-sm text-white font-medium">更新日志</Link>
-            <Link to="/about" className="text-sm text-gray-400 hover:text-white transition-colors">关于</Link>
-            <Link
-              to="/app"
-              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] rounded-lg hover:shadow-lg hover:shadow-[#3b82f6]/30 transition-all"
-            >
-              进入应用
-            </Link>
-          </div>
+          </button>
+          <button onClick={() => navigate('/app')} className="px-4 py-2 text-sm font-medium text-white border border-white/20 rounded-lg hover:border-[#06d6a0]/50 hover:bg-[#06d6a0]/10 transition-all">
+            进入应用
+          </button>
         </div>
       </nav>
 
-      <main className="relative z-10 pt-24 pb-20 px-6">
+      <main className="relative z-10 pt-48 pb-20 px-6">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-16">
-            <h1 className="text-4xl md:text-5xl font-bold mb-6">
-              更新日志
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#3b82f6] to-[#06d6a0]">
-                持续进化
-              </span>
-            </h1>
-            <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-              了解 DataPulse 的最新更新和改进，追踪我们的发展历程
-            </p>
+          <div className="mb-16">
+            <h1 className="text-5xl font-black mb-4">更新日志</h1>
+            <p className="text-xl text-gray-500 font-medium">每一次进化，都为您带来更极致的分析体验</p>
           </div>
 
-          <div className="space-y-8">
-            {releases.map((release) => (
-              <div
-                key={release.version}
-                className="bg-[#0a0f1a] border border-white/10 rounded-xl overflow-hidden"
-              >
-                <div className="px-6 py-5 border-b border-white/10 flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl font-bold">v{release.version}</span>
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium ${statusConfig[release.status].bgColor} ${statusConfig[release.status].textColor}`}
-                      >
-                        {statusConfig[release.status].label}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-400">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    {release.date}
+          <div className="space-y-12">
+            {logs.map((log) => (
+              <div key={log.version} className="relative pl-8 md:pl-12 border-l-2 border-white/5">
+                <div className="absolute -left-[9px] top-0 w-4 h-4 bg-[#06d6a0] rounded-full shadow-[0_0_15px_rgba(6,214,160,0.5)]" />
+                
+                <div className="mb-4 flex flex-wrap items-center gap-4">
+                  <span className="text-3xl font-black text-white">{log.version}</span>
+                  <span className="text-sm font-mono text-gray-500 bg-white/5 px-3 py-1 rounded-full border border-white/5">{log.date}</span>
+                  <div className="flex gap-2">
+                    {log.tags.map(tag => (
+                      <span key={tag} className="text-[10px] font-bold uppercase tracking-wider text-[#3b82f6] bg-[#3b82f6]/10 px-2 py-0.5 rounded-md border border-[#3b82f6]/20">{tag}</span>
+                    ))}
                   </div>
                 </div>
 
-                {release.highlights && release.highlights.length > 0 && (
-                  <div className="px-6 py-4 bg-gradient-to-r from-[#3b82f6]/5 to-[#06d6a0]/5 border-b border-white/10">
-                    <h3 className="text-sm font-semibold text-[#06d6a0] mb-3 font-mono">版本亮点</h3>
-                    <ul className="space-y-2">
-                      {release.highlights.map((highlight, index) => (
-                        <li key={index} className="flex items-start gap-2 text-sm text-gray-300">
-                          <svg className="w-5 h-5 text-[#06d6a0] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          {highlight}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <div className="p-6">
-                  <h3 className="text-sm font-semibold text-gray-400 mb-4 font-mono">详细更新</h3>
-                  <div className="space-y-3">
-                    {release.changes.map((change, index) => {
-                      const config = changeTypeConfig[change.type]
-                      return (
-                        <div
-                          key={index}
-                          className={`flex items-start gap-3 p-3 rounded-lg ${config.bgColor} border ${config.borderColor}`}
-                        >
-                          <span
-                            className={`px-2 py-0.5 rounded text-xs font-medium ${config.bgColor} ${config.textColor} border ${config.borderColor} flex-shrink-0`}
-                          >
-                            {config.label}
-                          </span>
-                          <span className="text-sm text-gray-300">{change.description}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
+                <div className="bg-[#111827]/50 border border-white/10 rounded-2xl p-8 hover:bg-[#111827]/80 transition-all">
+                  <h3 className="text-xl font-bold mb-6 text-gray-200">{log.title}</h3>
+                  <ul className="space-y-4">
+                    {log.items.map((item, i) => (
+                      <li key={i} className="flex items-start gap-3 text-gray-400 leading-relaxed">
+                        <span className="mt-2 w-1.5 h-1.5 rounded-full bg-[#06d6a0]/50 flex-shrink-0" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </div>
             ))}
           </div>
-
-          <div className="mt-16 text-center">
-            <div className="inline-flex items-center gap-2 px-6 py-3 bg-[#0a0f1a] border border-white/10 rounded-xl">
-              <svg className="w-5 h-5 text-[#06d6a0]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm text-gray-300">
-                了解最新更新后，点击{' '}
-                <Link to="/app" className="text-[#06d6a0] hover:underline font-medium">
-                  进入应用
-                </Link>{' '}
-                体验新功能
-              </span>
-            </div>
-          </div>
         </div>
       </main>
-
-      <footer className="border-t border-white/10 bg-[#050810]/50 py-8 px-6">
-        <div className="max-w-7xl mx-auto text-center">
-          <p className="text-sm text-gray-500">
-            © 2024 DataPulse. All rights reserved.
-          </p>
-        </div>
-      </footer>
     </div>
   )
 }

@@ -40,8 +40,8 @@ export default function About() {
                 DataPulse
               </span>
             </h1>
-            <p className="text-xl text-gray-400 leading-relaxed">
-              让数据分析变得简单、智能、高效
+            <p className="text-xl text-gray-400 leading-relaxed max-w-2xl mx-auto">
+              DeepSeek R1 驱动的全场景智能数据分析引擎
             </p>
           </div>
 
@@ -56,9 +56,9 @@ export default function About() {
                 我们的使命
               </h2>
               <p className="text-gray-300 leading-relaxed text-lg">
-                DataPulse 致力于通过人工智能技术，让每个人都能轻松进行数据分析。
-                我们相信，数据洞察不应该只是技术专家的特权，而应该成为每个决策者的得力助手。
-                通过自然语言交互，我们打破了技术壁垒，让数据分析变得像日常对话一样简单。
+                DataPulse v1.7.0 致力于通过最前沿的 AI 推理技术与工业级数据库架构，重新定义企业级数据分析体验。
+                我们通过 DeepSeek R1 的深度思考能力，将复杂的业务语言精准转化为高性能 SQL，
+                并结合 15+ 种进阶可视化方案，让数据洞察不再是专家的特权，而是每一位决策者的得力助手。
               </p>
             </section>
 
@@ -69,42 +69,42 @@ export default function About() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </span>
-                核心价值
+                核心技术栈
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <ValueCard
-                  title="简单易用"
-                  description="无需学习复杂的 SQL 语法，用自然语言即可查询数据"
-                  icon={
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  }
-                />
-                <ValueCard
-                  title="智能高效"
-                  description="AI 驱动的查询优化，快速获取准确的数据洞察"
-                  icon={
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  }
-                />
-                <ValueCard
-                  title="安全可靠"
-                  description="企业级安全保障，保护您的数据隐私和商业机密"
-                  icon={
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                  }
-                />
-                <ValueCard
-                  title="持续创新"
-                  description="不断引入最新的 AI 技术，提供更强大的分析能力"
+                  title="DeepSeek R1 推理"
+                  description="集成 R1 深度思考模型，提供透明可追溯的思维链分析与超高精度 SQL 生成。"
                   icon={
                     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                  }
+                />
+                <ValueCard
+                  title="SQLAlchemy 异步架构"
+                  description="基于 SQLAlchemy 2.0 实现 MySQL 与 PostgreSQL 的多库平滑切换与高性能异步执行。"
+                  icon={
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                    </svg>
+                  }
+                />
+                <ValueCard
+                  title="进阶可视化引擎"
+                  description="自动适配雷达图、漏斗图、桑基图等 15+ 种专业可视化方案，数据洞察一目了然。"
+                  icon={
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  }
+                />
+                <ValueCard
+                  title="RAG 知识库增强"
+                  description="支持 PDF 与 Excel 深度解析，让 AI 基于私有业务口径进行精准分析。"
+                  icon={
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                     </svg>
                   }
                 />
