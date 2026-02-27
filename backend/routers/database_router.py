@@ -42,11 +42,16 @@ async def startup_event():
 
 @router.get("/databases")
 async def get_databases(current_user: dict = Depends(get_current_user)):
-    """获取所有可用数据库"""
+    """获取所有可用数据库 (动态同步配置)"""
     current_key = SchemaService.get_current_db_key()
     
     databases = []
     for key, config in DATABASES.items():
+        # 动态确保 DatabaseManager 中已注册该库
+        if not DatabaseManager.get_adapter(key):
+            print(f"📡 [Database] 发现新数据库配置，正在动态注册: {key}")
+            DatabaseManager.register_database(key, config)
+            
         databases.append({
             "key": key,
             "name": config["name"],

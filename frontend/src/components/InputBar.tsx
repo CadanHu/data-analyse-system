@@ -11,11 +11,22 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { isLoading, isThinkingMode, setThinkingMode } = useChatStore()
+  const { isLoading, isThinkingMode, setThinkingMode, pendingMessage, setPendingMessage } = useChatStore()
   const [isRAGMode, setRAGMode] = useState(false)
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
   const [showEngineSelect, setShowEngineSelect] = useState(false)
   const { connect } = useSSE()
+
+  // 监听来自引导卡片的点击消息
+  useEffect(() => {
+    if (pendingMessage && sessionId && !isLoading) {
+      // 使用 setTimeout 确保状态同步
+      setTimeout(() => {
+        handleSubmit(pendingMessage)
+        setPendingMessage(null)
+      }, 50)
+    }
+  }, [pendingMessage, sessionId, isLoading])
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -24,18 +35,19 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
     }
   }, [input])
 
-  const handleSubmit = async () => {
-    console.log('🚀 [InputBar] 尝试发送消息...', { input: input.trim(), sessionId, isLoading })
-    if (!input.trim() || !sessionId || isLoading) {
+  const handleSubmit = async (overrideInput?: string) => {
+    const textToSubmit = overrideInput || input
+    console.log('🚀 [InputBar] 尝试发送消息...', { input: textToSubmit.trim(), sessionId, isLoading })
+    if (!textToSubmit.trim() || !sessionId || isLoading) {
       console.warn('⚠️ [InputBar] 发送请求被拦截: ', { 
-        inputEmpty: !input.trim(), 
+        inputEmpty: !textToSubmit.trim(), 
         noSession: !sessionId, 
         isBusy: isLoading 
       })
       return
     }
 
-    const question = input.trim()
+    const question = textToSubmit.trim()
     setInput('')
     // 将 RAG 配置传给后端
     console.log('📡 [InputBar] 正在调用 connect...')

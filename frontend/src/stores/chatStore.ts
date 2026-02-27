@@ -21,6 +21,8 @@ export const useChatStore = create<ChatState & {
   setActiveTab: (tab: 'chat' | 'sessions' | 'charts') => void
   isFullScreen: boolean
   setFullScreen: (enabled: boolean) => void
+  pendingMessage: string | null
+  setPendingMessage: (message: string | null) => void
 }>((set, get) => ({
   messages: [],
   isLoading: false,
@@ -35,7 +37,9 @@ export const useChatStore = create<ChatState & {
   isThinkingMode: false,
   activeTab: 'sessions',
   isFullScreen: false,
+  pendingMessage: null,
 
+  setPendingMessage: (message: string | null) => set({ pendingMessage: message }),
   setFullScreen: (enabled: boolean) => set({ isFullScreen: enabled }),
 
   // 关键修复：从历史消息中同步分析结果到右侧面板

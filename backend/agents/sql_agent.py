@@ -411,7 +411,7 @@ class SQLAgent:
 
         execution_question = question
         if is_executing_after_plan:
-            execution_question = f"基于你刚才提出的分析方案，请立即生成 SQL 并执行查询。当前指令：{question}"
+            execution_question = f"根据你刚才提出的分析方案，请立即生成最终的 SQL 语句并执行查询。不要再次确认，直接开始分析。当前指令：{question}"
 
         for attempt in range(MAX_RETRY_COUNT + 1):
             try:
@@ -424,9 +424,11 @@ class SQLAgent:
                     elif stream_event["type"] == "done":
                         sql_response = stream_event["result"]
                 
-                if not sql_response: raise ValueError("未能生成有效的 SQL")
+                if not sql_response: raise ValueError("未能生成有效的 SQL JSON 响应")
                 
                 sql = sql_response.get("sql", "")
+                if not sql: raise ValueError("生成的 JSON 中没有 SQL 语句")
+                
                 chart_type = sql_response.get("chart_type", "table")
                 viz_config = sql_response.get("viz_config", {})
 
@@ -453,6 +455,9 @@ class SQLAgent:
                 break
 
             except Exception as e:
+                print(f"❌ [Agent] SQL 执行尝试 {attempt + 1} 失败: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 if attempt >= MAX_RETRY_COUNT:
-                    yield {"event": "error", "data": {"message": f"查询失败: {str(e)}"}}
+                    yield {"event": "error", "data": {"message": f"分析失败: {str(e)}"}}
                     return

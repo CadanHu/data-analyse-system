@@ -5,9 +5,8 @@ import MessageSkeleton from './MessageSkeleton'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 
-export default function MessageList() {
+  const { isLoading, thinkingContent, setPendingMessage } = useChatStore()
   const { messages: storeMessages } = useSessionStore()
-  const { isLoading, thinkingContent } = useChatStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -68,7 +67,8 @@ export default function MessageList() {
               ].map((query, i) => (
                 <button 
                   key={i}
-                  className="px-5 py-2.5 bg-white/80 rounded-xl text-xs text-gray-600 border border-white hover:border-[#BFFFD9] hover:bg-white transition-all shadow-sm"
+                  onClick={() => setPendingMessage(query)}
+                  className="px-5 py-2.5 bg-white/80 rounded-xl text-xs text-gray-600 border border-white hover:border-[#BFFFD9] hover:bg-white transition-all shadow-sm active:scale-95"
                 >
                   {query}
                 </button>
