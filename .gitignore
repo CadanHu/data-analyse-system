@@ -28,6 +28,9 @@ LOCAL_TEST_README.md
 backend.log
 frontend.log
 
+# Local vite config (custom ports)
+frontend/vite.config.local.ts
+
 # IDE
 .idea
 .vscode
