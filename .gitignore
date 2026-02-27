@@ -23,6 +23,7 @@ data
 # Local test scripts (custom ports)
 test-local-custom.sh
 stop-test-local.sh
+LOCAL_TEST_README.md
 *.pid
 backend.log
 frontend.log
