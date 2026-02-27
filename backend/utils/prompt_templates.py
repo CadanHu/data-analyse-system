@@ -20,10 +20,23 @@ SQL_GENERATION_PROMPT = """你是一个专业的数据分析助手，可以将�
 必须返回合法的 JSON 格式，不要包含任何其他文字：
 {{
   "sql": "SELECT ...",
-  "chart_type": "bar|line|pie|scatter|table",
-  "reasoning": "我的分析思路...",
+  "chart_type": "bar|line|pie|card|table",
+  "viz_config": {{
+    "x": "x轴字段名",
+    "y": "y轴字段名/数值字段名",
+    "title": "图表标题",
+    "goal": "分析目标描述"
+  }},
+  "reasoning": "我的分析思路，以及为什么选择这个图表类型...",
   "session_title": "基于上下文生成的15字以内的简短会话标题"
 }}
+
+可视化选择准则：
+- **card**: 当结果只有【单行单列】（如：总数、平均值、单一百分比）时，必须选择 card。
+- **line**: 当 X 轴涉及【时间、日期、月份、年份】时，优先选择 line。
+- **pie**: 当需要展示【占比、构成、分类分布】且分类数量 < 10 时，选择 pie。
+- **bar**: 当进行【项目对比、排名】时，选择 bar。
+- **table**: 当数据列数过多 (>4列) 或不符合上述特征时，选择 table。
 
 请根据用户的问题生成正确的 SQL 查询。
 

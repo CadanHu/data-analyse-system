@@ -50,6 +50,9 @@ async def check_env():
             print(f"❌ 出错: {str(e)}")
 
     print("\n✨ 环境检查完成。")
+    # 3. 优雅断开连接
+    await DatabaseManager.disconnect_all()
+    await session_db.engine.dispose()
 
 if __name__ == "__main__":
     asyncio.run(check_env())

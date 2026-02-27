@@ -49,15 +49,7 @@ class SQLAgent:
             "stream": True
         }
         
-        # 只有在非官方 deepseek-reasoner 但想开启思考模式时（比如某些中转平台）
-        # 才可能需要这个额外的 thinking 参数。官方 reasoner 是自动开启的。
-        # if enable_thinking and active_model != "deepseek-reasoner":
-        #     request_body["thinking"] = {"type": "enabled"}
-        
         print(f"📤 发送到 DeepSeek 的请求: model={active_model}, enable_thinking={enable_thinking}")
-        print(f"📤 Messages 数量: {len(messages)}")
-        for i, msg in enumerate(messages):
-            print(f"📤 Message {i} ({msg['role']}): {msg['content'][:200]}...")
         
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
@@ -72,7 +64,6 @@ class SQLAgent:
                 if response.status_code != 200:
                     error_text = await response.aread()
                     print(f"❌ DeepSeek API 错误: {response.status_code}")
-                    print(f"❌ 错误响应: {error_text.decode('utf-8', errors='ignore')}")
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if line.startswith("data: "):
@@ -85,10 +76,6 @@ class SQLAgent:
                                 delta = chunk["choices"][0].get("delta", {})
                                 reasoning_content = delta.get("reasoning_content", "")
                                 content = delta.get("content", "")
-                                
-                                # 调试日志: 打印包含推理内容的块
-                                if reasoning_content:
-                                    print(f"🧠 [DeepSeek Thinking] 收到推理片段: {len(reasoning_content)} chars")
                                 
                                 if reasoning_content or content:
                                     yield {
@@ -106,9 +93,8 @@ class SQLAgent:
         response_content = await self._chat_completion(messages, temperature=0.0)
         try:
             intent_json = json.loads(response_content)
-            return intent_json.get("intent", "chat") # 默认归类为 chat
+            return intent_json.get("intent", "chat")
         except json.JSONDecodeError:
-            print(f"❌ 意图识别结果解析失败: {response_content}")
             return "chat"
                                                                 
     async def generate_sql_stream(
@@ -120,7 +106,7 @@ class SQLAgent:
         database_name: str = "业务数据库",
         database_type_info: str = "",
         database_version: str = "unknown",
-        table_list_query: str = "请使用：SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+        table_list_query: str = "请使用：SHOW TABLES",
         quote_char: str = '"'
     ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = SQL_GENERATION_PROMPT.format(
@@ -192,6 +178,7 @@ class SQLAgent:
             return {
                 "sql": "",
                 "chart_type": "table",
+                "viz_config": {},
                 "reasoning": "解析失败"
             }
 
@@ -224,181 +211,89 @@ class SQLAgent:
     async def generate_chart_config(
         self,
         sql_result: Dict[str, Any],
-        chart_type: str
+        chart_type: str,
+        viz_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
+        """
+        根据 SQL 结果和 AI 建议生成图表配置
+        """
         try:
             columns = sql_result.get("columns", [])
             rows = sql_result.get("rows", [])
+            viz_config = viz_config or {}
             
-            # 如果是 table 类型，默认用 bar
+            # 特殊处理：单行单列 -> card
+            if chart_type == "card" or (len(rows) == 1 and len(columns) == 1):
+                val = rows[0][columns[0]]
+                return {
+                    "chart_type": "card",
+                    "value": val,
+                    "label": viz_config.get("title") or columns[0],
+                    "unit": ""
+                }
+
             if chart_type == "table":
-                chart_type = "bar"
-            
-            print(f"📊 生成图表配置: chart_type={chart_type}, columns={columns}, rows_count={len(rows)}")
-            
-            if not rows:
-                print("⚠️ 没有数据，返回默认配置")
+                return {"chart_type": "table"}
+
+            if not rows or not columns:
                 return self._get_default_chart_config(chart_type)
 
-            if len(columns) < 2:
-                print(f"⚠️ 列数不足 ({len(columns)}), 返回默认配置")
-                return self._get_default_chart_config(chart_type)
+            # 智能映射 X/Y 轴
+            x_axis = viz_config.get("x") if viz_config.get("x") in columns else None
+            y_axis = viz_config.get("y") if viz_config.get("y") in columns else None
 
-            # 智能选择 x/y 轴
-            numeric_cols = []
-            category_cols = []
-            
-            for col in columns:
-                if len(rows) > 0:
-                    val = rows[0].get(col)
-                    if isinstance(val, (int, float)):
-                        numeric_cols.append(col)
-                    else:
-                        category_cols.append(col)
-            
-            if not category_cols:
-                category_cols = [columns[0]]
-            
-            if not numeric_cols:
-                numeric_cols = [columns[1]] if len(columns) > 1 else [columns[0]]
-            
-            x_axis = category_cols[0]
-            y_axis = numeric_cols[0]
-            
-            print(f"  选择 x_axis={x_axis}, y_axis={y_axis}")
+            if not x_axis or not y_axis:
+                # 降级：启发式匹配
+                numeric_cols = [c for c in columns if isinstance(rows[0].get(c), (int, float))]
+                category_cols = [c for c in columns if c not in numeric_cols]
+                
+                x_axis = x_axis or (category_cols[0] if category_cols else columns[0])
+                y_axis = y_axis or (numeric_cols[0] if numeric_cols else (columns[1] if len(columns) > 1 else columns[0]))
+
+            title = viz_config.get("title") or "分析结果"
 
             if chart_type == "bar":
-                config = {
-                    "title": {"text": "数据分析", "left": "center"},
-                    "xAxis": {"type": "category", "data": [str(row[x_axis]) for row in rows]},
+                return {
+                    "title": {"text": title, "left": "center", "top": 10},
+                    "tooltip": {"trigger": "axis"},
+                    "grid": {"top": 60, "bottom": 40, "left": 60, "right": 20},
+                    "xAxis": {"type": "category", "data": [str(row[x_axis]) for row in rows], "axisLabel": {"rotate": 30 if len(rows) > 5 else 0}},
                     "yAxis": {"type": "value"},
-                    "series": [{"name": y_axis, "type": "bar", "data": [row[y_axis] for row in rows]}]
+                    "series": [{"name": y_axis, "type": "bar", "data": [row[y_axis] for row in rows], "itemStyle": {"borderRadius": [4, 4, 0, 0]}}]
                 }
-                print(f"✅ 返回柱状图配置")
-                return config
             elif chart_type == "line":
-                config = {
-                    "title": {"text": "数据分析", "left": "center"},
+                return {
+                    "title": {"text": title, "left": "center", "top": 10},
+                    "tooltip": {"trigger": "axis"},
+                    "grid": {"top": 60, "bottom": 40, "left": 60, "right": 20},
                     "xAxis": {"type": "category", "data": [str(row[x_axis]) for row in rows]},
                     "yAxis": {"type": "value"},
-                    "series": [{"name": y_axis, "type": "line", "data": [row[y_axis] for row in rows], "smooth": True}]
+                    "series": [{"name": y_axis, "type": "line", "data": [row[y_axis] for row in rows], "smooth": True, "symbol": "circle", "symbolSize": 8}]
                 }
-                print(f"✅ 返回折线图配置")
-                return config
             elif chart_type == "pie":
-                config = {
-                    "title": {"text": "数据分析", "left": "center"},
+                return {
+                    "title": {"text": title, "left": "center", "top": 10},
                     "tooltip": {"trigger": "item"},
                     "series": [{
                         "name": y_axis,
                         "type": "pie",
-                        "radius": "50%",
+                        "radius": ["40%", "70%"],
+                        "avoidLabelOverlap": True,
+                        "itemStyle": {"borderRadius": 10, "borderColor": "#fff", "borderWidth": 2},
                         "data": [{"value": row[y_axis], "name": str(row[x_axis])} for row in rows]
                     }]
                 }
-                print(f"✅ 返回饼图配置")
-                return config
-            else:
-                print(f"⚠️ 不支持的图表类型 {chart_type}, 返回默认")
-                return self._get_default_chart_config(chart_type)
+            
+            return self._get_default_chart_config(chart_type)
         except Exception as e:
-            print(f"❌ 生成图表配置出错: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ 图表生成错误: {str(e)}")
             return self._get_default_chart_config(chart_type)
 
     def _get_default_chart_config(self, chart_type: str) -> Dict[str, Any]:
         return {
-            "title": {"text": "暂无数据", "left": "center"},
-            "xAxis": {"type": "category", "data": []},
-            "yAxis": {"type": "value"},
-            "series": [{"type": chart_type if chart_type in ["bar", "line"] else "bar", "data": []}]
+            "title": {"text": "暂无有效数据", "left": "center"},
+            "series": []
         }
-
-    async def process_question(
-        self,
-        question: str,
-        history_messages: List[Dict[str, str]] = None
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        history_str = self._format_history(history_messages or [])
-        schema = await SchemaService.get_full_schema()
-        tables = await SchemaService.get_table_names()
-
-        yield {"event": "thinking", "data": {"content": "正在理解您的问题..."}}
-        yield {"event": "schema_loaded", "data": {"tables": tables}}
-
-        sql_result = None
-        sql = ""
-        chart_type = "table"
-        last_error = None
-
-        for attempt in range(MAX_RETRY_COUNT + 1):
-            try:
-                if attempt > 0:
-                    yield {"event": "thinking", "data": {"content": f"正在修正 SQL (第 {attempt} 次重试)..."}}
-
-                sql_response = await self.generate_sql(question, schema, history_str)
-                sql = sql_response.get("sql", "")
-                chart_type = sql_response.get("chart_type", "table")
-
-                if not sql:
-                    raise ValueError("未能生成有效的 SQL")
-                
-                print(f"📝 生成的 SQL: {sql}")
-
-                yield {"event": "sql_generated", "data": {"sql": sql}}
-                yield {"event": "sql_executing", "data": {"content": "正在查询数据库..."}}
-
-                sql_result = await SQLExecutor.execute_sql(sql)
-                print(f"✅ SQL 执行成功: {len(sql_result.get('rows', []))} 行数据")
-                yield {"event": "sql_result", "data": sql_result}
-                break
-
-            except Exception as e:
-                last_error = str(e)
-                print(f"❌ SQL 执行失败 (尝试 {attempt + 1}/{MAX_RETRY_COUNT + 1}): {last_error}")
-                import traceback
-                traceback.print_exc()
-                if attempt >= MAX_RETRY_COUNT:
-                    yield {"event": "error", "data": {"message": f"查询失败: {last_error}"}}
-                    return
-
-        if sql_result is None:
-            yield {"event": "error", "data": {"message": f"查询失败: {last_error}"}}
-            return
-
-        yield {"event": "thinking", "data": {"content": "正在生成图表配置..."}}
-        chart_config = await self.generate_chart_config(sql_result, chart_type)
-        yield {"event": "chart_ready", "data": {"option": chart_config, "chart_type": chart_type}}
-
-        try:
-            yield {"event": "thinking", "data": {"content": "正在生成分析摘要..."}}
-            formatted_result = SQLExecutor.format_sql_result(sql_result)
-            summary = await self.generate_summary(formatted_result, chart_type)
-            yield {"event": "summary", "data": {"content": summary}}
-        except Exception as e:
-            print(f"⚠️ 生成摘要失败，使用默认内容: {str(e)}")
-            yield {"event": "summary", "data": {"content": "数据分析完成，但生成摘要时遇到问题。"}}
-
-        yield {
-            "event": "done",
-            "data": {
-                "sql": sql,
-                "chart_config": chart_config,
-                "summary": summary
-            }
-        }
-
-    def _format_history(self, messages: List[Dict[str, str]]) -> str:
-        if not messages:
-            return ""
-        
-        lines = []
-        for msg in messages[-5:]:
-            role = "用户" if msg.get("role") == "user" else "助手"
-            lines.append(f"{role}: {msg.get('content', '')}")
-        
-        return "\n".join(lines)
 
     async def process_question_with_history(
         self,
@@ -406,16 +301,12 @@ class SQLAgent:
         history_str: str,
         enable_thinking: bool = False
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """使用已格式化的历史字符串处理问题"""
+        """增强的处理逻辑：包含 viz_config 解析"""
         from config import DATABASES
         
-        print(f"🚀 SQLAgent 准备开始生成查询...")
-        print(f"📚 获取 Schema 信息...")
         schema = await SchemaService.get_full_schema(include_sample=True)
         tables = await SchemaService.get_table_names()
         db_version = await SchemaService.get_db_version()
-        print(f"📊 数据库中共有 {len(tables)} 张表: {', '.join(tables)}")
-        print(f"🔢 数据库版本: {db_version}")
         
         current_db_key = SchemaService.get_current_db_key()
         database_name = "业务数据库"
@@ -424,8 +315,6 @@ class SQLAgent:
         if current_db_key in DATABASES:
             database_name = DATABASES[current_db_key]["name"]
             db_type = DATABASES[current_db_key].get("type", "mysql")
-        
-        print(f"💾 当前数据库类型: {db_type}, 数据库名称: {database_name}")
         
         if db_type == "mysql":
             database_type_info = "【数据库类型】\nMySQL"
@@ -443,202 +332,81 @@ class SQLAgent:
         yield {"event": "thinking", "data": {"content": "正在理解您的问题..."}}
         yield {"event": "schema_loaded", "data": {"tables": tables}}
 
-        sql_result = None
-        sql = ""
-        chart_type = "table"
-        last_error = None
-        full_reasoning = ""
-
-        print(f"🧠 开始调用 AI 模型生成 SQL (重试限制: {MAX_RETRY_COUNT})...")
-        
-        # 1. 意图识别
         intent = await self._classify_intent(question)
-        print(f"🎯 识别到的意图: {intent}")
 
-        # 处理闲聊
         if intent == "chat":
             full_summary_reasoning = ""
             summary_content = ""
-            
-            db_context = {
-                "database_name": database_name,
-                "database_type": db_type,
-                "tables": ", ".join(tables) if tables else "无可用表"
-            }
-            
-            async for stream_event in self._generate_chat_response_stream(
-                question, 
-                history_str, 
-                enable_thinking,
-                **db_context
-            ):
+            async for stream_event in self._generate_chat_response_stream(question, history_str, enable_thinking, database_name, db_type, ", ".join(tables)):
                 if stream_event["type"] == "reasoning":
                     full_summary_reasoning += stream_event["content"]
                     yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
                 elif stream_event["type"] == "content":
                     summary_content += stream_event["content"]
                     yield {"event": "summary", "data": {"content": stream_event["content"]}}
-                elif stream_event["type"] == "done":
-                    summary_content = stream_event["result"]
-            
-            yield {
-                "event": "done",
-                "data": {
-                    "sql": "",
-                    "chart_config": {},
-                    "summary": summary_content,
-                    "reasoning": full_summary_reasoning
-                }
-            }
+            yield {"event": "done", "data": {"summary": summary_content, "reasoning": full_summary_reasoning}}
             return
 
-        # 2. 判断是否是确认指令 (HITL 阶段二)
+        # HITL 逻辑
         is_executing_after_plan = (intent == "confirmation")
-        
-        # 3. 如果是新查询且没有确认 (HITL 阶段一)
         if intent == "sql_query" and not is_executing_after_plan:
-            print("💡 识别到查询需求，正在生成分析方案...")
-            
-            plan_prompt = PLAN_GENERATION_PROMPT.format(
-                database_name=database_name,
-                database_type=db_type,
-                schema=schema,
-                history=history_str,
-                question=question
-            )
-            
-            messages = [
-                {"role": "system", "content": "你是一个专业的数据分析顾问。"},
-                {"role": "user", "content": plan_prompt}
-            ]
-            
+            plan_prompt = PLAN_GENERATION_PROMPT.format(database_name=database_name, database_type=db_type, schema=schema, history=history_str, question=question)
             full_plan = ""
             full_reasoning = ""
-            # 方案阶段也显示思考
-            async for delta in self._chat_completion_stream(messages, temperature=0.3, enable_thinking=enable_thinking):
+            async for delta in self._chat_completion_stream([{"role": "system", "content": "你是一个专业的数据分析顾问。"}, {"role": "user", "content": plan_prompt}], temperature=0.3, enable_thinking=enable_thinking):
                 if delta["reasoning_content"]:
                     full_reasoning += delta["reasoning_content"]
                     yield {"event": "model_thinking", "data": {"content": delta["reasoning_content"]}}
                 if delta["content"]:
                     full_plan += delta["content"]
                     yield {"event": "summary", "data": {"content": delta["content"]}}
-            
-            yield {
-                "event": "done",
-                "data": {
-                    "sql": "",
-                    "chart_config": {},
-                    "summary": full_plan,
-                    "reasoning": full_reasoning
-                }
-            }
+            yield {"event": "done", "data": {"summary": full_plan, "reasoning": full_reasoning}}
             return
 
-        # 4. 执行阶段 (确认后或特殊直通逻辑)
-        print(f"🧠 开始调用 AI 模型生成 SQL (重试限制: {MAX_RETRY_COUNT})...")
-        
-        # 如果是确认指令，我们需要从历史中还原用户的问题意图
         execution_question = question
         if is_executing_after_plan:
-            execution_question = f"基于你刚才提出的分析方案，请立即生成 SQL 并执行查询以回答用户。当前指令：{question}"
+            execution_question = f"基于你刚才提出的分析方案，请立即生成 SQL 并执行查询。当前指令：{question}"
 
         for attempt in range(MAX_RETRY_COUNT + 1):
             try:
-                if attempt > 0:
-                    print(f"🔄 正在尝试第 {attempt} 次 SQL 修正...")
-                    yield {"event": "thinking", "data": {"content": f"正在修正 SQL (第 {attempt} 次重试)..."}}
-
                 full_reasoning = ""
                 sql_response = None
-                
-                print(f"📡 正在发起 DeepSeek 流式请求...")
-                async for stream_event in self.generate_sql_stream(
-                    execution_question, 
-                    schema, 
-                    history_str, 
-                    enable_thinking, 
-                    database_name,
-                    database_type_info,
-                    db_version,
-                    table_list_query,
-                    quote_char
-                ):
+                async for stream_event in self.generate_sql_stream(execution_question, schema, history_str, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char):
                     if stream_event["type"] == "reasoning":
                         full_reasoning += stream_event["content"]
                         yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
-                    elif stream_event["type"] == "content":
-                        pass
                     elif stream_event["type"] == "done":
                         sql_response = stream_event["result"]
                 
-                if not sql_response:
-                    print(f"❌ AI 未返回有效结果")
-                    raise ValueError("未能生成有效的 SQL 响应")
+                if not sql_response: raise ValueError("未能生成有效的 SQL")
                 
                 sql = sql_response.get("sql", "")
                 chart_type = sql_response.get("chart_type", "table")
-
-                if not sql:
-                    print(f"❌ 生成的 SQL 为空，原始回复内容可能是非法 JSON")
-                    raise ValueError("未能生成有效的 SQL")
-                
-                print(f"📝 AI 生成的 SQL: {sql}")
+                viz_config = sql_response.get("viz_config", {})
 
                 yield {"event": "sql_generated", "data": {"sql": sql}}
                 yield {"event": "sql_executing", "data": {"content": "正在查询数据库..."}}
 
-                print(f"⚡ 执行 SQL 查询...")
                 sql_result = await SQLExecutor.execute_sql(sql)
-                print(f"✅ SQL 执行成功: {len(sql_result.get('rows', []))} 行数据")
                 yield {"event": "sql_result", "data": sql_result}
+                
+                # 关键：传递 viz_config
+                chart_config = await self.generate_chart_config(sql_result, chart_type, viz_config)
+                yield {"event": "chart_ready", "data": {"option": chart_config, "chart_type": chart_config.get("chart_type", chart_type)}}
+                
+                formatted_result = SQLExecutor.format_sql_result(sql_result)
+                summary = ""
+                async for stream_event in self.generate_summary_stream(formatted_result, chart_type, enable_thinking):
+                    if stream_event["type"] == "reasoning":
+                        yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
+                    elif stream_event["type"] == "content":
+                        summary += stream_event["content"]
+                        yield {"event": "summary", "data": {"content": stream_event["content"]}}
+                
+                yield {"event": "done", "data": {"sql": sql, "chart_config": chart_config, "summary": summary, "reasoning": full_reasoning, "session_title": sql_response.get("session_title", "")}}
                 break
 
             except Exception as e:
-                last_error = str(e)
-                print(f"❌ SQL 执行/生成失败: {last_error}")
                 if attempt >= MAX_RETRY_COUNT:
-                    yield {"event": "error", "data": {"message": f"查询失败: {last_error}"}}
+                    yield {"event": "error", "data": {"message": f"查询失败: {str(e)}"}}
                     return
-
-        if sql_result is None:
-            yield {"event": "error", "data": {"message": f"查询失败: {last_error}"}}
-            return
-
-        yield {"event": "thinking", "data": {"content": "正在生成图表配置..."}}
-        chart_config = await self.generate_chart_config(sql_result, chart_type)
-        yield {"event": "chart_ready", "data": {"option": chart_config, "chart_type": chart_type}}
-
-        try:
-            yield {"event": "thinking", "data": {"content": "正在生成分析摘要..."}}
-            formatted_result = SQLExecutor.format_sql_result(sql_result)
-            
-            full_summary_reasoning = ""
-            summary = ""
-            async for stream_event in self.generate_summary_stream(formatted_result, chart_type, enable_thinking):
-                if stream_event["type"] == "reasoning":
-                    full_summary_reasoning += stream_event["content"]
-                    yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
-                elif stream_event["type"] == "content":
-                    summary += stream_event["content"]
-                    yield {"event": "summary", "data": {"content": stream_event["content"]}}
-                elif stream_event["type"] == "done":
-                    summary = stream_event["result"]
-            
-            if not summary:
-                yield {"event": "summary", "data": {"content": "数据分析完成。"}}
-                
-        except Exception as e:
-            print(f"⚠️ 生成摘要失败，使用默认内容: {str(e)}")
-            yield {"event": "summary", "data": {"content": "数据分析完成，但生成摘要时遇到问题。"}}
-            summary = "数据分析完成，但生成摘要时遇到问题。"
-
-        yield {
-            "event": "done",
-            "data": {
-                "sql": sql,
-                "chart_config": chart_config,
-                "summary": summary,
-                "reasoning": full_reasoning,
-                "session_title": sql_response.get("session_title", "") if sql_response else ""
-            }
-        }
