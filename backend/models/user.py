@@ -11,8 +11,11 @@ class UserCreate(UserBase):
     verification_code: str = Field(..., min_length=6, max_length=6)
 
 class UserLogin(BaseModel):
-    username: str  # 对应用户输入的邮箱
+    username: str  # 前端传递的是邮箱
     password: str
+
+class SendCodeRequest(BaseModel):
+    email: EmailStr
 
 class UserResponse(UserBase):
     id: int
@@ -28,4 +31,4 @@ class Token(BaseModel):
     token_type: str
 
 class TokenData(BaseModel):
-    username: Optional[str] = None
+    email: Optional[str] = None

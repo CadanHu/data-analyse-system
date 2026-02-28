@@ -115,10 +115,10 @@ export default function Welcome() {
             {t('welcome.version')}
           </div>
 
-          <h1 className="text-6xl md:text-8xl font-black leading-[1.1] mb-8 tracking-tighter opacity-0 animate-[fadeInUp_0.8s_ease-out_0.1s_forwards]">
-            {t('welcome.title1')}<span className="text-transparent bg-clip-text bg-gradient-to-r from-[#3b82f6] via-[#06d6a0] to-[#3b82f6] bg-[length:200%_auto] animate-gradient-flow">{t('welcome.title2')}</span>
+          <h1 className="text-5xl md:text-6xl font-black leading-[1.1] mb-8 tracking-tighter opacity-0 animate-[fadeInUp_0.8s_ease-out_0.1s_forwards]">
+            {t('welcome.title1')}<span className="text-3xl md:text-4xl text-transparent bg-clip-text bg-gradient-to-r from-[#3b82f6] via-[#06d6a0] to-[#3b82f6] bg-[length:200%_auto] animate-gradient-flow">{t('welcome.title2')}</span>
             <br />
-            {t('welcome.dashboardTitle')}
+            <span className="text-2xl md:text-3xl font-bold text-gray-300">{t('welcome.dashboardTitle')}</span>
           </h1>
 
           <p className="text-xl text-gray-400 max-w-2xl mx-auto mb-12 leading-relaxed font-light opacity-0 animate-[fadeInUp_0.8s_ease-out_0.2s_forwards]">

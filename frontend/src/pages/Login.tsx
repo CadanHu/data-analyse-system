@@ -20,15 +20,49 @@ export default function Login() {
     setError('')
     setIsLoading(true)
 
+    console.log('📝 [Login] 开始登录...', { email, password: password.substring(0, 3) + '***' })
+
     try {
-      const { access_token } = await authApi.login({ username: email, password })
-      // 关键修复：先存入 Token，否则 getMe 请求头里没有 Authorization
-      setAuth({ id: 0, username: '', email: '' }, access_token)
+      const response = await authApi.login({ username: email, password })
+      console.log('✅ [Login] 登录响应:', response)
       
+      const access_token = response.access_token
+      if (!access_token) {
+        console.error('❌ [Login] 响应中没有 access_token:', response)
+        setError('登录响应格式错误')
+        return
+      }
+      
+      console.log('✅ [Login] 收到 Token:', access_token.substring(0, 50) + '...')
+      
+      // 🔧 关键修复：手动设置 axios 默认 header，因为 zustand persist 是异步的
+      console.log('🔧 [Login] 手动设置 axios header...')
+      const axios = (await import('axios')).default
+      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
+      console.log('✅ [Login] Header 已设置:', axios.defaults.headers.common['Authorization'])
+      
+      // 获取用户信息
+      console.log('📥 [Login] 获取用户信息...')
       const user = await authApi.getMe()
+      console.log('✅ [Login] 用户信息:', user)
+      
+      // 保存用户信息和 Token 到 store
+      console.log('💾 [Login] 保存到 store...')
       setAuth(user, access_token)
+      
+      // 验证是否保存成功
+      const stored = useAuthStore.getState()
+      console.log('🔍 [Login] 验证存储:', { 
+        token: stored.token ? stored.token.substring(0, 30) + '...' : null,
+        isAuthenticated: stored.isAuthenticated,
+        user: stored.user
+      })
+      
+      console.log('🚀 [Login] 导航到应用...')
       navigate('/app')
     } catch (err: any) {
+      console.error('❌ [Login] 登录失败:', err)
+      console.error('❌ [Login] 错误详情:', err.response?.data)
       setError(err.response?.data?.detail || '登录失败，请检查邮箱和密码')
     } finally {
       setIsLoading(false)

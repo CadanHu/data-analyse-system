@@ -1,5 +1,8 @@
+// 本地测试专用 API 配置（端口 8008）
+// 此文件不会被提交到 Git
+
 import axios from 'axios'
-import type { Session, Message, User, LoginCredentials, RegisterCredentials, TokenResponse } from '@/types'
+import type { Session, Message, User, UserLogin, RegisterCredentials, TokenResponse } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
 // 动态获取 API 基础路径
@@ -11,25 +14,25 @@ export const getBaseURL = () => {
 
   if (typeof window !== 'undefined') {
     const origin = window.location.origin;
-    
+
     // --- 优先级 2: 显式识别 Capacitor (App 环境) ---
     // @ts-ignore
     const isCapacitor = window.Capacitor || origin.startsWith('capacitor') || origin.startsWith('http://10.0.2.2');
-    
+
     if (isCapacitor) {
       // Android
       if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
         const isEmulator = /sdk|google/i.test(navigator.userAgent);
-        if (isEmulator) return 'http://10.0.2.2:8000/api';
-        // 真机 USB 调试 (adb reverse tcp:8000 tcp:8000)
-        return 'http://localhost:8000/api';
+        if (isEmulator) return 'http://10.0.2.2:8008/api';
+        // 真机 USB 调试 (adb reverse tcp:8008 tcp:8008)
+        return 'http://localhost:8008/api';
       }
       // iOS
       if (typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-        return 'http://localhost:8000/api';
+        return 'http://localhost:8008/api';
       }
       // Capacitor 默认
-      return 'http://localhost:8000/api';
+      return 'http://localhost:8008/api';
     }
 
     // --- 优先级 3: 浏览器网页环境 (使用 Vite 代理) ---
@@ -48,138 +51,94 @@ const api = axios.create({
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache'
   }
-})
+});
 
-// 请求拦截器：自动注入 Token
-api.interceptors.request.use((config) => {
-  // 直接从 localStorage 读取，确保拿到的是最实时的持久化数据
-  const authData = localStorage.getItem('auth-storage')
-  if (authData) {
-    try {
-      const parsed = JSON.parse(authData)
-      const token = parsed.state?.token
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`
-        console.log(`[API] Injecting Token: ${token.substring(0, 15)}...`)
-      }
-    } catch (e) {
-      console.error('[API] Failed to parse auth-storage', e)
-    }
+// 请求拦截器：注入 Token
+api.interceptors.request.use(config => {
+  const token = useAuthStore.getState().token;
+  console.log('🔑 [API Interceptor] 请求拦截器:', {
+    url: config.url,
+    hasToken: !!token,
+    token: token ? token.substring(0, 30) + '...' : null
+  })
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+    console.log('✅ [API Interceptor] Token 已注入:', config.headers.Authorization)
+  } else {
+    console.warn('⚠️ [API Interceptor] 没有 Token，跳过注入')
   }
-  return config
-})
+  return config;
+});
 
-// 响应拦截器：处理 401 自动登出
+// 响应拦截器：处理 401
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  response => response,
+  error => {
     if (error.response?.status === 401) {
-      useAuthStore.getState().logout()
+      useAuthStore.getState().logout();
     }
-    return Promise.reject(error)
+    return Promise.reject(error);
   }
-)
+);
 
-// 认证 API
+// ==================== API 方法 ====================
+
 export const authApi = {
-  async login(credentials: LoginCredentials): Promise<TokenResponse> {
-    const response = await api.post('/auth/login', {
-      username: credentials.username,
-      password: credentials.password
-    })
+  login: async (credentials: UserLogin) => {
+    console.log('📡 [API] 发送登录请求...')
+    const response = await api.post<TokenResponse>('/auth/login', credentials)
+    console.log('📡 [API] 登录响应:', response)
+    console.log('📡 [API] 登录响应数据:', response.data)
     return response.data
   },
+  register: (credentials: RegisterCredentials) =>
+    api.post('/auth/register', credentials),
+  sendCode: (email: string) =>
+    api.post('/auth/send-code', { email }),
+  getMe: () =>
+    api.get<User>('/auth/me'),
+};
 
-  async register(credentials: RegisterCredentials & { verification_code: string }): Promise<User> {
-    const response = await api.post('/auth/register', credentials)
-    return response.data
-  },
-
-  async sendCode(email: string): Promise<{ success: boolean; message: string }> {
-    const response = await api.post(`/auth/send-code?email=${encodeURIComponent(email)}`)
-    return response.data
-  },
-
-  async getMe(): Promise<User> {
-    const response = await api.get('/auth/me')
-    return response.data
-  }
-}
-
-// 数据库管理 API
-export const databaseApi = {
-  async getDatabases(): Promise<{ databases: any[] }> {
-    const response = await api.get('/databases')
-    return response.data
-  },
-
-  async switchDatabase(dbKey: string, sessionId?: string): Promise<any> {
-    // 切换全局数据库
-    await api.post('/database/switch', { database_key: dbKey })
-    
-    // 如果有会话 ID，同步更新会话绑定的数据库
-    if (sessionId) {
-      await api.post(`/sessions/${sessionId}/database`, { database_key: dbKey })
-    }
-  }
-}
-
-// 会话管理 API
 export const sessionApi = {
-  // 创建会话
-  async createSession(title?: string): Promise<Session> {
-    const response = await api.post('/sessions', title ? { title } : {})
-    return response.data
-  },
+  getSessions: () =>
+    api.get<Session[]>('/sessions'),
+  createSession: () =>
+    api.post<Session>('/sessions'),
+  deleteSession: (id: string) =>
+    api.delete(`/sessions/${id}`),
+  updateSessionTitle: (id: string, title: string) =>
+    api.patch(`/sessions/${id}`, { title }),
+  getMessages: (sessionId: string) =>
+    api.get<Message[]>(`/sessions/${sessionId}/messages`),
+};
 
-  // 获取会话列表
-  async getSessions(): Promise<Session[]> {
-    const response = await api.get('/sessions')
-    return response.data
-  },
+export const databaseApi = {
+  getDatabases: () =>
+    api.get('/databases'),
+  switchDatabase: (dbKey: string, sessionId?: string) =>
+    api.post('/databases/switch', { db_key: dbKey, session_id: sessionId }),
+  getSchema: (dbKey?: string) =>
+    api.get('/schema', { params: { db_key: dbKey } }),
+};
 
-  // 获取会话详情
-  async getSession(sessionId: string): Promise<Session> {
-    const response = await api.get(`/sessions/${sessionId}`)
-    return response.data
-  },
-
-  // 获取会话消息
-  async getMessages(sessionId: string): Promise<Message[]> {
-    const response = await api.get(`/sessions/${sessionId}/messages`)
-    return response.data
-  },
-
-  // 删除会话
-  async deleteSession(sessionId: string): Promise<void> {
-    await api.delete(`/sessions/${sessionId}`)
-  },
-
-  // 更新会话标题
-  async updateSessionTitle(sessionId: string, title: string): Promise<Session> {
-    const response = await api.patch(`/sessions/${sessionId}`, { title })
-    return response.data
-  },
-
-  // 添加消息
-  async createMessage(
-    sessionId: string,
-    role: 'user' | 'assistant',
-    content: string,
-    sql?: string,
-    chartCfg?: string,
-    thinking?: string,
-    data?: string
-  ): Promise<Message> {
-    const response = await api.post(`/sessions/${sessionId}/messages`, {
+export const chatApi = {
+  chat: (sessionId: string, message: string, config?: any) =>
+    api.post('/chat/stream', {
       session_id: sessionId,
-      role,
-      content,
-      sql,
-      chart_cfg: chartCfg,
-      thinking,
-      data
-    })
-    return response.data
+      message,
+      config
+    }),
+};
+
+export const uploadApi = {
+  upload: (file: File, sessionId: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_id', sessionId);
+    return api.post('/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
   },
-}
+};
+
+export default api
