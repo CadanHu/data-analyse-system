@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import * as echarts from 'echarts'
 import EChartsRenderer from './EChartsRenderer'
 import { useChatStore } from '../stores/chatStore'
 
@@ -131,7 +132,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
   const categoryCols = columns.filter((c: string) => !numericCols.includes(c));
   
   const x = categoryCols[0] || columns[0];
-  const y = numericCols[0] || columns[1] || columns[0];
+  const y = numericCols.find(c => c !== x) || numericCols[0] || columns[1] || columns[0];
 
   const base = {
     title: { 
@@ -184,7 +185,23 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
     case 'area':
       return { ...base, series: [{ name: y, type: 'line', data: rows.map((r: any) => r[y]), smooth: true, areaStyle: { opacity: 0.2 }, symbolSize: 6 }] };
     case 'scatter':
-      return { ...base, xAxis: { type: 'value', axisLabel: { fontSize: 10 } }, series: [{ type: 'scatter', data: rows.map((r: any) => [r[columns[0]], r[columns[1]]]), symbolSize: 15, itemStyle: { opacity: 0.7 } }] };
+      const isXNumeric = typeof rows[0][x] === 'number';
+      return { 
+        ...base, 
+        xAxis: { 
+          ...base.xAxis,
+          type: isXNumeric ? 'value' : 'category', 
+          data: isXNumeric ? undefined : rows.map((r: any) => String(r[x])),
+          axisLabel: { ...base.xAxis.axisLabel, fontSize: 10 } 
+        }, 
+        series: [{ 
+          name: y,
+          type: 'scatter', 
+          data: rows.map((r: any) => isXNumeric ? [r[x], r[y]] : r[y]), 
+          symbolSize: 15, 
+          itemStyle: { opacity: 0.7 } 
+        }] 
+      };
     case 'pie':
       return { 
         title: base.title, 
@@ -295,15 +312,24 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
         grid: { ...base.grid, bottom: 120 },
         tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
         xAxis: { ...base.xAxis, axisLabel: { ...base.xAxis.axisLabel, rotate: 45 } },
-        yAxis: { scale: true, axisLabel: { fontSize: 10 } },
+        yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 } },
         series: [{
+          name: 'K线',
           type: 'candlestick',
-          data: rows.map((r: any) => [
-            r['open'] || r[columns[1]], 
-            r['close'] || r[columns[2]], 
-            r['low'] || r[columns[3]], 
-            r['high'] || r[columns[4]]
-          ])
+          itemStyle: {
+            color: '#ef4444',
+            color0: '#22c55e',
+            borderColor: '#ef4444',
+            borderColor0: '#22c55e'
+          },
+          data: rows.map((r: any) => {
+            const open = Number(r['open'] || r['开盘价'] || r[columns[1]] || 0);
+            const close = Number(r['close'] || r['收盘价'] || r[columns[2]] || 0);
+            const v3 = Number(r['low'] || r['最低价'] || r[columns[4]] || r[columns[3]] || 0);
+            const v4 = Number(r['high'] || r['最高价'] || r[columns[3]] || r[columns[4]] || 0);
+            // 确保 low <= high
+            return [open, close, Math.min(v3, v4), Math.max(v3, v4)];
+          })
         }]
       };
     case 'waterfall':
@@ -344,19 +370,65 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
         tooltip: { 
           formatter: (params: any) => {
             const data = rows[params.dataIndex];
-            return `${params.name}<br/>开始: ${data.start_date}<br/>结束: ${data.end_date}`;
+            const start = data.start_date || data['开始日期'] || rows[params.dataIndex][columns[1]];
+            const end = data.end_date || data['结束日期'] || rows[params.dataIndex][columns[2]];
+            return `<b>${params.name}</b><br/>开始: ${start}<br/>结束: ${end}<br/>进度: ${data.progress || data.progress_pct || 0}%`;
           }
         },
-        grid: { left: 120, top: 80, bottom: 60, right: 50, containLabel: true },
-        xAxis: { type: 'time', axisLabel: { fontSize: 10, rotate: 30 } },
-        yAxis: { type: 'category', data: rows.map((r: any) => String(r[x])), axisLabel: { fontSize: 10 } },
+        grid: { left: 150, top: 80, bottom: 60, right: 50, containLabel: true },
+        xAxis: { 
+          type: 'time', 
+          position: 'top',
+          splitLine: { lineStyle: { type: 'dashed' } },
+          axisLabel: { fontSize: 10, color: '#6b7280' }
+        },
+        yAxis: { 
+          type: 'category', 
+          data: rows.map((r: any) => String(r[x])), 
+          axisLabel: { fontSize: 10, color: '#374151' },
+          inverse: true
+        },
         series: [{
-          type: 'bar',
-          itemStyle: { borderRadius: 5, color: '#06d6a0' },
-          data: rows.map((r: any, idx: number) => ({
-            name: String(r[x]),
-            value: [idx, r['start_date'] || r[columns[1]], r['end_date'] || r[columns[2]]]
-          }))
+          type: 'custom',
+          renderItem: (params: any, api: any) => {
+            const categoryIndex = api.value(0);
+            const start = api.coord([api.value(1), categoryIndex]);
+            const end = api.coord([api.value(2), categoryIndex]);
+            const height = api.size([0, 1])[1] * 0.6;
+
+            const rectShape = echarts.graphic.clipRectByRect({
+              x: start[0],
+              y: start[1] - height / 2,
+              width: end[0] - start[0],
+              height: height
+            }, {
+              x: params.coordSys.x,
+              y: params.coordSys.y,
+              width: params.coordSys.width,
+              height: params.coordSys.height
+            });
+
+            return rectShape && {
+              type: 'rect',
+              transition: ['shape'],
+              shape: rectShape,
+              style: api.style({
+                fill: '#06d6a0',
+                stroke: '#05b386',
+                lineWidth: 1
+              })
+            };
+          },
+          itemStyle: { opacity: 0.8 },
+          encode: {
+            x: [1, 2],
+            y: 0
+          },
+          data: rows.map((r: any, idx: number) => {
+            const s = new Date(r.start_date || r['开始日期'] || r[columns[1]]).getTime();
+            const e = new Date(r.end_date || r['结束日期'] || r[columns[2]]).getTime();
+            return [idx, s, e];
+          })
         }]
       };
     default:

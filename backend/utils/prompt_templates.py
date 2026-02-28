@@ -178,4 +178,8 @@ CHART_CONFIG_PROMPT = """你是一个专业的数据可视化专家，需要根�
 4. **配色**：使用清新、高对比度的专业色盘。
 
 请严格根据【查询结果】中的数据字段映射到 ECharts 的 series 中。
+**特别注意**：
+- **candlestick**：series.data 必须是 `[open, close, lowest, highest]` 的四元组数组。
+- **scatter**：如果 X 轴是数值，请设置 `xAxis: { type: "value" }`；如果是分类/日期，请设置 `xAxis: { type: "category" }`。
+- **heatmap**：确保 visualMap 的 min/max 与数据匹配。
 """

@@ -161,6 +161,15 @@ export const sessionApi = {
     return response.data
   },
 
+  // 导出对话内容
+  async exportSession(sessionId: string, format: 'txt' | 'md' | 'pdf'): Promise<Blob> {
+    const response = await api.get(`/sessions/${sessionId}/export`, {
+      params: { format },
+      responseType: 'blob'
+    })
+    return response.data
+  },
+
   // 添加消息
   async createMessage(
     sessionId: string,

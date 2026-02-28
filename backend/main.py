@@ -12,39 +12,48 @@ from database.business_db import init_business_db
 from middleware import setup_exception_handlers, rate_limit_middleware
 from utils.logger import setup_logging
 
+from contextlib import asynccontextmanager
+
 # 初始化日志系统
 setup_logging(level=LOG_LEVEL, log_file=str(LOG_FILE), json_format=LOG_JSON_FORMAT)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时初始化数据库
+    await session_db.init_db()
+    await user_db.init_db()
+    print("✅ 数据库初始化完成")
+    yield
 
 # 创建 FastAPI 应用
 app = FastAPI(
     title="智能数据分析助理 API",
     description="基于 AI 的智能数据分析系统，通过自然语言对话实现数据查询、分析和可视化",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan
 )
 
-# 配置 CORS
+# --- 关键修复: 注册中间件 ---
+# 1. CORS 中间件 (必须在最外层以响应 OPTIONS 预检请求)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # 移动端请求可能来自不同源，允许所有
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"]
 )
 
-# 添加频率限制中间件
-app.middleware("http")(rate_limit_middleware)
+# 2. 速率限制中间件
+from middleware.rate_limit import rate_limit_middleware
+@app.middleware("http")
+async def apply_rate_limit(request, call_next):
+    return await rate_limit_middleware(request, call_next)
 
-# 设置全局异常处理器
+# 3. 错误处理器
+from middleware.error_handler import setup_exception_handlers
 setup_exception_handlers(app)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """应用启动时初始化数据库"""
-    await session_db.init_db()
-    await user_db.init_db()
-    print("✅ 数据库初始化完成")
 
 
 @app.get("/")
