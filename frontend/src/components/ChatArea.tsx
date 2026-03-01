@@ -67,14 +67,14 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-none p-4 sm:p-4 border-b border-white/30 landscape:p-1.5 landscape:px-4" style={{ paddingTop: '1rem' }}>
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col landscape:flex-row landscape:items-center landscape:gap-3">
-            <h2 className="text-xl font-bold text-gray-700 truncate landscape:text-xs">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0 flex flex-col landscape:flex-row landscape:items-center landscape:gap-3">
+            <h2 className="text-lg font-bold text-gray-700 truncate landscape:text-xs">
               {currentSession?.title || '未命名会话'}
             </h2>
-            <p className="text-xs text-gray-400 mt-1 landscape:mt-0 landscape:text-[9px]">智能数据分析助理</p>
+            <p className="text-xs text-gray-400 mt-1 landscape:mt-0 landscape:text-[9px] truncate">智能数据分析助理</p>
           </div>
-          <div className="relative">
+          <div className="flex-none relative">
             <button
               onClick={() => setShowDbSelector(!showDbSelector)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-xl text-xs text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:py-0.5 landscape:px-2 landscape:text-[10px]"
