@@ -7,35 +7,16 @@ import { useAuthStore } from '@/stores/authStore'
 
 // 动态获取 API 基础路径
 export const getBaseURL = () => {
+  // --- 调试模式：强制指向 Mac 热点 IP ---
+  // 请确保你的手机和 Mac 连接的是同一个 WiFi (172.20.10.x 网段)
+  return 'http://172.20.10.2:8000/api';
+
+  /* 暂时注释掉原有逻辑
   // 1. 检查环境变量 (Vite)
   const envBaseUrl = import.meta.env.VITE_API_BASE_URL;
   if (envBaseUrl) return envBaseUrl;
-
-  // 2. 手动注入 (用于部分特殊构建环境)
-  if (typeof window !== 'undefined' && (window as any).BACKEND_URL) {
-    return (window as any).BACKEND_URL + '/api';
-  }
-
-  if (typeof window !== 'undefined') {
-    const origin = window.location.origin;
-
-    // 3. 显式识别 Capacitor (App 环境)
-    // @ts-ignore
-    const isCapacitor = window.Capacitor || origin.startsWith('capacitor') || origin.startsWith('http://10.0.2.2');
-
-    if (isCapacitor) {
-      // Android 模拟器
-      if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
-        const isEmulator = /sdk|google/i.test(navigator.userAgent);
-        if (isEmulator) return 'http://10.0.2.2:8000/api';
-      }
-      // 默认回退到本地
-      return 'http://localhost:8000/api';
-    }
-  }
-
-  // 4. 浏览器网页环境默认值
-  return '/api';
+  ...
+  */
 }
 
 const api = axios.create({

@@ -1,6 +1,10 @@
 """
 FastAPI 应用入口
 """
+import os
+# ⚠️ 必须在所有导入之前设置环境变量，确保 AI 库初始化时读取
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -36,14 +40,26 @@ app = FastAPI(
 
 # --- 关键修复: 注册中间件 ---
 # 1. CORS 中间件 (必须在最外层以响应 OPTIONS 预检请求)
+# ⚠️ 当 allow_credentials=True 时，allow_origins 不能为 ["*"]
+# 我们显式允许常见的移动端/开发环境源
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # 移动端请求可能来自不同源，允许所有
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:8100",
+        "capacitor://localhost",
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://172.20.10.2", # 匹配前端 hardcode 的 IP
+    ],
+    allow_origin_regex=r"http://192\.168\..*", # 允许常见的局域网网段
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
 
 # 2. 速率限制中间件
 from middleware.rate_limit import rate_limit_middleware
@@ -95,5 +111,5 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True
+        reload=False
     )

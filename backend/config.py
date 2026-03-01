@@ -91,7 +91,15 @@ DEFAULT_BUSINESS_DB = "classic_business"
 MEMORY_WINDOW_SIZE = 10  # 保留最近 N 轮对话
 
 # CORS 配置
-ALLOWED_ORIGINS = ["*"]
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:8100",
+    "capacitor://localhost",
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://172.20.10.2",
+]
 
 # 请求限制
 MAX_SQL_EXECUTION_TIME = 30  # SQL 最长执行时间（秒）
