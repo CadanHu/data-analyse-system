@@ -14,6 +14,7 @@ import LearnMore from './components/LearnMore'
 import Tutorial from './components/Tutorial'
 import Features from './components/Features'
 import Changelog from './components/Changelog'
+import UserSync from './components/UserSync'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useAuthStore } from './stores/authStore'
@@ -22,19 +23,15 @@ import { sessionApi } from '@/api'
 
 export default function App() {
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuthStore()
+  const { isAuthenticated, user, setAuth } = useAuthStore()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
-    if (isAuthenticated) {
-      loadSessions(true)
-    }
-    
+    // 只有在认证状态下才初始化移动端检测
     const checkMobile = () => {
-      // 竖屏且宽度较小视为移动端
       const isPortrait = window.innerHeight > window.innerWidth
       setIsMobile(isPortrait && window.innerWidth < 768)
     }
@@ -47,18 +44,20 @@ export default function App() {
       window.removeEventListener('resize', checkMobile)
       window.removeEventListener('orientationchange', checkMobile)
     }
-  }, [isAuthenticated])
+  }, [])
 
   const loadSessions = async (isInitialLoad = false) => {
-    if (isInitialLoad) setLoading(true)
-    sessionApi.getSessions()
-      .then(data => {
-        setSessions(data)
-      })
-      .catch(error => console.error('加载会话列表失败:', error))
-      .finally(() => {
-        if (isInitialLoad) setLoading(false)
-      })
+    // 这里的 loadSessions 主要供子组件回调使用
+    try {
+      if (isInitialLoad) setLoading(true)
+      console.log('🔄 [App] 手动触发加载会话列表 (由子组件请求)...')
+      // const data = await sessionApi.getSessions()
+      // setSessions(data)
+    } catch (error) {
+      console.error('加载会话列表失败:', error)
+    } finally {
+      if (isInitialLoad) setLoading(false)
+    }
   }
 
   const loadMessages = async (sessionId: string) => {
@@ -139,6 +138,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/app" element={
             <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
+            <UserSync />
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
               <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />

@@ -119,9 +119,9 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 event_type = event.get("event")
                 event_data = event.get("data", {})
 
-                # 记录核心流事件
-                if event_type in ["summary", "sql_generated", "done"]:
-                    print(f"📡 [流] 模型产生事件: {event_type}")
+                # 记录核心流事件 (仅限关键节点)
+                if event_type in ["sql_generated", "done"]:
+                    print(f"📡 [流] 关键事件: {event_type}")
 
                 if event_type == "model_thinking":
                     assistant_reasoning += event_data.get("content", "")

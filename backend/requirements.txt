@@ -37,6 +37,7 @@ pydantic>=2.0.0
 pydantic-settings
 passlib[bcrypt]
 python-jose[cryptography]
+fpdf2
 
 # 测试
 pytest

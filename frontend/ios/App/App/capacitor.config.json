@@ -10,5 +10,8 @@
 		],
 		"cleartext": true
 	},
-	"packageClassList": []
+	"packageClassList": [
+		"FilesystemPlugin",
+		"SharePlugin"
+	]
 }

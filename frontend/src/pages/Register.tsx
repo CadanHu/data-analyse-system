@@ -63,6 +63,12 @@ export default function Register() {
     setIsLoading(true)
 
     try {
+      console.log('📝 [Register] 发送注册请求:', { 
+        username, 
+        email, 
+        password: password.substring(0, 3) + '***', 
+        verification_code: verificationCode 
+      })
       await authApi.register({ username, email, password, verification_code: verificationCode })
       navigate('/login', { state: { message: '注册成功，请登录' } })
     } catch (err: any) {
@@ -106,6 +112,8 @@ export default function Register() {
               <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">{t('register.username')}</label>
               <input
                 type="text"
+                name="username"
+                autoComplete="username"
                 required
                 minLength={3}
                 value={username}
@@ -120,6 +128,8 @@ export default function Register() {
               <div className="flex gap-2">
                 <input
                   type="email"
+                  name="email"
+                  autoComplete="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -141,6 +151,8 @@ export default function Register() {
               <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">Verification Code</label>
               <input
                 type="text"
+                name="verification_code"
+                autoComplete="one-time-code"
                 required
                 maxLength={6}
                 value={verificationCode}
@@ -154,6 +166,8 @@ export default function Register() {
               <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">{t('login.password')}</label>
               <input
                 type="password"
+                name="new-password"
+                autoComplete="new-password"
                 required
                 minLength={6}
                 value={password}
@@ -167,6 +181,8 @@ export default function Register() {
               <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">{t('register.confirmPassword')}</label>
               <input
                 type="password"
+                name="confirm-password"
+                autoComplete="new-password"
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

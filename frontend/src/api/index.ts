@@ -1,4 +1,4 @@
-// 本地测试专用 API 配置（端口 8008）
+// 本地测试专用 API 配置（端口 8000）
 // 此文件不会被提交到 Git
 
 import axios from 'axios'
@@ -7,7 +7,11 @@ import { useAuthStore } from '@/stores/authStore'
 
 // 动态获取 API 基础路径
 export const getBaseURL = () => {
-  // --- 优先级 1: 手动注入 ---
+  // 1. 检查环境变量 (Vite)
+  const envBaseUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envBaseUrl) return envBaseUrl;
+
+  // 2. 手动注入 (用于部分特殊构建环境)
   if (typeof window !== 'undefined' && (window as any).BACKEND_URL) {
     return (window as any).BACKEND_URL + '/api';
   }
@@ -15,31 +19,22 @@ export const getBaseURL = () => {
   if (typeof window !== 'undefined') {
     const origin = window.location.origin;
 
-    // --- 优先级 2: 显式识别 Capacitor (App 环境) ---
+    // 3. 显式识别 Capacitor (App 环境)
     // @ts-ignore
     const isCapacitor = window.Capacitor || origin.startsWith('capacitor') || origin.startsWith('http://10.0.2.2');
 
     if (isCapacitor) {
-      // Android
+      // Android 模拟器
       if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
         const isEmulator = /sdk|google/i.test(navigator.userAgent);
-        if (isEmulator) return 'http://10.0.2.2:8008/api';
-        // 真机 USB 调试 (adb reverse tcp:8008 tcp:8008)
-        return 'http://localhost:8008/api';
+        if (isEmulator) return 'http://10.0.2.2:8000/api';
       }
-      // iOS
-      if (typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-        return 'http://localhost:8008/api';
-      }
-      // Capacitor 默认
-      return 'http://localhost:8008/api';
+      // 默认回退到本地
+      return 'http://localhost:8000/api';
     }
-
-    // --- 优先级 3: 浏览器网页环境 (使用 Vite 代理) ---
-    // 网页端返回 /api，axios 会将其作为所有请求的前缀
-    // 请求 api.post('/auth/login') 将变为 /api/auth/login，完美匹配 Vite 代理
-    return '/api';
   }
+
+  // 4. 浏览器网页环境默认值
   return '/api';
 }
 
@@ -56,16 +51,9 @@ const api = axios.create({
 // 请求拦截器：注入 Token
 api.interceptors.request.use(config => {
   const token = useAuthStore.getState().token;
-  console.log('🔑 [API Interceptor] 请求拦截器:', {
-    url: config.url,
-    hasToken: !!token,
-    token: token ? token.substring(0, 30) + '...' : null
-  })
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
-    console.log('✅ [API Interceptor] Token 已注入:', config.headers.Authorization)
-  } else {
-    console.warn('⚠️ [API Interceptor] 没有 Token，跳过注入')
+    console.log(`🔑 [API] ${config.method?.toUpperCase()} ${config.url} (Token injected)`)
   }
   return config;
 });
@@ -87,38 +75,42 @@ export const authApi = {
   login: async (credentials: UserLogin) => {
     console.log('📡 [API] 发送登录请求...')
     const response = await api.post<TokenResponse>('/auth/login', credentials)
-    console.log('📡 [API] 登录响应:', response)
-    console.log('📡 [API] 登录响应数据:', response.data)
     return response.data
   },
   register: (credentials: RegisterCredentials) =>
-    api.post('/auth/register', credentials),
+    api.post('/auth/register', credentials).then(res => res.data),
   sendCode: (email: string) =>
-    api.post('/auth/send-code', { email }),
+    api.post('/auth/send-code', { email }).then(res => res.data),
   getMe: () =>
-    api.get<User>('/auth/me'),
+    api.get<User>('/auth/me').then(res => res.data),
 };
 
 export const sessionApi = {
   getSessions: () =>
-    api.get<Session[]>('/sessions'),
+    api.get<Session[]>('/sessions').then(res => res.data),
   createSession: () =>
-    api.post<Session>('/sessions'),
+    api.post<Session>('/sessions').then(res => res.data),
   deleteSession: (id: string) =>
-    api.delete(`/sessions/${id}`),
+    api.delete(`/sessions/${id}`).then(res => res.data),
   updateSessionTitle: (id: string, title: string) =>
-    api.patch(`/sessions/${id}`, { title }),
+    api.patch(`/sessions/${id}`, { title }).then(res => res.data),
   getMessages: (sessionId: string) =>
-    api.get<Message[]>(`/sessions/${sessionId}/messages`),
+    api.get<Message[]>(`/sessions/${sessionId}/messages`).then(res => res.data),
+  // 导出对话内容 (新功能)
+  exportSession: (sessionId: string, format: 'txt' | 'md' | 'pdf') =>
+    api.get(`/sessions/${sessionId}/export`, {
+      params: { format },
+      responseType: 'blob'
+    }).then(res => res.data),
 };
 
 export const databaseApi = {
   getDatabases: () =>
-    api.get('/databases'),
+    api.get('/databases').then(res => res.data),
   switchDatabase: (dbKey: string, sessionId?: string) =>
-    api.post('/databases/switch', { db_key: dbKey, session_id: sessionId }),
+    api.post('/database/switch', { database_key: dbKey, session_id: sessionId }).then(res => res.data),
   getSchema: (dbKey?: string) =>
-    api.get('/schema', { params: { db_key: dbKey } }),
+    api.get('/schema', { params: { db_key: dbKey } }).then(res => res.data),
 };
 
 export const chatApi = {
@@ -137,7 +129,7 @@ export const uploadApi = {
     formData.append('session_id', sessionId);
     return api.post('/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    }).then(res => res.data);
   },
 };
 

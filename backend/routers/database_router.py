@@ -3,7 +3,7 @@
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import sys
 from pathlib import Path
 
@@ -31,6 +31,7 @@ class TestConnectionRequest(BaseModel):
 
 class SwitchDatabaseRequest(BaseModel):
     database_key: str
+    session_id: Optional[str] = None
 
 
 @router.on_event("startup")
@@ -66,10 +67,22 @@ async def get_databases(current_user: dict = Depends(get_current_user)):
 async def switch_database(request: SwitchDatabaseRequest, current_user: dict = Depends(get_current_user)):
     """切换数据库"""
     db_key = request.database_key
+    session_id = request.session_id
+    
     if db_key not in DATABASES:
         raise HTTPException(status_code=400, detail=f"数据库 {db_key} 不存在")
     
+    # 1. 更新全局 SchemaService (即时生效)
     SchemaService.set_database(db_key)
+    
+    # 2. 如果提供了会话 ID，持久化到数据库 (后续请求生效)
+    if session_id:
+        from database.session_db import session_db
+        user_id = current_user["id"]
+        print(f"🎯 [Database] 正在将会话 {session_id} 的数据库更新为: {db_key}")
+        success = await session_db.update_session_database(session_id, user_id, db_key)
+        if not success:
+            print(f"⚠️ [Database] 更新会话数据库失败，可能无权限或会话不存在")
     
     return {
         "message": f"已切换到 {DATABASES[db_key]['name']}",

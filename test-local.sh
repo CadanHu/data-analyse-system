@@ -86,12 +86,12 @@ echo "初始化数据库..."
 python init_db.py
 
 # 启动后端（后台运行）
-echo "启动后端服务（端口 8008）..."
-python3 -m uvicorn main:app --host 0.0.0.0 --port 8008 --reload > ../backend.log 2>&1 &
+echo "启动后端服务（端口 8000）..."
+python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload > ../backend.log 2>&1 &
 BACKEND_PID=$!
 echo $BACKEND_PID > ../.backend.pid
 echo -e "${GREEN}✅${NC} 后端服务已启动 (PID: $BACKEND_PID)"
-echo -e "📄 API 文档：http://localhost:8008/docs"
+echo -e "📄 API 文档：http://localhost:8000/docs"
 
 cd ..
 
@@ -106,12 +106,12 @@ if [ ! -d "node_modules" ]; then
 fi
 
 # 启动前端（后台运行）
-echo "启动前端服务（端口 5188）..."
-npm run dev -- --port 5188 > ../frontend.log 2>&1 &
+echo "启动前端服务（端口 5173）..."
+npm run dev -- --port 5173 > ../frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo $FRONTEND_PID > ../.frontend.pid
 echo -e "${GREEN}✅${NC} 前端服务已启动 (PID: $FRONTEND_PID)"
-echo -e "🌐 访问地址：http://localhost:5188"
+echo -e "🌐 访问地址：http://localhost:5173"
 
 cd ..
 
@@ -127,14 +127,14 @@ echo "📊 服务状态检查..."
 BACKEND_OK=false
 FRONTEND_OK=false
 
-if curl -s http://localhost:8008/docs > /dev/null 2>&1; then
+if curl -s http://localhost:8000/docs > /dev/null 2>&1; then
     echo -e "${GREEN}✅${NC} 后端服务：运行中"
     BACKEND_OK=true
 else
     echo -e "${RED}❌${NC} 后端服务：启动失败（查看 backend.log）"
 fi
 
-if curl -s http://localhost:5188 > /dev/null 2>&1; then
+if curl -s http://localhost:5173 > /dev/null 2>&1; then
     echo -e "${GREEN}✅${NC} 前端服务：运行中"
     FRONTEND_OK=true
 else
@@ -147,9 +147,9 @@ echo -e "${GREEN}🎉 测试环境启动完成！${NC}"
 echo "=========================================="
 echo ""
 echo "📌 访问地址:"
-echo "   前端：http://localhost:5188"
-echo "   后端 API: http://localhost:8008"
-echo "   API 文档：http://localhost:8008/docs"
+echo "   前端：http://localhost:5173"
+echo "   后端 API: http://localhost:8000"
+echo "   API 文档：http://localhost:8000/docs"
 echo ""
 echo "📝 日志文件:"
 echo "   后端：backend.log"

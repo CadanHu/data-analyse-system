@@ -41,7 +41,8 @@ class StreamableHTTPService:
             
             # 记录流式输出事件
             if event_type not in ["model_thinking"]:
-                print(f"📡 [Stream] 发送事件给前端: {event_type}")
+                pass
+                # print(f"📡 [Stream] 发送事件给前端: {event_type}")
             
             # 标准 SSE 格式: data: <content>\n\n
             json_str = json.dumps({

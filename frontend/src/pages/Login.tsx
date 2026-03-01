@@ -35,31 +35,33 @@ export default function Login() {
       
       console.log('✅ [Login] 收到 Token:', access_token.substring(0, 50) + '...')
       
-      // 🔧 关键修复：手动设置 axios 默认 header，因为 zustand persist 是异步的
-      console.log('🔧 [Login] 手动设置 axios header...')
-      const axios = (await import('axios')).default
-      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
-      console.log('✅ [Login] Header 已设置:', axios.defaults.headers.common['Authorization'])
+      // 🔧 关键修复：先将 Token 保存到 store，这样 axios 拦截器就能在 getMe() 时获取到它
+      // 使用 getState() 来确保存储立即更新，不等待 React 渲染周期
+      console.log('💾 [Login] 先保存 Token 到 store...')
+      useAuthStore.getState().setToken(access_token)
       
       // 获取用户信息
       console.log('📥 [Login] 获取用户信息...')
       const user = await authApi.getMe()
-      console.log('✅ [Login] 用户信息:', user)
+      console.log('✅ [Login] 用户详情 (完整 JSON):', JSON.stringify(user, null, 2))
       
-      // 保存用户信息和 Token 到 store
-      console.log('💾 [Login] 保存到 store...')
-      setAuth(user, access_token)
+      // 保存完整的用户信息和 Token
+      console.log('💾 [Login] 保存完整信息到 store...')
+      useAuthStore.getState().setAuth(user, access_token)
       
       // 验证是否保存成功
-      const stored = useAuthStore.getState()
+      const finalStore = useAuthStore.getState()
       console.log('🔍 [Login] 验证存储:', { 
-        token: stored.token ? stored.token.substring(0, 30) + '...' : null,
-        isAuthenticated: stored.isAuthenticated,
-        user: stored.user
+        token: finalStore.token ? finalStore.token.substring(0, 30) + '...' : null,
+        isAuthenticated: finalStore.isAuthenticated,
+        user: finalStore.user?.username
       })
       
-      console.log('🚀 [Login] 导航到应用...')
-      navigate('/app')
+      // 🚀 确保状态已保存后再导航
+      setTimeout(() => {
+        console.log('🚀 [Login] 导航到应用...')
+        navigate('/app')
+      }, 100)
     } catch (err: any) {
       console.error('❌ [Login] 登录失败:', err)
       console.error('❌ [Login] 错误详情:', err.response?.data)

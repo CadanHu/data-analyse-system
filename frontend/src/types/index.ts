@@ -36,6 +36,7 @@ export interface RegisterCredentials {
   username: string
   email: string
   password: string
+  verification_code: string
 }
 
 export interface TokenResponse {

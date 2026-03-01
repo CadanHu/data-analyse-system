@@ -31,6 +31,16 @@ class SQLAgent:
             )
             response.raise_for_status()
             result = response.json()
+            
+            # --- 核心改进：打印详细交互日志 ---
+            print(f"\n📡 [DeepSeek 交互详情]")
+            print(f"📥 [模型]: {result.get('model')}")
+            raw_content = result.get('choices')[0].get('message').get('content')
+            print(f"📥 [原始响应]: {json.dumps(raw_content, ensure_ascii=False, indent=2)}")
+            usage = result.get("usage", {})
+            print(f"💰 [Token 消耗]: 总计 {usage.get('total_tokens', 0)}, 提示 {usage.get('prompt_tokens', 0)}, 回答 {usage.get('completion_tokens', 0)}")
+            print("-" * 30)
+            
             return result["choices"][0]["message"]["content"]
     
     async def _chat_completion_stream(
@@ -46,11 +56,16 @@ class SQLAgent:
             "model": active_model,
             "messages": messages,
             "temperature": temperature,
-            "stream": True
+            "stream": True,
+            "stream_options": {"include_usage": True} # 启用精准结算
         }
         
-        print(f"📤 发送到 DeepSeek 的请求: model={active_model}, enable_thinking={enable_thinking}")
+        print(f"\n📡 [DeepSeek 流式请求发起]")
+        print(f"📤 [模型]: {active_model} | [思考模式]: {enable_thinking}")
         
+        full_content = ""
+        full_reasoning = ""
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST",
@@ -63,8 +78,9 @@ class SQLAgent:
             ) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()
-                    print(f"❌ DeepSeek API 错误: {response.status_code}")
+                    print(f"❌ DeepSeek API 错误: {response.status_code} - {error_text.decode()}")
                 response.raise_for_status()
+                
                 async for line in response.aiter_lines():
                     if line.startswith("data: "):
                         data_str = line[6:]
@@ -72,18 +88,47 @@ class SQLAgent:
                             break
                         try:
                             chunk = json.loads(data_str)
+                            
+                            # 1. 精确结算日志 (通常在最后一个 chunk)
+                            if chunk.get("usage"):
+                                usage = chunk["usage"]
+                                print(f"\n💰 [流式 Token 结算]")
+                                print(f"   - 总计: {usage.get('total_tokens', 0)}")
+                                print(f"   - 提示 (Prompt): {usage.get('prompt_tokens', 0)}")
+                                print(f"   - 回答 (Completion): {usage.get('completion_tokens', 0)}")
+                                if usage.get('completion_tokens_details', {}).get('reasoning_tokens'):
+                                    print(f"   - 推理 (Reasoning): {usage['completion_tokens_details']['reasoning_tokens']}")
+                            
+                            # 2. 内容处理与实时提示
                             if chunk.get("choices"):
                                 delta = chunk["choices"][0].get("delta", {})
-                                reasoning_content = delta.get("reasoning_content", "")
-                                content = delta.get("content", "")
                                 
-                                if reasoning_content or content:
+                                # 实时捕获思考
+                                reasoning = delta.get("reasoning_content", "")
+                                if reasoning:
+                                    if not full_reasoning:
+                                        print("🧠 [AI 正在思考...]")
+                                    full_reasoning += reasoning
+                                
+                                # 实时捕获回答
+                                content = delta.get("content", "")
+                                if content:
+                                    full_content += content
+                                
+                                if reasoning or content:
                                     yield {
-                                        "reasoning_content": reasoning_content,
+                                        "reasoning_content": reasoning,
                                         "content": content
                                     }
                         except json.JSONDecodeError:
-                            pass                                                                
+                            pass
+                
+                # 请求结束时，打印完整响应内容
+                if full_content:
+                    print(f"\n📥 [AI 完整回答]:\n{full_content}")
+                if full_reasoning:
+                    print(f"\n🧠 [AI 完整思考过程]:\n{full_reasoning}")
+                print("-" * 30)
     async def _classify_intent(self, question: str) -> str:
         prompt = INTENT_CLASSIFICATION_PROMPT.format(question=question)
         messages = [
