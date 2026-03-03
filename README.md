@@ -9,7 +9,9 @@
 ### 🖥️ 桌面端画布 (Web Dashboard)
 
 ![Web Dashboard](./docs/assets/web_mockup.svg)
+![Web Dashboard](./docs/assets/Snipaste_2026-03-03_11-32-39.png)
 
+> **⚠️ 说明**: 以上为**模拟设计图 (Mockup)**，展示系统最终交付的 UI 视觉标准。
 > **桌面端特性**: 三栏布局 · 实时流式输出 · AI 思考过程可视化 · 多图表类型切换 · SQL 代码查看
 
 ### 📱 移动端原生 (Mobile Native)
@@ -18,6 +20,7 @@
 | :---: | :---: |
 | ![Mobile Portrait](./docs/assets/mobile_mockup.svg) | ![iOS Landscape](./docs/assets/ios_mockup.svg) |
 
+> **⚠️ 说明**: 以上为**移动端模拟设计图 (Mockup)**。
 > **移动端特性**: Capacitor 6 原生适配 · 刘海屏兼容 · 横竖屏自动切换 · 触控优化 · Safe Area 适配
 
 ## 🎯 核心能力
@@ -47,13 +50,13 @@ data-analyse-system/
 │   ├── databases/     # 数据库适配器 (MySQL/PostgreSQL)
 │   ├── services/      # 文档处理、向量存储、流服务
 │   ├── routers/       # API 路由
-│   └── tests/         # 单元测试与测试文档 (整理至此)
+│   └── tests/         # 单元测试与测试文档
 │       └── knowledge_base/ # 商业指标测试集
 ├── frontend/           # 前端项目 (React, Vite, Tailwind)
 │   ├── ios/           # iOS 原生工程
 │   └── android/       # Android 原生工程
-├── scripts/            # 环境验证与初始化脚本
-├── docs/               # 部署与安装指南
+├── scripts/            # 环境验证、初始化、数据注入与维护脚本
+├── docs/               # 部署手册、架构说明、已知问题、重启指南
 └── docker-compose.yml  # 容器化部署配置
 ```
 

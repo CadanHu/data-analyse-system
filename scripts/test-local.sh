@@ -38,11 +38,12 @@ if ! command -v npm &> /dev/null; then
 fi
 echo -e "${GREEN}✅${NC} npm: $(npm --version)"
 
-# 检查 MySQL（可选）
+# 检查 MySQL
 if command -v mysql &> /dev/null; then
     echo -e "${GREEN}✅${NC} MySQL: 已安装"
 else
-    echo -e "${YELLOW}⚠️${NC}  MySQL: 未安装（将使用 SQLite）"
+    echo -e "${RED}❌${NC}  MySQL: 未安装 (DataPulse 已废弃 SQLite 支持，必须使用 MySQL/PostgreSQL)"
+    exit 1
 fi
 
 echo ""
@@ -81,9 +82,9 @@ fi
 echo "安装后端依赖..."
 pip install -r requirements.txt -q
 
-# 初始化数据库
-echo "初始化数据库..."
-python init_db.py
+# 初始化数据库与环境验证
+echo "初始化数据库与环境验证..."
+python3 ../scripts/check_db_env.py
 
 # 启动后端（后台运行）
 echo "启动后端服务（端口 8000）..."

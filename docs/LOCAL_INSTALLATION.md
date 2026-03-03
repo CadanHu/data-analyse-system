@@ -12,6 +12,21 @@
 
 ---
 
+## ⚡ 快速一键启动 (推荐)
+
+如果您已经在 `.env` 中配置好了 `DEEPSEEK_API_KEY`，可以使用项目提供的自动化脚本一键启动前后端：
+
+```bash
+# 在项目根目录下执行
+bash scripts/test-local.sh
+```
+该脚本会自动检查环境、安装依赖、验证数据库并启动服务。停止服务请使用：
+```bash
+bash scripts/stop-test.sh
+```
+
+---
+
 ## 🛠️ 第一步：后端配置 (Backend)
 
 1. **进入后端目录并创建虚拟环境**：
@@ -38,10 +53,10 @@
    - `MYSQL_USER`: 您的数据库用户名 (如 `root`)
    - `MYSQL_PASSWORD`: 您的数据库密码
 
-4. **初始化会话数据库**：
-   运行验证脚本，它会自动在 MySQL 中创建 `data_pulse_sessions` 库和表。
+4. **初始化会话数据库与环境验证**：
+   运行验证脚本，它会检查您的 MySQL 配置并确保会话数据库就绪。
    ```bash
-   python scripts/check_db_env.py
+   python3 scripts/check_db_env.py
    ```
 
 ---
@@ -66,14 +81,26 @@
 
 ---
 
-## 🚀 第三步：数据准备 (可选)
+## 🚀 第三步：测试数据准备 (重要)
 
-为了测试商业分析功能，建议向 MySQL 注入模拟数据：
+为了全面测试系统的智能分析与可视化能力，建议向 MySQL 注入以下模拟业务数据：
+
+### 1. 经典商业分析库 (Classic Business)
+包含 1000+ 条订单记录、产品分类与用户分布。
 ```bash
-cd backend
-python init_classic_business.py
+python3 scripts/init_classic_business.py
 ```
-这会创建一个名为 `classic_business` 的数据库，并填充 1000 条订单数据。
+
+### 2. 全场景商业分析库 (Global Analysis)
+包含 15+ 种可视化图表（雷达图、桑基图、甘特图、箱线图等）所需的进阶测试数据。
+```bash
+# 初始化基础库
+python3 scripts/init_global_analysis.py
+# 注入进阶图表数据 (桑基、甘特等)
+python3 scripts/inject_test_data.py
+# 注入 2024 年度销售趋势数据 (用于对比分析)
+python3 scripts/inject_2024_data.py
+```
 
 ---
 

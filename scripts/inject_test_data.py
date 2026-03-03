@@ -10,7 +10,7 @@ def inject():
         cur = conn.cursor()
         cur.execute("USE global_analysis")
 
-        # 1. 甘特图数据
+        # 1. 甘特图数据 (Table: gantt_projects)
         cur.execute("DROP TABLE IF EXISTS gantt_projects")
         cur.execute("""
         CREATE TABLE gantt_projects (
@@ -34,7 +34,39 @@ def inject():
         ]
         cur.executemany("INSERT INTO gantt_projects (project_name, task_name, start_date, end_date, progress_pct, owner, priority) VALUES (%s, %s, %s, %s, %s, %s, %s)", gantt_data)
 
-        # 2. 桑基图数据
+        # 1b. 进阶项目任务数据 (Table: project_tasks)
+        cur.execute("DROP TABLE IF EXISTS project_tasks")
+        cur.execute("""
+        CREATE TABLE project_tasks (
+            task_id INT PRIMARY KEY AUTO_INCREMENT,
+            task_name VARCHAR(100),
+            start_date DATE,
+            end_date DATE,
+            progress INT
+        )""")
+        tasks = [
+            # 项目 A：电商系统升级
+            ('A-需求分析', '2025-01-01', '2025-01-10', 100),
+            ('A-架构设计', '2025-01-11', '2025-01-20', 100),
+            ('A-UI/UX设计', '2025-01-15', '2025-01-30', 90),
+            ('A-前端开发-PC端', '2025-02-01', '2025-03-10', 60),
+            ('A-前端开发-移动端', '2025-02-05', '2025-03-15', 45),
+            ('A-后端接口开发', '2025-02-01', '2025-03-20', 75),
+            ('A-数据库优化', '2025-03-01', '2025-03-10', 100),
+            ('A-系统集成测试', '2025-03-21', '2025-04-05', 20),
+            ('A-安全漏洞扫描', '2025-04-01', '2025-04-07', 0),
+            ('A-用户验收测试(UAT)', '2025-04-08', '2025-04-20', 0),
+            ('A-正式上线准备', '2025-04-21', '2025-04-30', 0),
+            # 项目 B：AI 分析插件开发
+            ('B-算法预研', '2025-02-10', '2025-02-28', 100),
+            ('B-模型训练', '2025-03-01', '2025-03-20', 80),
+            ('B-API封装', '2025-03-15', '2025-03-25', 30),
+            ('B-前端集成', '2025-03-20', '2025-04-05', 10),
+            ('B-性能压力测试', '2025-04-06', '2025-04-15', 0)
+        ]
+        cur.executemany("INSERT INTO project_tasks (task_name, start_date, end_date, progress) VALUES (%s, %s, %s, %s)", tasks)
+
+        # 2. 桑基图数据 (Table: sankey_traffic)
         cur.execute("DROP TABLE IF EXISTS sankey_traffic")
         cur.execute("""
         CREATE TABLE sankey_traffic (
@@ -58,7 +90,8 @@ def inject():
         ]
         cur.executemany("INSERT INTO sankey_traffic (source_node, target_node, flow_value) VALUES (%s, %s, %s)", sankey_data)
 
-        # 3. 箱线图数据
+        # 3. 箱线图数据 (Table: regional_sales_distribution)
+        # 注意：此处为 inject_test_data 的默认部分，inject_2024_data 会补充 2024 数据
         cur.execute("DROP TABLE IF EXISTS regional_sales_distribution")
         cur.execute("""
         CREATE TABLE regional_sales_distribution (
@@ -120,7 +153,7 @@ def inject():
         ]
         cur.executemany("INSERT INTO marketing_bubbles (product_line, ad_spend, roi, conversions) VALUES (%s, %s, %s, %s)", bubble_data)
 
-        print("✅ [架构师] 5组商业分析测试数据已成功注入 global_analysis 数据库。")
+        print("✅ [架构师] 6组商业分析测试数据已成功注入 global_analysis 数据库。")
         conn.close()
     except Exception as e:
         print(f"❌ 注入失败: {str(e)}")

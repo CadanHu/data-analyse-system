@@ -8,16 +8,18 @@ An AI-driven intelligent data analysis system, a dual-engine commercial platform
 
 ### 🖥️ Web Dashboard
 
-![Web Dashboard](./docs/assets/web_mockup.svg)
+![Web Dashboard](./assets/web_mockup.svg)
 
+> **⚠️ Note**: The images above are **mockups** showing the final UI visual standards.
 > **Desktop Features**: Three-column layout · Real-time streaming output · AI thought visualization · Multi-chart type switching · SQL code preview
 
 ### 📱 Mobile Native
 
 | Portrait Mode | Landscape Mode |
 | :---: | :---: |
-| ![Mobile Portrait](./docs/assets/mobile_mockup.svg) | ![iOS Landscape](./docs/assets/ios_mockup.svg) |
+| ![Mobile Portrait](./assets/mobile_mockup.svg) | ![iOS Landscape](./assets/ios_mockup.svg) |
 
+> **⚠️ Note**: The images above are **mobile mockups**.
 > **Mobile Features**: Capacitor 6 native adaptation · Notch screen compatible · Auto landscape/portrait switching · Touch-optimized · Safe Area support
 
 ## 🎯 Core Capabilities
@@ -52,8 +54,8 @@ data-analyse-system/
 ├── frontend/           # Frontend Project (React, Vite, Tailwind)
 │   ├── ios/           # iOS Native Projects
 │   └── android/       # Android Native Projects
-├── scripts/            # Environment Verification and Initialization Scripts
-├── docs/               # Deployment and Installation Guides
+├── scripts/            # Environment Verification, Init, Data Injection & Maintenance Scripts
+├── docs/               # Deployment Guides, Architecture, Known Bugs, Restart Guide
 └── docker-compose.yml  # Containerized Deployment Configuration
 ```
 
