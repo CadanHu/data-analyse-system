@@ -27,6 +27,7 @@ interface SSEHandlers {
 interface ConnectOptions {
   enable_rag?: boolean
   rag_engine?: 'light' | 'pro'
+  parent_id?: string
   onMessageSent?: () => void
 }
 
@@ -53,6 +54,7 @@ export function useSSE() {
       addMessage({
         id: userMessageId,
         session_id: sessionId,
+        parent_id: options?.parent_id,
         role: 'user',
         content: question,
         created_at: new Date().toISOString()
@@ -107,6 +109,7 @@ export function useSSE() {
           body: JSON.stringify({
             session_id: sessionId,
             question: question,
+            parent_id: options?.parent_id,
             enable_thinking: isThinkingMode,
             enable_rag: options?.enable_rag || false,
             rag_engine: options?.rag_engine || 'light'
@@ -167,6 +170,7 @@ export function useSSE() {
                     addMessage({
                       id: assistantMessageId,
                       session_id: sessionId,
+                      parent_id: userMessageId,
                       role: 'assistant',
                       content: '',
                       thinking: assistantModelThinking,
@@ -200,6 +204,7 @@ export function useSSE() {
                     addMessage({
                       id: assistantMessageId,
                       session_id: sessionId,
+                      parent_id: userMessageId,
                       role: 'assistant',
                       content: assistantContent,
                       sql: assistantSql,

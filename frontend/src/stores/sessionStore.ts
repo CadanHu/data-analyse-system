@@ -5,12 +5,14 @@ interface SessionState {
   sessions: Session[]
   currentSession: Session | null
   messages: Message[]
+  allMessages: Message[] // 用于支持分支功能：保存所有分支的消息
   loading: boolean
   
   // Actions
   setSessions: (sessions: Session[]) => void
   setCurrentSession: (session: Session | null) => void
   setMessages: (messages: Message[]) => void
+  setAllMessages: (messages: Message[]) => void // 设置所有分支
   addMessage: (message: Message) => void
   updateLastMessage: (updates: Partial<Message>) => void
   setLoading: (loading: boolean) => void
@@ -23,13 +25,16 @@ export const useSessionStore = create<SessionState>((set) => ({
   sessions: [],
   currentSession: null,
   messages: [],
+  allMessages: [],
   loading: false,
   
   setSessions: (sessions) => set({ sessions }),
   setCurrentSession: (session) => set({ currentSession: session }),
   setMessages: (messages) => set({ messages }),
+  setAllMessages: (allMessages) => set({ allMessages }),
   addMessage: (message) => set((state) => ({ 
-    messages: [...state.messages, message] 
+    messages: [...state.messages, message],
+    allMessages: [...state.allMessages, message]
   })),
   updateSession: (sessionId, updates) => set((state) => {
     const newSessions = state.sessions.map(s => 
@@ -47,10 +52,17 @@ export const useSessionStore = create<SessionState>((set) => ({
       const lastMessage = newMessages[newMessages.length - 1]
       newMessages[newMessages.length - 1] = { ...lastMessage, ...updates }
     }
-    return { messages: newMessages }
+    // 同时更新 allMessages 中对应的消息（如果存在）
+    const newAllMessages = state.allMessages.map(m => {
+      if (newMessages.length > 0 && m.id === newMessages[newMessages.length - 1].id) {
+        return { ...m, ...updates };
+      }
+      return m;
+    });
+    return { messages: newMessages, allMessages: newAllMessages }
   }),
   setLoading: (loading) => set({ loading }),
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => set({ messages: [], allMessages: [] }),
   removeSession: (sessionId) => set((state) => ({
     sessions: state.sessions.filter(s => s.id !== sessionId)
   })),

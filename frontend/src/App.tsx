@@ -24,7 +24,7 @@ import { sessionApi } from '@/api'
 export default function App() {
   const navigate = useNavigate()
   const { isAuthenticated, user, setAuth } = useAuthStore()
-  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, clearMessages } = useSessionStore()
+  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
@@ -66,6 +66,20 @@ export default function App() {
     
     try {
       const data = await sessionApi.getMessages(sessionId)
+      
+      // 异步加载所有分支消息
+      sessionApi.getMessages(sessionId, true).then(allData => {
+        if (Array.isArray(allData)) {
+          const processedAll = allData.map(msg => {
+            if (typeof msg.data === 'string' && msg.data) {
+              try { return { ...msg, data: JSON.parse(msg.data) } } catch (e) {}
+            }
+            return msg
+          })
+          setAllMessages(processedAll)
+        }
+      })
+
       if (!Array.isArray(data)) {
         console.error('[App] Messages data is not an array:', data)
         setMessages([])

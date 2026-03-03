@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useChatStore } from '../stores/chatStore'
+import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
 
@@ -13,6 +14,7 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { isLoading, isThinkingMode, setThinkingMode, pendingMessage, setPendingMessage } = useChatStore()
+  const { messages } = useSessionStore()
   const [isRAGMode, setRAGMode] = useState(false)
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
   const [showEngineSelect, setShowEngineSelect] = useState(false)
@@ -43,10 +45,19 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
 
     const question = textToSubmit.trim()
     setInput('')
+
+    // 获取最后一条消息的 ID 作为父节点，确保对话是线性的
+    const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null
+    const parentId = lastMessage?.id
+
     connect(
       sessionId,
       question,
-      { enable_rag: isRAGMode, rag_engine: ragEngine },
+      { 
+        enable_rag: isRAGMode, 
+        rag_engine: ragEngine,
+        parent_id: parentId
+      },
       { onMessageSent }
     )
   }

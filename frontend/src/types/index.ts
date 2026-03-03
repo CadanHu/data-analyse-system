@@ -9,12 +9,14 @@ export interface Session {
 export interface Message {
   id: string
   session_id: string
+  parent_id?: string
   role: 'user' | 'assistant'
   content: string
   sql?: string
   chart_cfg?: string
   thinking?: string
   data?: string
+  is_current?: number
   created_at: string
 }
 

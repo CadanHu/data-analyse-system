@@ -24,12 +24,24 @@ export default function Login() {
 
     try {
       const response = await authApi.login({ username: email, password })
-      console.log('✅ [Login] 登录响应:', response)
+      console.log('✅ [Login] 登录响应 (完整内容):', response)
+      console.log('📊 [Login] 响应数据类型:', typeof response)
       
-      const access_token = response.access_token
+      // 检查响应是否是字符串（可能是 Capacitor 没自动解析 JSON）
+      let data = response;
+      if (typeof response === 'string') {
+        try {
+          data = JSON.parse(response);
+          console.log('✅ [Login] 字符串已手动解析为对象:', data)
+        } catch (e) {
+          console.error('❌ [Login] 响应是字符串但解析失败:', response)
+        }
+      }
+
+      const access_token = data.access_token || data.data?.access_token
       if (!access_token) {
-        console.error('❌ [Login] 响应中没有 access_token:', response)
-        setError('登录响应格式错误')
+        console.error('❌ [Login] 响应中没有 access_token. 结构:', data)
+        setError(`登录响应格式错误 (Type: ${typeof response})`)
         return
       }
       

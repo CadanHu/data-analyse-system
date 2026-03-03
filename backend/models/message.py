@@ -34,5 +34,6 @@ class MessageResponse(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     question: str
+    parent_id: Optional[str] = None # 用于分支功能：如果用户修改了中间的消息，则带上父消息 ID
     enable_thinking: bool = False
     enable_rag: bool = False

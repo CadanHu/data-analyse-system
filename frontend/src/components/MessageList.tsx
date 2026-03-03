@@ -5,7 +5,11 @@ import MessageSkeleton from './MessageSkeleton'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 
-export default function MessageList() {
+interface MessageListProps {
+  onEditMessage?: (content: string, parentId?: string) => void
+}
+
+export default function MessageList({ onEditMessage }: MessageListProps) {
   const { isLoading, thinkingContent, setPendingMessage } = useChatStore()
   const { messages: storeMessages } = useSessionStore()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -84,7 +88,11 @@ export default function MessageList() {
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
       {Array.isArray(storeMessages) && storeMessages.map((message) => (
-        <MessageItem key={message.id} message={message} />
+        <MessageItem 
+          key={message.id} 
+          message={message} 
+          onEditSubmit={onEditMessage}
+        />
       ))}
       {isLoading && storeMessages.length === 0 && (
         <MessageSkeleton />

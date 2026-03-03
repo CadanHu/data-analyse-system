@@ -18,6 +18,9 @@ class SessionTitleUpdate(BaseModel):
 class SessionDatabaseUpdate(BaseModel):
     database_key: str
 
+class BranchActivationRequest(BaseModel):
+    message_ids: List[str]
+
 class SessionCreate(BaseModel):
     database_key: Optional[str] = "classic_business"
 
@@ -81,15 +84,28 @@ async def update_session_database(session_id: str, data: SessionDatabaseUpdate, 
     return {"success": True}
 
 @router.get("/{session_id}/messages")
-async def get_messages(session_id: str, current_user: dict = Depends(get_current_user)):
-    """获取会话的所有消息"""
-    # 验证会话所属权
+async def get_messages(session_id: str, all: bool = False, current_user: dict = Depends(get_current_user)):
+    """获取会话的所有消息。all=true 返回所有分支，false 仅返回当前分支。"""
     user_id = current_user["id"]
     session = await session_db.get_session(session_id, user_id)
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在或无权限")
     
-    return await session_db.get_messages(session_id)
+    # 注意：session_db.get_messages 需要支持 all 参数
+    return await session_db.get_messages(session_id, all_branches=all)
+
+@router.post("/{session_id}/activate_branch")
+async def activate_branch(session_id: str, data: BranchActivationRequest, current_user: dict = Depends(get_current_user)):
+    """激活指定的消息链分支"""
+    user_id = current_user["id"]
+    session = await session_db.get_session(session_id, user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    success = await session_db.activate_branch(session_id, data.message_ids)
+    if not success:
+        raise HTTPException(status_code=500, detail="激活分支失败")
+    return {"success": True}
 
 @router.get("/{session_id}/export")
 async def export_session(

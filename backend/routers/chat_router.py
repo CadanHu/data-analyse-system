@@ -60,15 +60,17 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
 
         # 保存用户消息
         print("💾 [数据库] 正在保存用户提问...")
+        user_message_id = str(uuid.uuid4())
         await session_db.create_message({
-            "id": str(uuid.uuid4()),
+            "id": user_message_id,
             "session_id": request.session_id,
+            "parent_id": request.parent_id, # 分支功能：记录父节点
             "role": "user",
             "content": request.question,
             "created_at": datetime.now().isoformat()
         })
         await memory_manager.add_user_message(request.session_id, request.question)
-        print("✅ [数据库] 用户消息保存成功")
+        print(f"✅ [数据库] 用户消息保存成功 (ID: {user_message_id})")
 
     except Exception as e:
         print(f"❌ [请求阶段错误]: {str(e)}")
@@ -150,6 +152,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                     await session_db.create_message({
                         "id": assistant_message_id,
                         "session_id": request.session_id,
+                        "parent_id": user_message_id, # 分支功能：记录父节点
                         "role": "assistant",
                         "content": assistant_content,
                         "sql": assistant_sql,

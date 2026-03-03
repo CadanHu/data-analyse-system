@@ -41,7 +41,13 @@ class BaseDatabaseAdapter(ABC):
         """连接数据库"""
         try:
             conn_str = self.get_connection_string()
-            self.engine = create_async_engine(conn_str, echo=False)
+            # 增加连接池优化参数
+            self.engine = create_async_engine(
+                conn_str, 
+                echo=False,
+                pool_recycle=3600,
+                pool_pre_ping=True
+            )
             async with self.engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
             self._connected = True

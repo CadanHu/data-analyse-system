@@ -32,12 +32,14 @@ class MessageModel(Base):
     __tablename__ = 'messages'
     id = Column(String(64), primary_key=True)
     session_id = Column(String(64), ForeignKey('sessions.id'), nullable=False)
+    parent_id = Column(String(64), nullable=True) # 父消息 ID，用于支持对话分支
     role = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)
     sql = Column(Text)
     chart_cfg = Column(Text)
     thinking = Column(Text)
     data = Column(Text)
+    is_current = Column(Integer, default=1) # 1 为当前活跃分支，0 为历史分支
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (Index('idx_session', 'session_id'),)
@@ -48,7 +50,15 @@ class SessionDatabase:
     def __init__(self):
         # 默认使用 MySQL 驱动
         self.url = f"mysql+aiomysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_SESSION_DATABASE}?charset=utf8mb4"
-        self.engine = create_async_engine(self.url, echo=False)
+        # 增加连接池优化参数
+        self.engine = create_async_engine(
+            self.url, 
+            echo=False,
+            pool_recycle=3600, # 每小时回收连接，防止被 MySQL 服务端主动断开
+            pool_pre_ping=True, # 每次执行前检查连接有效性
+            pool_size=10,       # 适当增大连接池
+            max_overflow=20     # 允许溢出的连接数
+        )
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
@@ -154,21 +164,62 @@ class SessionDatabase:
 
     async def create_message(self, message_data: Dict[str, Any]) -> str:
         message_id = message_data.get("id", str(uuid.uuid4()))
+        parent_id = message_data.get("parent_id")
+        session_id = message_data.get("session_id")
+        
         async with self.async_session() as session:
+            # 分支功能优化逻辑：
+            if parent_id:
+                # 检查该 parent_id 是否已经有了子节点
+                # 如果有了子节点，说明现在是在“旧位置”重新提问，产生了分叉
+                result = await session.execute(
+                    text("SELECT id FROM messages WHERE parent_id = :pid LIMIT 1"),
+                    {"pid": parent_id}
+                )
+                has_existing_children = result.scalar_one_or_none() is not None
+                
+                if has_existing_children:
+                    # 只有在产生分叉时，才需要切换活跃路径
+                    # 将该 session 下所有消息设为 0，然后我们会在后面重新激活从根到当前的路径
+                    # (由于递归更新比较复杂，这里采用简单策略：在切换分支时处理)
+                    # 此时先标记所有为 0，确保新消息及其祖先是活跃的
+                    await session.execute(
+                        text("UPDATE messages SET is_current = 0 WHERE session_id = :sid"),
+                        {"sid": session_id}
+                    )
+                    
+                    # 递归激活祖先节点
+                    curr_p_id = parent_id
+                    while curr_p_id:
+                        await session.execute(
+                            text("UPDATE messages SET is_current = 1 WHERE id = :id"),
+                            {"id": curr_p_id}
+                        )
+                        # 查找上一级
+                        p_res = await session.execute(
+                            text("SELECT parent_id FROM messages WHERE id = :id"),
+                            {"id": curr_p_id}
+                        )
+                        curr_p_id = p_res.scalar_one_or_none()
+                # 如果没有子节点，说明是正常对话延续，不需要执行任何 UPDATE，保持原样即可
+
             new_msg = MessageModel(
                 id=message_id,
-                session_id=message_data.get("session_id"),
+                session_id=session_id,
+                parent_id=parent_id,
                 role=message_data.get("role"),
                 content=message_data.get("content"),
                 sql=message_data.get("sql"),
                 chart_cfg=message_data.get("chart_cfg"),
                 thinking=message_data.get("thinking"),
                 data=message_data.get("data"),
+                is_current=1, # 新消息始终是活跃的
                 created_at=datetime.utcnow()
             )
             session.add(new_msg)
+            
             # 同时更新会话的 updated_at
-            stmt = select(SessionModel).where(SessionModel.id == message_data.get("session_id"))
+            stmt = select(SessionModel).where(SessionModel.id == session_id)
             res = await session.execute(stmt)
             s = res.scalar_one_or_none()
             if s:
@@ -177,13 +228,61 @@ class SessionDatabase:
             await session.commit()
         return message_id
 
-    async def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
+    async def get_messages(self, session_id: str, all_branches: bool = False) -> List[Dict[str, Any]]:
+        """获取消息列表。默认仅获取当前活跃分支的消息链。"""
         async with self.async_session() as session:
-            result = await session.execute(
-                select(MessageModel).where(MessageModel.session_id == session_id).order_by(MessageModel.created_at.asc())
-            )
+            if all_branches:
+                # 获取该会话下的所有消息，用于前端构建树
+                query = select(MessageModel).where(
+                    MessageModel.session_id == session_id
+                ).order_by(MessageModel.created_at.asc())
+            else:
+                # 默认只获取 is_current=1 的当前活跃分支消息
+                query = select(MessageModel).where(
+                    MessageModel.session_id == session_id,
+                    MessageModel.is_current == 1
+                ).order_by(MessageModel.created_at.asc())
+            
+            result = await session.execute(query)
             messages = result.scalars().all()
             return [self._to_dict(m) for m in messages]
+
+    async def activate_branch(self, session_id: str, message_ids: List[str]) -> bool:
+        """激活指定的消息链分支，并自动激活该分支下的后续对话。"""
+        async with self.async_session() as session:
+            # 1. 全部设为非活跃
+            await session.execute(
+                text("UPDATE messages SET is_current = 0 WHERE session_id = :sid"),
+                {"sid": session_id}
+            )
+            # 2. 激活指定的路径 (祖先 -> 当前节点)
+            if message_ids:
+                await session.execute(
+                    text("UPDATE messages SET is_current = 1 WHERE id IN :ids"),
+                    {"ids": tuple(message_ids)}
+                )
+                
+                # 3. 核心修复：自动激活“当前节点”之下的所有后代
+                # 我们沿着 parent_id 链条向下找，每次选择最新创建的子节点激活
+                last_id = message_ids[-1]
+                while True:
+                    res = await session.execute(
+                        text("SELECT id FROM messages WHERE parent_id = :pid ORDER BY created_at DESC LIMIT 1"),
+                        {"pid": last_id}
+                    )
+                    child = res.fetchone()
+                    if child:
+                        child_id = child[0]
+                        await session.execute(
+                            text("UPDATE messages SET is_current = 1 WHERE id = :id"),
+                            {"id": child_id}
+                        )
+                        last_id = child_id
+                    else:
+                        break
+                        
+            await session.commit()
+            return True
 
     def _to_dict(self, model_obj):
         if not model_obj: return None

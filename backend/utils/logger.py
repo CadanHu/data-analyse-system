@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import json
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from config import BASE_DIR
 
 
@@ -74,12 +74,16 @@ def setup_logging(
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         
-        file_handler = RotatingFileHandler(
+        # 使用 TimedRotatingFileHandler 按小时滚动
+        file_handler = TimedRotatingFileHandler(
             log_file,
-            maxBytes=10 * 1024 * 1024,  # 10 MB
-            backupCount=5,
+            when="H",        # H 表示按小时 (Hour)
+            interval=1,      # 间隔为 1 小时
+            backupCount=168, # 保留 168 小时（7天）的日志
             encoding='utf-8'
         )
+        # 设置滚动后的文件名后缀格式
+        file_handler.suffix = "%Y%m%d-%H.log"
         file_handler.setLevel(log_level)
         
         if json_format:

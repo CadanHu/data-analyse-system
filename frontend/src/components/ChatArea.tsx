@@ -4,6 +4,7 @@ import InputBar from './InputBar'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
 import { databaseApi } from '../api'
+import { useSSE } from '../hooks/useSSE'
 
 interface ChatAreaProps {
   selectedSessionId: string | null
@@ -17,8 +18,9 @@ interface Database {
 }
 
 export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaProps) {
-  const { currentSession, messages } = useSessionStore()
+  const { currentSession, messages, setMessages } = useSessionStore()
   const { isLoading } = useChatStore()
+  const { connect } = useSSE()
   const listRef = useRef<HTMLDivElement>(null)
   const [databases, setDatabases] = useState<Database[]>([])
   const [currentDb, setCurrentDb] = useState<string>('business')
@@ -64,6 +66,29 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
     }
   }
 
+  const handleEditMessage = (content: string, parentId?: string) => {
+    if (!selectedSessionId || isLoading) return
+    
+    // 如果是编辑消息，我们准备开启新分支
+    if (parentId) {
+      const parentIndex = messages.findIndex(m => m.id === parentId)
+      if (parentIndex !== -1) {
+        setMessages(messages.slice(0, parentIndex + 1))
+      }
+    } else {
+      // 编辑第一条消息
+      setMessages([])
+    }
+
+    // 发起带 parent_id 的新分支请求
+    connect(
+      selectedSessionId,
+      content,
+      { parent_id: parentId },
+      { onMessageSent }
+    )
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-none p-4 sm:p-4 border-b border-white/30 landscape:p-1.5 landscape:px-4" style={{ paddingTop: '1rem' }}>
@@ -106,7 +131,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       </div>
 
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
-        <MessageList />
+        <MessageList onEditMessage={handleEditMessage} />
       </div>
 
       <div className="flex-none p-4 border-t border-white/30 bg-white/30 backdrop-blur-sm">
