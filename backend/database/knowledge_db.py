@@ -60,8 +60,10 @@ class KnowledgeDatabase:
         self.engine = create_async_engine(
             self.url,
             echo=False,
-            pool_size=10,
-            max_overflow=20
+            pool_size=20,
+            max_overflow=40,
+            pool_timeout=60,
+            pool_pre_ping=True
         )
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
@@ -77,65 +79,85 @@ class KnowledgeDatabase:
             print(f"❌ PostgreSQL 初始化失败 (请检查数据库 {PG_DB} 是否已创建): {str(e)}")
 
     async def save_knowledge(self, doc_id: str, knowledge: List[Dict[str, Any]]):
-        """保存抽取的知识点 (带去重逻辑)"""
+        """保存抽取的知识点 (带去重逻辑与强制提交)"""
+        if not knowledge:
+            print("⚠️ [PostgreSQL] 收到空知识点列表，跳过保存")
+            return
+
         async with self.async_session() as session:
             count_added = 0
-            for item in knowledge:
-                k_class = item.get("class")
-                k_text = item.get("text")
-                k_attrs = item.get("attributes", {})
+            try:
+                print(f"📡 [PostgreSQL] 准备保存 {len(knowledge)} 条知识点，来源: {doc_id}")
+                for item in knowledge:
+                    k_class = item.get("class")
+                    k_text = item.get("text")
+                    k_attrs = item.get("attributes", {})
+                    
+                    if not k_class or not k_text:
+                        continue
+
+                    if k_class == "relationship":
+                        # 关系去重
+                        src = k_attrs.get("source", "")
+                        tgt = k_attrs.get("target", "")
+                        r_type = k_attrs.get("type", "unknown")
+                        
+                        stmt = select(KnowledgeRelationshipModel).where(
+                            KnowledgeRelationshipModel.doc_id == doc_id,
+                            KnowledgeRelationshipModel.source_text == src,
+                            KnowledgeRelationshipModel.target_text == tgt,
+                            KnowledgeRelationshipModel.relation_type == r_type
+                        )
+                        result = await session.execute(stmt)
+                        if not result.scalar_one_or_none():
+                            new_rel = KnowledgeRelationshipModel(
+                                id=str(uuid.uuid4()),
+                                doc_id=doc_id,
+                                source_text=src,
+                                target_text=tgt,
+                                relation_type=r_type,
+                                attributes=k_attrs,
+                                created_at=datetime.utcnow()
+                            )
+                            session.add(new_rel)
+                            count_added += 1
+                    else:
+                        # 实体去重
+                        stmt = select(KnowledgeEntityModel).where(
+                            KnowledgeEntityModel.doc_id == doc_id,
+                            KnowledgeEntityModel.entity_text == k_text,
+                            KnowledgeEntityModel.entity_class == k_class
+                        )
+                        result = await session.execute(stmt)
+                        if not result.scalar_one_or_none():
+                            new_entity = KnowledgeEntityModel(
+                                id=str(uuid.uuid4()),
+                                doc_id=doc_id,
+                                entity_class=k_class,
+                                entity_text=k_text,
+                                attributes=k_attrs,
+                                created_at=datetime.utcnow()
+                            )
+                            session.add(new_entity)
+                            count_added += 1
                 
-                if k_class == "relationship":
-                    # 关系去重：源、目标、类型和 doc_id 同时匹配
-                    src = k_attrs.get("source", "")
-                    tgt = k_attrs.get("target", "")
-                    r_type = k_attrs.get("type", "unknown")
-                    
-                    stmt = select(KnowledgeRelationshipModel).where(
-                        KnowledgeRelationshipModel.doc_id == doc_id,
-                        KnowledgeRelationshipModel.source_text == src,
-                        KnowledgeRelationshipModel.target_text == tgt,
-                        KnowledgeRelationshipModel.relation_type == r_type
-                    )
-                    result = await session.execute(stmt)
-                    existing = result.scalar_one_or_none()
-                    
-                    if not existing:
-                        new_rel = KnowledgeRelationshipModel(
-                            id=str(uuid.uuid4()),
-                            doc_id=doc_id,
-                            source_text=src,
-                            target_text=tgt,
-                            relation_type=r_type,
-                            attributes=k_attrs,
-                            created_at=datetime.utcnow()
-                        )
-                        session.add(new_rel)
-                        count_added += 1
-                else:
-                    # 实体去重：文本、类别和 doc_id 同时匹配
-                    stmt = select(KnowledgeEntityModel).where(
-                        KnowledgeEntityModel.doc_id == doc_id,
-                        KnowledgeEntityModel.entity_text == k_text,
-                        KnowledgeEntityModel.entity_class == k_class
-                    )
-                    result = await session.execute(stmt)
-                    existing = result.scalar_one_or_none()
-                    
-                    if not existing:
-                        new_entity = KnowledgeEntityModel(
-                            id=str(uuid.uuid4()),
-                            doc_id=doc_id,
-                            entity_class=k_class,
-                            entity_text=k_text,
-                            attributes=k_attrs,
-                            created_at=datetime.utcnow()
-                        )
-                        session.add(new_entity)
-                        count_added += 1
+                await session.commit()
+                print(f"✅ [PostgreSQL] 成功入库 {count_added} 条记录 (跳过重复项)")
+            except Exception as e:
+                await session.rollback()
+                print(f"❌ [PostgreSQL] 保存失败: {str(e)}")
             
-            await session.commit()
-            print(f"💾 已持久化 {count_added} 条新知识点到 PostgreSQL (跳过了重复项)")
+    async def delete_all(self):
+        """清空所有知识点数据"""
+        async with self.async_session() as session:
+            try:
+                await session.execute(text("TRUNCATE TABLE knowledge_entities CASCADE"))
+                await session.execute(text("TRUNCATE TABLE knowledge_relationships CASCADE"))
+                await session.commit()
+                print("✅ 已成功清空 PostgreSQL 中的所有知识点数据")
+            except Exception as e:
+                await session.rollback()
+                print(f"❌ 清空 PostgreSQL 数据失败: {str(e)}")
 
 # 全局实例
 knowledge_db = KnowledgeDatabase()

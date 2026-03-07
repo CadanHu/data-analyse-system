@@ -9,13 +9,23 @@ import type { Session } from '../types'
 import SessionListSkeleton from './SessionListSkeleton'
 import { useTranslation } from '../hooks/useTranslation'
 
+import { Terminal, Monitor, XCircle, LogOut } from 'lucide-react'
+
 interface SessionListProps {
   selectedSessionId: string | null
   onSelectSession: (sessionId: string, session?: any) => void
   onSessionsUpdated?: () => void
+  showLogs?: boolean;
+  onToggleLogs?: () => void;
 }
 
-export default function SessionList({ selectedSessionId, onSelectSession, onSessionsUpdated }: SessionListProps) {
+export default function SessionList({ 
+  selectedSessionId, 
+  onSelectSession, 
+  onSessionsUpdated,
+  showLogs,
+  onToggleLogs
+}: SessionListProps) {
   const { sessions, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
   const { user, logout } = useAuthStore()
   const [searchQuery, setSearchQuery] = useState('')
@@ -352,19 +362,37 @@ export default function SessionList({ selectedSessionId, onSelectSession, onSess
               <p className="text-[10px] text-gray-400 truncate landscape:hidden">{user?.email || '请稍候'}</p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              if (window.confirm(t('session.logoutConfirm'))) {
-                logout()
-              }
-            }}
-            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all landscape:p-1"
-            title={t('session.logout')}
-          >
-            <svg className="w-5 h-5 landscape:w-4 landscape:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* 🆕 系统日志切换按钮 */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleLogs?.();
+              }}
+              className={`p-2 rounded-xl transition-all landscape:p-1 ${
+                showLogs 
+                  ? 'bg-black text-white shadow-inner' 
+                  : 'text-gray-400 hover:text-black hover:bg-gray-100'
+              }`}
+              title="查看系统日志"
+            >
+              <Terminal className="w-5 h-5 landscape:w-4 landscape:h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                if (window.confirm(t('session.logoutConfirm'))) {
+                  logout()
+                }
+              }}
+              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all landscape:p-1"
+              title={t('session.logout')}
+            >
+              <svg className="w-5 h-5 landscape:w-4 landscape:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </div>

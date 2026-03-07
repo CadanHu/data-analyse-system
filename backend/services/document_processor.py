@@ -59,8 +59,11 @@ class DocumentProcessor:
             return cls.process_pdf_light(file_path)
         elif ext in [".xlsx", ".xls", ".csv"]:
             return cls.process_excel(file_path)
-        elif ext == ".txt":
-            with open(file_path, "r", encoding="utf-8") as f:
-                return f.read()
+        elif ext in [".txt", ".md"]:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception as e:
+                return f"读取文本文件失败: {str(e)}"
         
         return "不支持的文件类型"

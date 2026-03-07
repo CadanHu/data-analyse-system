@@ -1,55 +1,59 @@
-"""
-可观测性服务 (Phase 5)
-Agent 执行日志和性能监控
-"""
-from typing import Dict, Any, List, Optional
-from datetime import datetime
-import json
+import asyncio
+import os
+from pathlib import Path
+from typing import AsyncGenerator
 
+# 强制绝对路径
+CURRENT_DIR = Path(__file__).resolve().parent.parent
+LOG_FILE_PATH = CURRENT_DIR / "logs" / "app.log"
 
 class ObservabilityService:
-    """可观测性服务（骨架）"""
+    """实时日志流推送 (优雅退出版)"""
 
-    def __init__(self):
-        self._logs: List[Dict[str, Any]] = []
-        self._metrics: Dict[str, Any] = {}
+    @staticmethod
+    async def stream_logs() -> AsyncGenerator[str, None]:
+        log_path = str(LOG_FILE_PATH)
+        
+        if not os.path.exists(log_path):
+            yield f"data: ⚠️ 日志文件不存在\n\n"
+            return
 
-    def log_agent_execution(self, agent_name: str, input_data: Dict, output_data: Dict, duration: float):
-        """记录 Agent 执行"""
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "agent": agent_name,
-            "input": input_data,
-            "output": output_data,
-            "duration_seconds": duration
-        }
-        self._logs.append(log_entry)
-        print(f"[Observability] Agent 执行日志: {agent_name}, 耗时: {duration:.2f}s")
+        # 1. 首次连接：仅读取最后 20 条
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 8192))
+                lines = f.readlines()
+                last_20 = [l.strip() for l in lines if l.strip()][-20:]
+                for line in last_20:
+                    yield f"data: {line}\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
+            # 捕获退出信号，直接结束生成器
+            return
+        except Exception as e:
+            yield f"data: ❌ 读取历史失败: {str(e)}\n\n"
 
-    def log_tool_call(self, tool_name: str, input_args: Dict, output: Any, duration: float):
-        """记录工具调用"""
-        print(f"[Observability] 工具调用: {tool_name}, 耗时: {duration:.2f}s")
+        # 2. 持续追踪：真正的非阻塞追踪
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                f.seek(0, os.SEEK_END)
+                while True:
+                    line = f.readline()
+                    if line:
+                        clean = line.strip()
+                        if clean:
+                            yield f"data: {clean}\n\n"
+                    else:
+                        await asyncio.sleep(0.3)
+        except (asyncio.CancelledError, GeneratorExit):
+            # 🚀 关键修复：当连接关闭或服务器重启时，优雅退出循环，不抛出异常堆栈
+            return
+        except Exception as e:
+            # 仅在非退出导致的异常时发送错误消息
+            try:
+                yield f"data: ❌ 追踪中断: {str(e)}\n\n"
+            except:
+                pass
 
-    def record_metric(self, metric_name: str, value: float, tags: Optional[Dict] = None):
-        """记录性能指标"""
-        key = metric_name
-        if key not in self._metrics:
-            self._metrics[key] = []
-        self._metrics[key].append({
-            "value": value,
-            "timestamp": datetime.now().isoformat(),
-            "tags": tags or {}
-        })
-
-    def get_recent_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """获取最近的日志"""
-        return self._logs[-limit:]
-
-    def get_metrics(self, metric_name: Optional[str] = None) -> Dict[str, Any]:
-        """获取性能指标"""
-        if metric_name:
-            return {metric_name: self._metrics.get(metric_name, [])}
-        return self._metrics.copy()
-
-
-observability = ObservabilityService()
+observability_service = ObservabilityService()

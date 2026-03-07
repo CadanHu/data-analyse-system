@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import asyncio
 import textwrap
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -89,56 +90,74 @@ class KnowledgeExtractionService:
                 logger.error(f"❌ [Extraction] 持久化失败: {str(e)}")
         return knowledge
 
-    def extract_knowledge(self, text: str, prompt: Optional[str] = None) -> List[Dict[str, Any]]:
-        """执行提取"""
+    async def extract_knowledge(self, text: str, prompt: Optional[str] = None) -> List[Dict[str, Any]]:
+        """执行提取 (异步化处理，防止阻塞主线程)"""
         if not lx:
             return [{"error": "LangExtract 未安装"}]
         
         if not text or len(text.strip()) < 10:
             return []
 
-        try:
-            logger.info(f"📡 [Extraction] 开始知识抽取，使用 DeepSeek Cloud API")
-            
-            # 导入 OpenAI Provider
-            from langextract.providers.openai import OpenAILanguageModel
-            
-            # 手动创建 Model 实例，强制指向 DeepSeek
-            custom_model = OpenAILanguageModel(
-                model_id=self.model_id,
-                api_key=self.api_key,
-                base_url=self.base_url,
+        # 核心逻辑：如果文本超过 2000 字，进行更细粒度的分段抽取
+        CHUNK_SIZE = 2000
+        CHUNK_OVERLAP = 200
+        
+        loop = asyncio.get_event_loop()
+        
+        if len(text) <= CHUNK_SIZE:
+            chunks = [text]
+        else:
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=CHUNK_SIZE,
+                chunk_overlap=CHUNK_OVERLAP,
+                separators=["\n\n", "\n", "。", "；", ". ", "; ", " "]
             )
+            chunks = await loop.run_in_executor(None, splitter.split_text, text)
+            logger.info(f"✂️ [Extraction] 文档较长 ({len(text)} 字)，已切分为 {len(chunks)} 个片段。解锁并行处理...")
 
-            # 直接传入实例
-            result = lx.extract(
-                text_or_documents=text,
-                prompt_description=prompt or self._get_default_prompt(),
-                examples=self._get_default_examples(),
-                model=custom_model,
-                use_schema_constraints=False,
-                fence_output=True,
-                max_workers=5,
-                extraction_passes=1
-            )
+        all_knowledge = []
+        
+        # 定义内部同步处理函数
+        def _sync_process_chunk(chunk_text, index, chunks_count):
+            try:
+                logger.info(f"📡 [Extraction] 片段 {index+1}/{chunks_count} 启动处理...")
+                from langextract.providers.openai import OpenAILanguageModel
+                custom_model = OpenAILanguageModel(
+                    model_id=self.model_id, api_key=self.api_key, base_url=self.base_url
+                )
 
-            # 解析结果
-            structured_data = []
-            for item in result.extractions:
-                structured_data.append({
+                result = lx.extract(
+                    text_or_documents=chunk_text,
+                    prompt_description=prompt or self._get_default_prompt(),
+                    examples=self._get_default_examples(),
+                    model=custom_model,
+                    use_schema_constraints=False, fence_output=True,
+                    max_workers=5, extraction_passes=1
+                )
+
+                return [{
                     "class": item.extraction_class,
                     "text": item.extraction_text,
                     "attributes": item.attributes
-                })
-            
-            logger.info(f"✅ [Extraction] 抽取完成，共计 {len(structured_data)} 条知识点")
-            return structured_data
+                } for item in result.extractions]
+            except Exception as e:
+                logger.error(f"❌ [Extraction] 片段 {index+1} 失败: {str(e)}")
+                return []
 
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            logger.error(f"❌ [Extraction] 抽取异常: {str(e)}")
-            return [{"error": str(e)}]
+        # 使用线程池并发执行，但外层用 gather 保持异步
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            tasks = [
+                loop.run_in_executor(executor, _sync_process_chunk, chunk, i, len(chunks))
+                for i, chunk in enumerate(chunks)
+            ]
+            results = await asyncio.gather(*tasks)
+            for data in results:
+                all_knowledge.extend(data)
+
+        logger.info(f"🚀 [Extraction] 并行处理圆满完成！共获得 {len(all_knowledge)} 条知识点")
+        return all_knowledge
 
 # 全局实例
 knowledge_extraction_service = KnowledgeExtractionService()

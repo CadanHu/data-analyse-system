@@ -3,7 +3,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
-import { uploadApi } from '@/api'
+import { uploadApi, messageApi } from '@/api'
 
 interface InputBarProps {
   sessionId: string | null
@@ -20,7 +20,7 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
   const [isKnowledgeMode, setKnowledgeMode] = useState(false)
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
   const [showEngineSelect, setShowEngineSelect] = useState(false)
-  const { connect } = useSSE()
+  const { connect, disconnect } = useSSE()
   const { t } = useTranslation()
 
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -66,6 +66,9 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 关键修复：如果是中文输入法正在输入确认，不触发发送
+    if (e.nativeEvent.isComposing) return
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -94,22 +97,28 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
       const file = files[0]
       const fileName = file.name.trim()
       const isPDF = fileName.toLowerCase().endsWith('.pdf')
+      const isOtherDoc = /\.(txt|md|csv|xlsx|xls)$/i.test(fileName)
       
-      console.log('文件选择触发:', fileName, '是否PDF:', isPDF)
+      console.log('文件选择触发:', fileName, '是否PDF:', isPDF, '是否其他文档:', isOtherDoc)
       alert(`已选择文件: ${fileName}, 模式: ${isKnowledgeMode ? '深度抽取' : '普通对话'}`)
 
-      if (isPDF) {
-        if (isKnowledgeMode) {
+      if (isKnowledgeMode) {
+        // 在“深度”模式下，所有支持的文档都直接进入抽取流程
+        if (isPDF || isOtherDoc) {
           console.log('Entering startKnowledgeExtraction')
           startKnowledgeExtraction(file)
         } else {
+          alert('该文件类型暂不支持深度知识抽取')
+        }
+      } else {
+        // 普通模式逻辑：如果是 PDF 弹窗选引擎，否则直接上传
+        if (isPDF) {
           console.log('Showing engine select modal')
           setPendingFile(file)
           setShowEngineSelect(true)
+        } else if (isOtherDoc) {
+          handleStandardUpload(file)
         }
-      } else {
-        setRAGMode(true)
-        setInput(prev => prev + `\n[文件：${fileName}]`)
       }
       
       // 关键：重置 input 以便可以连续选择同一个文件
@@ -122,9 +131,24 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
     }
   }
 
+  const handleStandardUpload = async (file: File) => {
+    try {
+      setIsLoading(true)
+      await uploadApi.upload(file, sessionId!)
+      setRAGMode(true)
+      console.log('文件已索引:', file.name)
+    } catch (error: any) {
+      console.error('文件上传失败:', error)
+      alert('文件预处理失败: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const startKnowledgeExtraction = async (file: File) => {
     const messageId = `local_${Date.now()}`
     let progressTimer: any = null
+    const startTime = Date.now()
     
     try {
       setIsLoading(true)
@@ -144,51 +168,107 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
         id: messageId,
         session_id: sessionId!,
         role: 'user',
-        content: `【深度知识抽取】文件：${file.name}\n当前进度：${statuses[0]}`
+        content: `【深度知识抽取】文件：${file.name}\n当前进度：${statuses[0]} (已耗时: 0s)`
       })
 
-      // 动态更新状态的计时器
+      // 动态更新状态的计时器 (改为每 1 秒更新一次，以显示秒数)
       progressTimer = setInterval(() => {
-        statusIdx = Math.min(statusIdx + 1, statuses.length - 1)
-        // 使用新增加的 updateMessage 函数更新特定消息
-        useSessionStore.getState().updateMessage(messageId, {
-          content: `【深度知识抽取】文件：${file.name}\n当前进度：${statuses[statusIdx]}`
-        })
-      }, 10000) // 每 10 秒切换一次状态提示
+        const elapsed = Math.floor((Date.now() - startTime) / 1000)
+        const seconds = elapsed % 60
+        const minutes = Math.floor(elapsed / 60)
+        const timeStr = minutes > 0 ? `${minutes}分${seconds}s` : `${seconds}s`
+        
+        // 每 10 秒切换一次文本状态
+        if (elapsed % 10 === 0 && elapsed > 0) {
+          statusIdx = Math.min(statusIdx + 1, statuses.length - 1)
+        }
 
-      const response = await uploadApi.extractKnowledge(file)
+        useSessionStore.getState().updateMessage(messageId, {
+          content: `【深度知识抽取】文件：${file.name}\n当前进度：${statuses[statusIdx]} (已耗时: ${timeStr})`
+        })
+      }, 1000)
+
+      const response = await uploadApi.extractKnowledge(file, sessionId!)
       
+      // 如果后端返回正在处理（异步模式）
+      if (response.status === 'processing') {
+        clearInterval(progressTimer)
+        useSessionStore.getState().updateMessage(messageId, {
+          content: `⏳ **任务已成功提交至后台执行**\n文件: 《${file.name}》\n状态: 系统正在进行 MinerU 解析与知识提取，您可以继续其他操作。解析完成后，结果将自动出现在对话列表中。`
+        })
+        
+        // 开启一个轮询，每 10 秒刷新一次消息列表，直到看到完成消息
+        const pollInterval = setInterval(async () => {
+          if (onMessageSent) onMessageSent()
+          // 检查最后一条消息是否包含“完成”字样（简单判断）
+          const currentMessages = useSessionStore.getState().messages
+          const lastMsg = currentMessages[currentMessages.length - 1]
+          if (lastMsg?.content?.includes('完成') || lastMsg?.content?.includes('失败')) {
+            clearInterval(pollInterval)
+          }
+        }, 10000)
+        
+        return
+      }
+
+      // 否则（同步模式，兼容旧代码）
       clearInterval(progressTimer)
+      const totalElapsed = Math.floor((Date.now() - startTime) / 1000)
       const knowledgeCount = response.knowledge_count
-      const summary = `✅ 深度抽取完成！从《${file.name}》中提取了 ${knowledgeCount} 条结构化知识点并存入 PostgreSQL。\n\n**解析内容预览:**\n${response.markdown_preview.substring(0, 500)}...`
+      const summary = `✅ 深度抽取完成！(总耗时: ${totalElapsed}s)\n从《${file.name}》中提取了 ${knowledgeCount} 条结构化知识点并存入 PostgreSQL。\n\n**解析内容预览:**\n${response.markdown_preview.substring(0, 2000)}${response.markdown_preview.length > 2000 ? '...' : ''}`
       
-      addMessage({
+      const finalResponseData = {
+        knowledge: response.data,
+        markdown_full: response.markdown_preview,
+        file_url: response.file_url,
+        is_knowledge_extraction: true
+      }
+
+      const assistantMsg = {
         id: `resp_${Date.now()}`,
         session_id: sessionId!,
-        role: 'assistant',
+        role: 'assistant' as const,
         content: summary,
-        data: JSON.stringify(response.data)
-      })
+        data: JSON.stringify(finalResponseData)
+      }
+      
+      addMessage(assistantMsg)
+      
+      // 持久化到数据库
+      try {
+        await messageApi.saveMessage(sessionId!, {
+          session_id: sessionId!,
+          role: 'assistant',
+          content: summary,
+          data: JSON.stringify(finalResponseData)
+        })
+      } catch (saveErr) {
+        console.error('Failed to persist knowledge message:', saveErr)
+      }
       
       if (onMessageSent) onMessageSent()
     } catch (error: any) {
       if (progressTimer) clearInterval(progressTimer)
-      console.error('深度提取失败:', error)
+      console.error('深度提取异常:', error)
       const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout')
-      const errorMsg = isTimeout ? '处理超时（文件较大或云端解析缓慢），请稍后在“知识库”中查看结果' : (error.response?.data?.detail || error.message)
+      
+      let errorMsg = error.response?.data?.detail || error.message
+      if (isTimeout) {
+        errorMsg = '网络连接超时（但后端任务可能仍在继续运行）。建议点击右下角【终端】图标查看实时进度，任务完成后刷新页面即可查看结果。'
+      }
       
       useSessionStore.getState().updateMessage(messageId, {
-        content: `❌ 深度处理失败: ${file.name}\n原因: ${errorMsg}`
+        content: `⚠️ 处理反馈: ${file.name}\n状态: ${errorMsg}`
       })
       
-      alert('处理异常: ' + errorMsg)
+      if (!isTimeout) alert('处理异常: ' + errorMsg)
     } finally {
       setIsLoading(false)
       setKnowledgeMode(false)
     }
   }
 
-  const selectEngine = (engine: 'light' | 'pro' | 'knowledge') => {
+  const selectEngine = async (engine: 'light' | 'pro' | 'knowledge') => {
     const file = pendingFile
     if (!file) {
       setShowEngineSelect(false)
@@ -198,9 +278,18 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
     if (engine === 'knowledge') {
       startKnowledgeExtraction(file)
     } else {
+      // 普通 PDF 模式：先上传解析
       setRagEngine(engine as any)
-      setRAGMode(true)
-      setInput(prev => prev + `\n[文件：${file.name}]`)
+      try {
+        setIsLoading(true)
+        await uploadApi.upload(file, sessionId!, engine)
+        setRAGMode(true)
+        console.log('PDF已索引:', file.name)
+      } catch (e: any) {
+        alert('解析失败: ' + e.message)
+      } finally {
+        setIsLoading(false)
+      }
     }
     
     setShowEngineSelect(false)
@@ -254,7 +343,7 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept="image/*,.pdf,.txt,.csv,.xlsx,.xls"
+            accept="image/*,.pdf,.txt,.csv,.xlsx,.xls,.md"
             onChange={handleFileChange}
           />
           <textarea
@@ -324,16 +413,29 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
           <div className="text-xs text-gray-400 landscape:text-[9px]">
             {isLoading ? t('common.loading') : 'Enter ' + t('chat.send')}
           </div>
-          <button
-            onClick={() => handleSubmit()}
-            disabled={!input.trim() || !sessionId || isLoading}
-            className="flex items-center gap-2 px-4 py-2 landscape:px-3 landscape:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:shadow-none"
-          >
-            <svg className="w-4.5 h-4.5 landscape:w-3 landscape:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-            <span className="text-sm font-medium landscape:text-xs">{t('chat.send')}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {isLoading && (
+              <button
+                onClick={disconnect}
+                className="flex items-center gap-2 px-4 py-2 landscape:px-3 landscape:py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all active:scale-95 border border-red-100"
+              >
+                <svg className="w-4 h-4 landscape:w-3 landscape:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span className="text-sm font-medium landscape:text-xs">停止</span>
+              </button>
+            )}
+            <button
+              onClick={() => handleSubmit()}
+              disabled={!input.trim() || !sessionId || isLoading}
+              className="flex items-center gap-2 px-4 py-2 landscape:px-3 landscape:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:shadow-none"
+            >
+              <svg className="w-4.5 h-4.5 landscape:w-3 landscape:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+              <span className="text-sm font-medium landscape:text-xs">{t('chat.send')}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

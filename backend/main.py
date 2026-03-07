@@ -2,6 +2,7 @@
 FastAPI 应用入口
 """
 import os
+from pathlib import Path
 # ⚠️ 必须在所有导入之前设置环境变量，确保 AI 库初始化时读取
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
@@ -20,23 +21,38 @@ from utils.logger import setup_logging
 
 from contextlib import asynccontextmanager
 
-# 初始化日志系统
-setup_logging(level=LOG_LEVEL, log_file=str(LOG_FILE), json_format=LOG_JSON_FORMAT)
+# 初始化日志系统 (显式指定绝对路径，确保 service 能读到)
+CURRENT_DIR = Path(__file__).resolve().parent
+LOG_DIR = CURRENT_DIR / "logs"
+if not LOG_DIR.exists():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE_PATH = str(LOG_DIR / "app.log")
+
+setup_logging(level=LOG_LEVEL, log_file=LOG_FILE_PATH, json_format=LOG_JSON_FORMAT)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    print(f"📡 [Startup] 日志文件路径: {LOG_FILE_PATH}")
     # 启动时初始化数据库
     await session_db.init_db()
     await user_db.init_db()
-    await knowledge_db.init_db() # 初始化 PostgreSQL 知识库
+    await knowledge_db.init_db() 
     print("✅ 数据库初始化完成")
-    yield
+    try:
+        yield
+    finally:
+        # 🚀 关键修复: 在关闭时静默取消所有协程任务，防止 SSE 导致的 CancelledError 刷屏
+        import asyncio
+        print("📥 正在退出系统...")
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        for t in tasks: t.cancel()
+        print("👋 系统安全关闭")
 
 # 创建 FastAPI 应用
 app = FastAPI(
     title="智能数据分析助理 API",
-    description="基于 AI 的智能数据分析系统，通过自然语言对话实现数据查询、分析和可视化",
+    description="基于 AI 的智能数据分析系统",
     version="0.1.0",
     lifespan=lifespan
 )
@@ -96,7 +112,7 @@ async def health_check():
 
 
 # 注册路由
-from routers import session_router, message_router, chat_router, upload_router, database_router, auth_router
+from routers import session_router, message_router, chat_router, upload_router, database_router, auth_router, observability_router
 from fastapi.staticfiles import StaticFiles
 
 app.include_router(session_router.router, prefix="/api", tags=["会话管理"])
@@ -105,14 +121,18 @@ app.include_router(chat_router.router, prefix="/api", tags=["聊天接口"])
 app.include_router(upload_router.router, prefix="/api", tags=["文件上传"])
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(database_router.router)
+app.include_router(observability_router.router)
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 if __name__ == "__main__":
+    import uvicorn
+    # 开发环境下使用单 worker，确保 Ctrl+C 能够快速停止进程
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=False
+        reload=False,
+        workers=1
     )

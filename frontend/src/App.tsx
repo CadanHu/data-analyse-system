@@ -15,6 +15,8 @@ import Tutorial from './components/Tutorial'
 import Features from './components/Features'
 import Changelog from './components/Changelog'
 import UserSync from './components/UserSync'
+import LogViewer from './components/LogViewer'
+import { Terminal } from 'lucide-react'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useAuthStore } from './stores/authStore'
@@ -23,6 +25,7 @@ import { sessionApi } from '@/api'
 
 export default function App() {
   const navigate = useNavigate()
+  const [showLogs, setShowLogs] = useState(false)
   const { isAuthenticated, user, setAuth } = useAuthStore()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen } = useChatStore()
@@ -153,6 +156,7 @@ export default function App() {
           <Route path="/app" element={
             <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
             <UserSync />
+            <LogViewer />
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
               <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
@@ -231,6 +235,8 @@ export default function App() {
                               }
                             }}
                             onSessionsUpdated={() => loadSessions(false)}
+                            showLogs={showLogs}
+                            onToggleLogs={() => setShowLogs(!showLogs)}
                           />
                         </div>
                       )}
@@ -259,6 +265,8 @@ export default function App() {
                           selectedSessionId={selectedSessionId}
                           onSelectSession={handleSelectSession}
                           onSessionsUpdated={() => loadSessions(false)}
+                          showLogs={showLogs}
+                          onToggleLogs={() => setShowLogs(!showLogs)}
                         />
                       </div>
                     }
@@ -284,6 +292,11 @@ export default function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      
+      {/* 🚀 仅在 showLogs 为真时渲染日志窗，且不再包含全屏遮罩按钮 */}
+      {showLogs && (
+        <LogViewer onClose={() => setShowLogs(false)} />
+      )}
     </ErrorBoundary>
   )
 }

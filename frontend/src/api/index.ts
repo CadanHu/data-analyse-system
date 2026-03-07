@@ -124,25 +124,33 @@ export const chatApi = {
 };
 
 export const uploadApi = {
-  upload: (file: File, sessionId: string) => {
+  upload: (file: File, sessionId: string, engine: string = 'light') => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('session_id', sessionId);
+    formData.append('engine', engine);
     return api.post('/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }).then(res => res.data);
   },
   // 深度知识库处理接口
-  extractKnowledge: (file: File, engine: string = 'pro', prompt?: string) => {
+  extractKnowledge: (file: File, sessionId: string, engine: string = 'pro', prompt?: string) => {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('session_id', sessionId);
     formData.append('engine', engine);
     if (prompt) formData.append('prompt', prompt);
 
     return api.post('/upload/knowledge', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 300000 // 延长至 300 秒 (5分钟)，MinerU 解析超大文件可能较慢
+      timeout: 172800000 // 延长至 172,800,000 毫秒 (48小时)
     }).then(res => res.data);
-  },};
+  },
+};
+
+export const messageApi = {
+  saveMessage: (sessionId: string, message: { session_id: string; role: string; content: string; data?: string; thinking?: string }) =>
+    api.post(`/sessions/${sessionId}/messages`, message).then(res => res.data),
+};
 
 export default api

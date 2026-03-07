@@ -80,14 +80,18 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
     # --- RAG 检索逻辑 ---
     rag_context = ""
     if request.enable_rag:
-        print("🔍 [RAG] 知识库模式已开启，开始检索...")
+        print("\n🔍 [RAG] 知识库模式已开启，开始检索...")
         try:
             from services.vector_store import VectorStore
             vs = VectorStore()
-            search_results = await vs.search(request.question, top_k=3)
+            # 关键改进：增加 session_id 过滤，只检索当前会话上传的文件
+            search_results = await vs.search(request.question, top_k=3, session_id=request.session_id)
             if search_results:
                 rag_context = "\n\n【参考知识库内容】:\n" + "\n".join([f"- {r['content']}" for r in search_results])
                 print(f"✅ [RAG] 检索成功，获取到 {len(search_results)} 条片段")
+                print(f"📄 [RAG 检索内容片段]:")
+                for i, res in enumerate(search_results):
+                    print(f"   [{i+1}] {res['content'][:200]}...")
             else:
                 print("⚠️ [RAG] 知识库检索结果为空")
         except Exception as e:
@@ -114,6 +118,9 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
             print("🤖 [Agent] 正在调用 AI 模型处理...")
             agent = get_sql_agent()
             final_question = request.question + rag_context
+            
+            print(f"📝 [最终发送给 AI 的问题组合]:\n{final_question}")
+            print("-" * 50)
             
             history_str = await memory_manager.get_history_text(request.session_id)
             

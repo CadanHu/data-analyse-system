@@ -54,10 +54,11 @@ class SessionDatabase:
         self.engine = create_async_engine(
             self.url, 
             echo=False,
-            pool_recycle=3600, # 每小时回收连接，防止被 MySQL 服务端主动断开
-            pool_pre_ping=True, # 每次执行前检查连接有效性
-            pool_size=10,       # 适当增大连接池
-            max_overflow=20     # 允许溢出的连接数
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            pool_size=20,       # 增大至 20
+            max_overflow=40,    # 增大至 40
+            pool_timeout=60     # 等待连接超时增加到 60s
         )
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
