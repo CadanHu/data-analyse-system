@@ -5,12 +5,18 @@ from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
+from config import DATA_DIR
 
 class VectorStore:
     """向量存储服务：负责文档索引与检索"""
 
-    def __init__(self, persist_dir: str = "backend/data/vector_db"):
-        self.persist_dir = persist_dir
+    def __init__(self, persist_dir: str = None):
+        # 统一使用 backend/data/vector_db
+        if persist_dir is None:
+            self.persist_dir = str(DATA_DIR / "vector_db")
+        else:
+            self.persist_dir = persist_dir
+            
         # 配置 HuggingFace 镜像，防止连接超时导致启动阻塞
         os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
         

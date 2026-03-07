@@ -8,10 +8,15 @@ from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from typing import Optional
 
+from config import ALLOWED_ORIGINS, LOG_LEVEL, LOG_FILE, LOG_JSON_FORMAT, UPLOAD_DIR
+from utils.logger import logger
+
 router = APIRouter()
 
-UPLOAD_DIR = Path("uploads")
+# 确保上传目录存在
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+print(f"📁 [UploadRouter] 文件上传目录: {UPLOAD_DIR}")
 
 ALLOWED_EXTENSIONS = {
     "image": {".jpg", ".jpeg", ".png", ".gif", ".webp"},
@@ -30,15 +35,12 @@ def get_file_type(filename: str) -> Optional[str]:
         return "document"
     return None
 
-
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
-from typing import Optional
 from services.document_processor import DocumentProcessor
 from services.vector_store import VectorStore
 from services.knowledge_extraction_service import knowledge_extraction_service
 import traceback
+from fastapi import Form
 
-router = APIRouter()
 vector_store = VectorStore()
 
 # ... (保持 UPLOAD_DIR 和 ALLOWED_EXTENSIONS 不变) ...
@@ -77,6 +79,17 @@ async def upload_for_knowledge(
                 "data": [],
                 "markdown_preview": text_content
             }
+
+        # --- 新增：保存解析后的 Markdown 到本地磁盘 ---
+        try:
+            md_filename = Path(file.filename).stem + ".md"
+            md_path = UPLOAD_DIR / md_filename
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(text_content)
+            logger.info(f"💾 已保存解析后的内容到: {md_path}")
+        except Exception as e:
+            logger.error(f"⚠️ 保存 Markdown 失败: {str(e)}")
+        # ----------------------------------------
 
         # 2. 知识提取并持久化 (LangExtract + PostgreSQL)
         knowledge = await knowledge_extraction_service.extract_and_save(

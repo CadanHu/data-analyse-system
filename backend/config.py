@@ -10,8 +10,17 @@ env_path = Path(__file__).parent / ".env"
 if env_path.exists():
     load_dotenv(env_path)
 
-# 项目根目录
+# 项目根目录 (data-analyse-system/)
 BASE_DIR = Path(__file__).parent.parent
+
+# 资源目录配置
+UPLOAD_DIR = BASE_DIR / "backend" / "uploads"
+DATA_DIR = BASE_DIR / "backend" / "data"
+LOG_DIR = BASE_DIR / "logs"
+
+# 确保目录存在
+for d in [UPLOAD_DIR, DATA_DIR, LOG_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
 
 # 安全配置
 SECRET_KEY = os.getenv("SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7")

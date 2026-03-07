@@ -9,7 +9,7 @@ from pathlib import Path
 from utils.logger import logger
 
 class MinerUService:
-    """MinerU 云端解析服务 (最终修复版)"""
+    """MinerU 云端解析服务"""
     
     BASE_URL = "https://mineru.net/api/v4"
     
@@ -22,8 +22,6 @@ class MinerUService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        # 强制直连，不走代理（解决国内 API 访问冲突）
-        self.no_proxy = {"http": None, "https": None}
 
     def _get_upload_url(self, filename: str) -> Optional[Dict[str, Any]]:
         """第一步：申请上传 URL"""
@@ -34,7 +32,7 @@ class MinerUService:
         }
         try:
             logger.info(f"📡 [MinerU] 申请上传 URL: {filename}")
-            response = requests.post(url, headers=self.headers, json=data, timeout=15, proxies=self.no_proxy)
+            response = requests.post(url, headers=self.headers, json=data, timeout=15)
             result = response.json()
             if result.get("code") == 0:
                 batch_id = result["data"]["batch_id"]
@@ -55,8 +53,7 @@ class MinerUService:
         try:
             logger.info(f"📤 [MinerU] 上传二进制流: {file_path.name}")
             with open(file_path, "rb") as f:
-                # 上传到阿里云 OSS 建议直连
-                response = requests.put(upload_url, data=f, timeout=120, proxies=self.no_proxy)
+                response = requests.put(upload_url, data=f, timeout=120)
                 if response.status_code == 200:
                     logger.info("✅ [MinerU] 上传成功")
                     return True
@@ -72,8 +69,8 @@ class MinerUService:
         try:
             logger.info(f"📡 [MinerU] 正在下载并解析结果包: {zip_url}")
             
-            # 使用 Auth 头并强制直连
-            resp = requests.get(zip_url, headers=self.headers, timeout=30, proxies=self.no_proxy)
+            # 使用 Auth 头下载
+            resp = requests.get(zip_url, headers=self.headers, timeout=30)
             
             if resp.status_code != 200:
                 logger.error(f"❌ [MinerU] 结果包下载失败 (状态码: {resp.status_code})")
@@ -83,8 +80,6 @@ class MinerUService:
             if resp.content[:2] != b'PK':
                 content_type = resp.headers.get("Content-Type", "")
                 logger.error(f"❌ [MinerU] 下载的内容不是 ZIP (Type: {content_type})")
-                if "text/html" in content_type:
-                    logger.error(f"📄 HTML 预览: {resp.text[:200]}")
                 return "错误: 提取结果失败 - 下载的内容不是有效的 ZIP 文件"
 
             with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
@@ -108,7 +103,7 @@ class MinerUService:
         logger.info(f"⏳ [MinerU] 开始轮询结果, ID: {batch_id}")
         for i in range(max_retries):
             try:
-                response = requests.get(url, headers=self.headers, timeout=15, proxies=self.no_proxy)
+                response = requests.get(url, headers=self.headers, timeout=15)
                 result = response.json()
                 if result.get("code") == 0:
                     extract_results = result["data"].get("extract_result", [])
