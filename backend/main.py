@@ -12,7 +12,9 @@ import uvicorn
 from config import ALLOWED_ORIGINS, LOG_LEVEL, LOG_FILE, LOG_JSON_FORMAT
 from database.session_db import session_db
 from database.user_db import user_db
+from database.knowledge_db import knowledge_db
 from database.business_db import init_business_db
+
 from middleware import setup_exception_handlers, rate_limit_middleware
 from utils.logger import setup_logging
 
@@ -27,6 +29,7 @@ async def lifespan(app: FastAPI):
     # 启动时初始化数据库
     await session_db.init_db()
     await user_db.init_db()
+    await knowledge_db.init_db() # 初始化 PostgreSQL 知识库
     print("✅ 数据库初始化完成")
     yield
 

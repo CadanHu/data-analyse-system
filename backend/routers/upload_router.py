@@ -35,11 +35,76 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from typing import Optional
 from services.document_processor import DocumentProcessor
 from services.vector_store import VectorStore
+from services.knowledge_extraction_service import knowledge_extraction_service
+import traceback
 
 router = APIRouter()
 vector_store = VectorStore()
 
 # ... (保持 UPLOAD_DIR 和 ALLOWED_EXTENSIONS 不变) ...
+
+@router.post("/upload/knowledge")
+async def upload_for_knowledge(
+    file: UploadFile = File(...),
+    engine: str = Form("pro"),  # 默认使用 MinerU 进行深度解析
+    prompt: Optional[str] = Form(None)
+):
+    """上传并进行深度知识提取 (PDF -> Markdown -> JSON)"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    
+    file_type = get_file_type(file.filename)
+    if file_type != "document":
+        raise HTTPException(status_code=400, detail="深度提取仅支持文档类型 (PDF/TXT/EXCEL)")
+    
+    content = await file.read()
+    unique_filename = f"ext_{uuid.uuid4()}{Path(file.filename).suffix.lower()}"
+    file_path = UPLOAD_DIR / unique_filename
+    
+    try:
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        # 1. 深度解析文档 (MinerU)
+        text_content = DocumentProcessor.process_document(file_path, engine=engine)
+        
+        # 拦截解析失败的情况
+        if text_content.startswith("错误:"):
+            return {
+                "filename": file.filename,
+                "status": "failed",
+                "knowledge_count": 0,
+                "data": [],
+                "markdown_preview": text_content
+            }
+
+        # 2. 知识提取并持久化 (LangExtract + PostgreSQL)
+        knowledge = await knowledge_extraction_service.extract_and_save(
+            text_content, 
+            doc_id=file.filename, 
+            prompt=prompt
+        )
+        
+        # 3. 存入向量库 (可选，保留原始文本以供检索)
+        await vector_store.add_text(
+            text=text_content, 
+            metadata={
+                "filename": file.filename,
+                "type": "knowledge_source",
+                "engine": engine
+            }
+        )
+
+        return {
+            "filename": file.filename,
+            "status": "success",
+            "knowledge_count": len(knowledge),
+            "data": knowledge,
+            "markdown_preview": text_content[:1000] if text_content else ""
+        }
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"深度处理失败: {str(e)}")
 
 @router.post("/upload")
 async def upload_file(

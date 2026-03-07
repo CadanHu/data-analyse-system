@@ -127,3 +127,6 @@ def log_error(logger: logging.Logger, error: Exception, context: dict = None):
     if context:
         extra["context"] = context
     logger.error("Error occurred", extra=extra, exc_info=True)
+
+# 默认日志实例
+logger = get_logger("app")

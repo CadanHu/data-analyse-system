@@ -110,6 +110,6 @@ RATE_LIMIT_REQUESTS = 10000  # 增大限制以禁用频率拦截
 RATE_LIMIT_WINDOW = 60
 
 # 日志配置
-LOG_LEVEL = "INFO"  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_LEVEL = "DEBUG"  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_FILE = Path(__file__).parent.parent / "logs" / "app.log"  # 日志文件路径
 LOG_JSON_FORMAT = False  # 是否使用 JSON 格式日志

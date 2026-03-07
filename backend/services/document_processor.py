@@ -2,6 +2,7 @@ import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import traceback
+from utils.logger import logger
 
 class DocumentProcessor:
     """文档处理引擎：支持多引擎切换 (PyMuPDF / MinerU / Pandas)"""
@@ -23,16 +24,13 @@ class DocumentProcessor:
 
     @staticmethod
     def process_pdf_pro(file_path: Path) -> str:
-        """重量级解析：MinerU (Magic-PDF)"""
-        # --- MinerU 测试与逻辑说明 ---
-        # 1. 本地模式：需要 pip install magic-pdf[full] 并下载几 GB 的模型权重
-        # 2. API 模式：建议调用已部署的 MinerU 服务的 API 接口（如私有云部署）
+        """重量级解析：MinerU 云端解析"""
         try:
-            # 此处目前返回模拟内容，若要启用真实 MinerU，请取消下方注释并安装依赖
-            # from magic_pdf.data.data_reader_factory import get_data_reader
-            return "[MinerU] 深度解析已就绪：此模式下 AI 将能识别 PDF 中的表格、数学公式和多栏布局。"
+            from services.mineru_service import mineru_service
+            logger.info(f"🚀 [Processor] 启动 MinerU 深度解析: {file_path.name}")
+            return mineru_service.parse_pdf(file_path)
         except Exception as e:
-            return f"MinerU 解析未就绪: {str(e)}"
+            return f"MinerU 解析失败: {str(e)}"
 
     @staticmethod
     def process_excel(file_path: Path) -> str:

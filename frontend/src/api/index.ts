@@ -17,36 +17,20 @@ import { Capacitor } from '@capacitor/core'
  *    VITE_API_BASE_URL=http://<你的电脑局域网IP>:8000/api
  */
 export const getBaseURL = () => {
-  // 1. 优先尝试 Vite 注入的自动检测 IP (来自 vite.config.ts)
-  // 这是最灵活的，因为它在每次构建时都会更新
-  try {
-    const autoUrl = (window as any).__DEV_API_URL__;
-    if (autoUrl && !autoUrl.includes('localhost')) {
-      return autoUrl;
-    }
-  } catch (e) {}
-
-  // 2. 检查手动配置的环境变量
-  const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envUrl && !envUrl.includes('REPLACE_WITH')) return envUrl;
-
-  // 3. 运行时动态判断
-  if (typeof window !== 'undefined') {
+  // 1. 如果是网页端，优先使用当前页面的域名和协议
+  if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
     const { hostname, protocol } = window.location;
-
-    if (Capacitor.isNativePlatform()) {
-      // 模拟器回环地址 (针对 Android Studio 的 Pixel 9)
-      if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
-        return 'http://10.0.2.2:8000/api';
-      }
-      // 针对真机的回退 (如果自动探测失败，请通过 .env 文件配置)
-      return 'http://YOUR_LOCAL_IP:8000/api';
-    }
-
-    // 网页开发环境
+    // 如果是开发环境且没指定端口，默认指向 8000
     return `${protocol}//${hostname}:8000/api`;
   }
 
+  // 2. 只有在移动端原生环境下，才尝试自动探测的 IP
+  try {
+    const autoUrl = (window as any).__DEV_API_URL__;
+    if (autoUrl) return autoUrl;
+  } catch (e) {}
+
+  // 3. 兜底逻辑
   return 'http://localhost:8000/api';
 }
 
@@ -148,6 +132,17 @@ export const uploadApi = {
       headers: { 'Content-Type': 'multipart/form-data' }
     }).then(res => res.data);
   },
-};
+  // 深度知识库处理接口
+  extractKnowledge: (file: File, engine: string = 'pro', prompt?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('engine', engine);
+    if (prompt) formData.append('prompt', prompt);
+
+    return api.post('/upload/knowledge', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000 // 延长至 300 秒 (5分钟)，MinerU 解析超大文件可能较慢
+    }).then(res => res.data);
+  },};
 
 export default api

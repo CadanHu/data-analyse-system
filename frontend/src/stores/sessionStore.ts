@@ -14,6 +14,7 @@ interface SessionState {
   setMessages: (messages: Message[]) => void
   setAllMessages: (messages: Message[]) => void // 设置所有分支
   addMessage: (message: Message) => void
+  updateMessage: (id: string, updates: Partial<Message>) => void
   updateLastMessage: (updates: Partial<Message>) => void
   setLoading: (loading: boolean) => void
   removeSession: (sessionId: string) => void
@@ -35,6 +36,10 @@ export const useSessionStore = create<SessionState>((set) => ({
   addMessage: (message) => set((state) => ({ 
     messages: [...state.messages, message],
     allMessages: [...state.allMessages, message]
+  })),
+  updateMessage: (id, updates) => set((state) => ({
+    messages: state.messages.map(m => m.id === id ? { ...m, ...updates } : m),
+    allMessages: state.allMessages.map(m => m.id === id ? { ...m, ...updates } : m)
   })),
   updateSession: (sessionId, updates) => set((state) => {
     const newSessions = state.sessions.map(s => 
