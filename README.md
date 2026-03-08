@@ -1,92 +1,61 @@
-# 智能数据分析助理 (DataPulse)
+# DataPulse - 智能数据分析助手
 
-中文 | [English](./README_EN.md)
+DataPulse 是一款基于 AI 的全栈数据分析系统，旨在通过自然语言与多种文档输入（PDF, 图片, Markdown）实现深度的知识提取、结构化分析与商业级可视化报表。
 
-基于 AI 的智能数据分析系统，通过自然语言对话实现结构化数据查询（SQL）与非结构化文档分析（RAG）的双引擎商业平台。
+## 🌟 核心新特性 (v1.8.0)
 
-## 📸 界面预览 (Interface Preview)
+### 1. 💎 深度知识提取 (Deep Extraction)
+- **多引擎支持**：集成 MinerU (云端) 与 Baidu Qianfan DeepSeek-OCR，支持扫描版 PDF 与复杂表格的高精度识别。
+- **标题感知分块**：引入 `TitleBasedMarkdownSplitter`，保留文档层级结构，实现毫秒级的精准 RAG 溯源。
+- **高并发分析**：利用异步线程池并行分析文档章节，大幅提升处理速度。
 
-### 🖥️ 桌面端画布 (Web Dashboard)
+### 2. 📊 智能报告工厂
+- **炫酷大屏看板**：生成基于 ECharts 的深色极客风可视化看板，支持 Grid 响应式布局。
+- **离线 PDF 导出**：集成 WeasyPrint 引擎，支持生成带封面、页码、专业排版的离线商业报告（已修复 macOS 字体兼容性）。
+- **按需生成**：支持手动触发深度洞察，节省 Token 消耗并提供进度感知。
 
-![Web Dashboard](./docs/assets/web_mockup.svg)
-![Web Dashboard](./docs/assets/Snipaste_2026-03-03_11-32-39.png)
+### 3. 🧠 交互与反馈闭环
+- **对话分支管理**：支持“重新生成”答案，自动处理对话分叉并持久化多个版本。
+- **反馈评价系统**：支持对 AI 回答点赞/点踩，并可提交详细的问题报告。
+- **Token 精准统计**：在数据库层面记录每一条消息的提示与回答消耗，成本一目了然。
 
-> **⚠️ 说明**: 以上为**模拟设计图 (Mockup)**，展示系统最终交付的 UI 视觉标准。
-> **桌面端特性**: 三栏布局 · 实时流式输出 · AI 思考过程可视化 · 多图表类型切换 · SQL 代码查看
-
-### 📱 移动端原生 (Mobile Native)
-
-| 竖屏模式 (Portrait) | 横屏模式 (Landscape) |
-| :---: | :---: |
-| ![Mobile Portrait](./docs/assets/mobile_mockup.svg) | ![iOS Landscape](./docs/assets/ios_mockup.svg) |
-
-> **⚠️ 说明**: 以上为**移动端模拟设计图 (Mockup)**。
-> **移动端特性**: Capacitor 6 原生适配 · 刘海屏兼容 · 横竖屏自动切换 · 触控优化 · Safe Area 适配
-
-## 🎯 核心能力
-
-### 双引擎分析逻辑
-- ✅ **智能 SQL 引擎**：基于 SQLAlchemy 驱动，支持 MySQL、PostgreSQL。自动识别 Schema，将自然语言转换为高精度 SQL 语句。
-- ✅ **RAG 知识库增强**：支持上传 PDF/Markdown/TXT，集成 **PyMuPDF** 与 **MinerU** 高效解析，配合 **ChromaDB** 向量存储，辅助 AI 进行口径对齐与业务指标解读。
-
-### 移动端原生体验
-- 📱 **全平台适配**：基于 Capacitor 6 构建，原生支持 **iOS (iPhone)** 与 **Android (Pixel/Samsung)**。
-- 👁️ **AI 思考过程可视化**：标准 Streamable HTTP 流式传输，实时展示 DeepSeek R1 推理思维链，让 AI 推理过程透明可见。
-
-### 企业级后端架构
-- 🏗️ **统一适配层**：基于 SQLAlchemy 实现跨库通用 Schema 提取与异步查询执行。
-- 🔒 **用户认证系统**：完整的 JWT 注册、登录、Token 验证流程，支持多用户数据隔离。
-- ⚡ **性能优化**：异步 FastAPI 架构，结合标准 Streamable HTTP 协议，确保秒级响应。
+### 4. 🛠️ 系统可观测性
+- **实时日志流**：新增可拖拽、三态切换的系统终端窗口，实时监控后端任务。
+- **多数据库记忆**：支持跨会话的数据库选择自动持久化。
 
 ---
 
-## 📦 项目结构 (整理后)
+## 🏗️ 技术架构
 
-```
-data-analyse-system/
-├── backend/            # 后端项目 (FastAPI, SQLAlchemy, Agents)
-│   ├── agents/        # AI Agent 核心逻辑
-│   ├── database/      # SQLAlchemy 模型与存储逻辑
-│   ├── databases/     # 数据库适配器 (MySQL/PostgreSQL)
-│   ├── services/      # 文档处理、向量存储、流服务
-│   ├── routers/       # API 路由
-│   └── tests/         # 单元测试与测试文档
-│       └── knowledge_base/ # 商业指标测试集
-├── frontend/           # 前端项目 (React, Vite, Tailwind)
-│   ├── ios/           # iOS 原生工程
-│   └── android/       # Android 原生工程
-├── scripts/            # 环境验证、初始化、数据注入与维护脚本
-├── docs/               # 部署手册、架构说明、已知问题、重启指南
-└── docker-compose.yml  # 容器化部署配置
-```
+- **后端**: FastAPI (Python 3.12) + SQLAlchemy + PostgreSQL/MySQL
+- **AI 编排**: LangChain + DeepSeek-V3/R1 + Baidu Qianfan API
+- **文档处理**: MinerU + WeasyPrint (PDF 渲染)
+- **前端**: React + Vite + Tailwind CSS + Zustand
+- **移动端**: Capacitor (iOS/Android 适配中)
 
 ---
 
-## 🚀 快速开始
+## 📦 快速启动
 
-### 1. 环境准备
-- **后端**: Python 3.12+, MySQL 8.0+
-- **前端**: Node.js 18+
-
-### 2. 本地安装
-详细步骤请参阅：[本地安装与测试运行方案](./docs/LOCAL_INSTALLATION.md)
-
-### 3. 环境验证
-运行以下脚本检查您的 MySQL 与 API 配置：
-```bash
-python3 scripts/check_db_env.py
-```
+1. **环境配置**: 复制 `.env.example` 并配置 API 密钥（DeepSeek, 百度千帆, MinerU 等）。
+2. **启动后端**: `cd backend && python3 main.py`
+3. **启动前端**: `cd frontend && npm run dev`
 
 ---
 
-## 📝 架构演进
+## 📝 架构演进 (History)
+
 - **v1.8.0 (2026-03-08)**: 
-    - **深度知识提取**: 集成 MinerU 与百度 DeepSeek-OCR，支持标题感知分块与 10 线程高并发文档分析。
-    - **智能报告工厂**: 实现炫酷看板生成、PDF 离线导出（带自动封面/页码/macOS 兼容字体）及按需生成机制。
-    - **交互与反馈**: 新增消息重新生成（分支功能）、点赞/点踩反馈及详尽的问题报告系统。
-    - **成本统计**: 实现数据库级的 Token 精准核算。
-    - **可观测性**: 新增三态可拖拽实时日志终端。
-- **v1.7.0 (2026-02-27)**: 扩展 15+ 种进阶可视化图表（雷达图、漏斗图等）；引入 AI 驱动的 ECharts 动态配置生成引擎，实现系统自动适配展示类型。
-- **v1.6.0**: 彻底废除 SQLite，全面转向 SQLAlchemy (MySQL/PG)；标准化 SSE 流式协议；目录结构规范化整理。
+    - 集成 MinerU 与百度 OCR 深度提取；
+    - 实现专业离线 PDF 报告引擎与 Token 成本精准核算；
+    - 增加消息反馈系统与对话分支管理；
+    - 修复全屏渲染与 macOS 字体显示问题。
+- **v1.7.0 (2026-02-27)**: 扩展 15+ 种进阶可视化图表（雷达图、漏斗图等）；引入 AI 驱动的 ECharts 动态配置生成引擎。
+- **v1.6.0**: 彻底废除 SQLite，全面转向 SQLAlchemy (MySQL/PG)；标准化 SSE 流式协议。
 - **v1.5.0**: 实现 Android/iOS 移动端适配，引入思考可视化方案。
-- **v1.4.0**: 集成 RAG 知识库功能，支持 **MinerU** 与 **PyMuPDF** 复杂 PDF 解析。
+- **v1.4.0**: 集成 RAG 知识库功能，支持 MinerU 与 PyMuPDF 解析。
+
+---
+
+## ⚠️ 已知问题
+详见 `docs/KNOWN_BUGS.md`。
