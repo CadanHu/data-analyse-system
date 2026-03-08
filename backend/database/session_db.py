@@ -40,6 +40,10 @@ class MessageModel(Base):
     thinking = Column(Text)
     data = Column(Text)
     is_current = Column(Integer, default=1) # 1 为当前活跃分支，0 为历史分支
+    feedback = Column(Integer, default=0)   # 1: 点赞, -1: 点踩
+    feedback_text = Column(Text, nullable=True) # 问题反馈内容
+    tokens_prompt = Column(Integer, default=0) # 提问消耗 Token
+    tokens_completion = Column(Integer, default=0) # 回答消耗 Token
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (Index('idx_session', 'session_id'),)
@@ -80,10 +84,52 @@ class SessionDatabase:
         await self._ensure_db_exists()
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        print(f"✅ 会话数据库已通过 SQLAlchemy 初始化: {MYSQL_SESSION_DATABASE}")
+        print(f"✅ 会话数据库初始化完成: {MYSQL_SESSION_DATABASE}")
+
+    async def update_message_feedback(self, message_id: str, feedback: int, feedback_text: str = None) -> bool:
+        """更新消息反馈"""
+        async with self.async_session() as session:
+            result = await session.execute(select(MessageModel).where(MessageModel.id == message_id))
+            m = result.scalar_one_or_none()
+            if m:
+                m.feedback = feedback
+                if feedback_text is not None:
+                    m.feedback_text = feedback_text
+                await session.commit()
+                return True
+            return False
 
     async def create_session(self, user_id: int, title: str = None, database_key: str = 'classic_business') -> str:
         session_id = str(uuid.uuid4())
+        
+        # 🚀 核心优化：后端自动处理重名序号
+        if not title or title == "新会话":
+            prefix = "新会话"
+            async with self.async_session() as session:
+                # 查找当前用户所有以 "新会话" 开头的标题
+                result = await session.execute(
+                    select(SessionModel.title).where(
+                        SessionModel.user_id == user_id,
+                        SessionModel.title.like(f"{prefix}%")
+                    )
+                )
+                existing_titles = result.scalars().all()
+                
+                if not existing_titles:
+                    title = prefix
+                else:
+                    # 提取数字后缀并找最大值
+                    import re
+                    nums = [0]
+                    for t in existing_titles:
+                        if t == prefix: nums.append(0)
+                        else:
+                            match = re.search(r"-(\d+)$", t)
+                            if match: nums.append(int(match.group(1)))
+                    
+                    max_num = max(nums)
+                    title = f"{prefix}-{max_num + 1}"
+
         async with self.async_session() as session:
             new_session = SessionModel(
                 id=session_id,

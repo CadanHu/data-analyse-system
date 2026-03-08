@@ -18,7 +18,7 @@ interface Database {
 }
 
 export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaProps) {
-  const { currentSession, messages, setMessages } = useSessionStore()
+  const { currentSession, messages, setMessages, updateSession } = useSessionStore()
   const { isLoading } = useChatStore()
   const { connect } = useSSE()
   const listRef = useRef<HTMLDivElement>(null)
@@ -39,8 +39,14 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   useEffect(() => {
     if (currentSession && (currentSession as any).database_key) {
       const sessionDbKey = (currentSession as any).database_key
+      console.log(`🎯 [Session] 会话切换，同步数据库为: ${sessionDbKey}`)
       setCurrentDb(sessionDbKey)
-      switchDatabase(sessionDbKey, false)
+      // 🚀 核心修复：会话切换时，必须强制后端同步切换到该会话绑定的库
+      switchDatabase(sessionDbKey, false) 
+    } else {
+      // 默认回退到 business
+      setCurrentDb('classic_business')
+      switchDatabase('classic_business', false)
     }
   }, [currentSession?.id])
 
@@ -55,11 +61,17 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
     }
   }
 
-  const switchDatabase = async (dbKey: string, updateSession: boolean = true) => {
+  const switchDatabase = async (dbKey: string, shouldUpdateSession: boolean = true) => {
     try {
-      await databaseApi.switchDatabase(dbKey, updateSession && selectedSessionId ? selectedSessionId : undefined)
+      await databaseApi.switchDatabase(dbKey, shouldUpdateSession && selectedSessionId ? selectedSessionId : undefined)
       setCurrentDb(dbKey)
       setShowDbSelector(false)
+      
+      // 🚀 核心修复：如果是手动切换，立即更新本地 Store 里的会话信息，确保下次切回来时是对的
+      if (shouldUpdateSession && selectedSessionId) {
+        updateSession(selectedSessionId, { database_key: dbKey })
+      }
+      
       await loadDatabases()
     } catch (error) {
       console.error('切换数据库失败:', error)
@@ -85,7 +97,13 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       selectedSessionId,
       content,
       { parent_id: parentId },
-      { onMessageSent }
+      { 
+        onMessageSent,
+        onError: (err) => {
+          console.error('SSE Error:', err)
+          alert('分析失败: ' + err)
+        }
+      }
     )
   }
 
@@ -99,34 +117,38 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
             </h2>
             <p className="text-xs text-gray-400 mt-1 landscape:mt-0 landscape:text-[9px] truncate">智能数据分析助理</p>
           </div>
-          <div className="flex-none relative">
-            <button
-              onClick={() => setShowDbSelector(!showDbSelector)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-xl text-xs text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:py-0.5 landscape:px-2 landscape:text-[10px]"
-            >
-              <span className="font-medium truncate max-w-[70px] landscape:max-w-[100px]">
-                {databases.find(d => d.key === currentDb)?.name || '数据库'}
-              </span>
-              <svg className="w-3 h-3 landscape:w-2 landscape:h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {showDbSelector && Array.isArray(databases) && (
-              <div className="absolute right-0 top-full mt-2 bg-white/90 backdrop-blur-md rounded-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12)] z-50 min-w-[150px]">
-                {databases.map((db) => (
-                  <button
-                    key={db.key}
-                    onClick={() => switchDatabase(db.key, true)}
-                    className={`w-full text-left px-4 py-2 text-sm transition-all first:rounded-t-xl last:rounded-b-xl hover:bg-[#BFFFD9]/30 ${
-                      db.key === currentDb ? 'bg-[#BFFFD9]/50 text-gray-700 font-medium' : 'text-gray-600'
-                    }`}
-                  >
-                    {db.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          
+          {/* 🚀 仅在已选择会话时显示数据库切换按钮 */}
+          {selectedSessionId && (
+            <div className="flex-none relative">
+              <button
+                onClick={() => setShowDbSelector(!showDbSelector)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-xl text-xs text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:py-0.5 landscape:px-2 landscape:text-[10px]"
+              >
+                <span className="font-medium truncate max-w-[70px] landscape:max-w-[100px]">
+                  {databases.find(d => d.key === currentDb)?.name || '数据库'}
+                </span>
+                <svg className="w-3 h-3 landscape:w-2 landscape:h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showDbSelector && Array.isArray(databases) && (
+                <div className="absolute right-0 top-full mt-2 bg-white/90 backdrop-blur-md rounded-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12)] z-50 min-w-[150px]">
+                  {databases.map((db) => (
+                    <button
+                      key={db.key}
+                      onClick={() => switchDatabase(db.key, true)}
+                      className={`w-full text-left px-4 py-2 text-sm transition-all first:rounded-t-xl last:rounded-b-xl hover:bg-[#BFFFD9]/30 ${
+                        db.key === currentDb ? 'bg-[#BFFFD9]/50 text-gray-700 font-medium' : 'text-gray-600'
+                      }`}
+                    >
+                      {db.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

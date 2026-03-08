@@ -19,6 +19,7 @@ interface SessionState {
   setLoading: (loading: boolean) => void
   removeSession: (sessionId: string) => void
   updateSession: (sessionId: string, updates: Partial<Session>) => void
+  updateMessageId: (oldId: string, newId: string) => void
   clearMessages: () => void
 }
 
@@ -66,6 +67,10 @@ export const useSessionStore = create<SessionState>((set) => ({
     });
     return { messages: newMessages, allMessages: newAllMessages }
   }),
+  updateMessageId: (oldId, newId) => set((state) => ({
+    messages: state.messages.map(m => m.id === oldId ? { ...m, id: newId } : m),
+    allMessages: state.allMessages.map(m => m.id === oldId ? { ...m, id: newId } : m)
+  })),
   setLoading: (loading) => set({ loading }),
   clearMessages: () => set({ messages: [], allMessages: [] }),
   removeSession: (sessionId) => set((state) => ({

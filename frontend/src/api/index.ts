@@ -151,6 +151,11 @@ export const uploadApi = {
 export const messageApi = {
   saveMessage: (sessionId: string, message: { session_id: string; role: string; content: string; data?: string; thinking?: string }) =>
     api.post(`/sessions/${sessionId}/messages`, message).then(res => res.data),
+  updateFeedback: (sessionId: string, messageId: string, feedback: number, feedbackText?: string) =>
+    api.post(`/sessions/${sessionId}/messages/${messageId}/feedback`, {
+      feedback,
+      feedback_text: feedbackText
+    }).then(res => res.data),
 };
 
 export default api

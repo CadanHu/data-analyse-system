@@ -7,9 +7,38 @@ from typing import List
 from models.session import Message, MessageCreate
 from database.session_db import session_db
 from routers.auth_router import get_current_user
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix="/sessions/{session_id}/messages", tags=["消息管理"])
 
+class FeedbackRequest(BaseModel):
+    feedback: int # 1: 点赞, -1: 点踩, 0: 取消
+    feedback_text: Optional[str] = None
+
+@router.post("/{message_id}/feedback")
+async def update_message_feedback(
+    session_id: str, 
+    message_id: str, 
+    request: FeedbackRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """更新消息反馈 (点赞/踩/报告问题)"""
+    user_id = current_user["id"]
+    # 验证会话所属权
+    session = await session_db.get_session(session_id, user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    success = await session_db.update_message_feedback(
+        message_id, 
+        request.feedback, 
+        request.feedback_text
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    
+    return {"status": "success"}
 
 @router.get("", response_model=List[Message])
 async def get_messages(session_id: str, current_user: dict = Depends(get_current_user)):

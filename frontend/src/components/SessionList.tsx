@@ -125,6 +125,8 @@ export default function SessionList({
 
   const handleCreateSession = async () => {
     try {
+      // 🚀 简化前端逻辑，将命名权交给后端
+      // 后端现在会自动处理 "新会话", "新会话-1" 等逻辑
       const session = await sessionApi.createSession()
       await loadSessions()
       clearMessages()

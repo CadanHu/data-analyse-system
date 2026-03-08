@@ -129,6 +129,19 @@ class SQLAgent:
                 if full_reasoning:
                     print(f"\n🧠 [AI 完整思考过程]:\n{full_reasoning}")
                 print("-" * 30)
+    async def generate_ai_title(self, question: str) -> str:
+        """根据对话内容生成专业标题 (AI 智能版)"""
+        from utils.prompt_templates import SESSION_TITLE_PROMPT
+        prompt = SESSION_TITLE_PROMPT.format(question=question)
+        messages = [{"role": "user", "content": prompt}]
+        try:
+            # 使用较快的 chat 模型，低温确保稳定性
+            title = await self._chat_completion(messages, temperature=0.3)
+            return title.strip().replace('"', '').replace("'", "")
+        except Exception as e:
+            print(f"⚠️ [Agent] 生成标题失败: {e}")
+            return question[:15] + "..."
+
     async def _classify_intent(self, question: str) -> str:
         prompt = INTENT_CLASSIFICATION_PROMPT.format(question=question)
         messages = [
@@ -502,12 +515,28 @@ class SQLAgent:
                         summary += stream_event["content"]
                         yield {"event": "summary", "data": {"content": stream_event["content"]}}
                 
-                yield {"event": "done", "data": {"sql": sql, "chart_config": chart_config, "summary": summary, "reasoning": full_reasoning, "session_title": sql_response.get("session_title", "")}}
+                # 🚀 优化：不再自动构建深度分析看板，节省 Token
+                # 改为返回一个标记，由用户手动点击按钮触发
+                yield {"event": "done", "data": {
+                    "sql": sql, 
+                    "chart_config": chart_config, 
+                    "summary": summary, 
+                    "reasoning": full_reasoning, 
+                    "session_title": sql_response.get("session_title", ""),
+                    "can_generate_report": True # 告诉前端：本条消息支持生成深度报告
+                }}
                 break
 
             except Exception as e:
                 last_error = str(e)
                 print(f"❌ [Agent] SQL 执行尝试 {attempt + 1} 失败: {last_error}")
+                
+                # 🚀 关键优化：如果是由于表不存在导致的错误，重试通常没有意义且浪费 Token
+                if "doesn't exist" in last_error or "no such table" in last_error:
+                    print(f"🛑 [Agent] 检测到硬伤错误（表不存在），停止重试以节省 Token。")
+                    yield {"event": "error", "data": {"message": f"分析失败：请求的表不存在。错误详情: {last_error}"}}
+                    return
+
                 if attempt >= MAX_RETRY_COUNT:
-                    yield {"event": "error", "data": {"message": f"分析失败: {last_error}"}}
+                    yield {"event": "error", "data": {"message": f"分析失败（已达最大重试次数）: {last_error}"}}
                     return

@@ -61,7 +61,13 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
         rag_engine: ragEngine,
         parent_id: parentId
       },
-      { onMessageSent }
+      { 
+        onMessageSent,
+        onError: (err) => {
+          console.error('SSE Error:', err)
+          alert('分析失败: ' + err)
+        }
+      }
     )
   }
 

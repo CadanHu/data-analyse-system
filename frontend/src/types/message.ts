@@ -8,6 +8,9 @@ export interface Message {
   chartConfig?: any
   data?: any
   thinking?: string
+  parent_id?: string
+  feedback?: number // 1: like, -1: dislike
+  feedback_text?: string
   created_at: string
 }
 

@@ -153,12 +153,10 @@ export default function App() {
         <Route path="/changelog" element={<Changelog />} />
         
         <Route element={<ProtectedRoute />}>
-          <Route path="/app" element={
-            <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
-            <UserSync />
-            <LogViewer />
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
+        <Route path="/app" element={
+          <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
+          <UserSync />
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">              <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40rem] h-[40rem] bg-gradient-to-br from-[#E0FFFF]/20 via-[#BFFFD9]/15 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '4s' }} />
             </div>

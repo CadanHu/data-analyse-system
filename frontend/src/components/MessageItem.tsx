@@ -1,18 +1,142 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom' // 🚀 引入 Portal
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import 'katex/dist/katex.min.css'
+import { 
+  Terminal, 
+  BarChart3, 
+  ChevronRight, 
+  ChevronLeft, 
+  Maximize2, 
+  X, 
+  LayoutDashboard,
+  Zap,
+  Download,
+  Loader2,
+  RotateCcw,
+  ThumbsUp,
+  ThumbsDown,
+  AlertCircle
+} from 'lucide-react'
 import type { Message } from '../types/message'
 import SqlBlock from './SqlBlock'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
-import { sessionApi, getBaseURL } from '@/api'
+import { useAuthStore } from '../stores/authStore'
+import { sessionApi, getBaseURL, messageApi } from '@/api'
+import { useSSE } from '../hooks/useSSE'
 
-interface MessageItemProps {
-  message: Message
-  onEditSubmit?: (content: string, parentId?: string) => void
+// 🆕 深度分析看板预览组件
+const DashboardPreview = ({ report, token }: { report: { title: string, summary: string, html: string }, token: string | null }) => {
+  const [isFullScreen, setIsFullScreen] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const summaries = report.summary.split('\n').filter(s => s.trim())
+
+  const handleExportPDF = async () => {
+    try {
+      setIsExporting(true)
+      const response = await fetch(`${getBaseURL()}/chat/export/pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // 🚀 使用从 Props 传入的正确 Token
+        },
+        body: JSON.stringify(report)
+      })
+
+      if (!response.ok) throw new Error('导出失败')
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `DataPulse_${report.title || 'Report'}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('PDF 导出错误:', err)
+      alert('PDF 导出失败，请重试')
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 border border-white/20 rounded-2xl overflow-hidden bg-black/40 backdrop-blur-md shadow-2xl">
+      <div className="px-4 py-3 bg-gradient-to-r from-blue-500/20 to-purple-500/20 flex items-center justify-between border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <LayoutDashboard size={18} className="text-blue-400" />
+          <span className="text-sm font-bold text-white tracking-tight">{report.title || '深度分析看板'}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleExportPDF}
+            disabled={isExporting}
+            className="flex items-center gap-1.5 px-3 py-1 bg-white/5 hover:bg-emerald-500/20 rounded-full text-[11px] text-white/60 hover:text-emerald-400 transition-all border border-white/5 active:scale-95 disabled:opacity-50"
+          >
+            {isExporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            {isExporting ? '生成中...' : 'PDF'}
+          </button>
+          <button 
+            onClick={() => setIsFullScreen(true)}
+            className="flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/20 rounded-full text-[11px] text-white/80 transition-all border border-white/10 active:scale-95"
+          >
+            <Maximize2 size={12} />
+            全屏查看
+          </button>
+        </div>
+      </div>
+
+      <div className="p-4 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {summaries.map((s, i) => (
+            <div key={i} className="px-2.5 py-1 bg-white/5 rounded-lg border border-white/10 text-[11px] text-white/70 flex items-center gap-1.5">
+              <Zap size={10} className="text-yellow-400" />
+              {s}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 全屏模态窗 - 🚀 使用 Portal 彻底解决层级受限问题 */}
+      {isFullScreen && createPortal(
+        <div className="fixed inset-0 z-[10001] bg-black flex flex-col animate-in fade-in duration-200">
+          <div className="h-12 flex items-center justify-between px-6 bg-white/5 border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <BarChart3 size={20} className="text-blue-400" />
+              <h3 className="text-white font-bold">{report.title}</h3>
+            </div>
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={handleExportPDF}
+                disabled={isExporting}
+                className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-sm transition-all active:scale-95 border border-emerald-500/30 disabled:opacity-50"
+              >
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                {isExporting ? '正在生成 PDF 报告...' : '导出离线报告'}
+              </button>
+              <button 
+                onClick={() => setIsFullScreen(false)}
+                className="p-2 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+          </div>
+          <iframe 
+            srcDoc={report.html} 
+            className="flex-1 w-full border-none bg-black"
+            title="Dashboard"
+          />
+        </div>,
+        document.body
+      )}
+    </div>
+  )
 }
 
 export default function MessageItem({ message, onEditSubmit }: MessageItemProps) {
@@ -25,8 +149,113 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const [showPreview, setShowPreview] = useState(false)
   const [isFullTextExpanded, setIsFullTextExpanded] = useState(false)
   
+  // 反馈状态
+  const [localFeedback, setLocalFeedback] = useState<number>(message.feedback || 0)
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false)
+  const [feedbackText, setFeedbackText] = useState(message.feedback_text || '')
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+
   const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
-  const { allMessages, setMessages, currentSession } = useSessionStore()
+  const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
+  const { token } = useAuthStore()
+  const { connect } = useSSE()
+
+  // 🚀 手动触发生成深度报告
+  const handleManualGenerateReport = async () => {
+    if (!currentSession || isGeneratingReport) return
+    
+    try {
+      setIsGeneratingReport(true)
+      const response = await fetch(`${getBaseURL()}/chat/generate_report`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          message_id: message.id,
+          content: message.content,
+          session_id: currentSession.id
+        })
+      })
+
+      if (!response.ok) throw new Error('生成失败')
+      const result = await response.json()
+      
+      // 🚀 核心修复：更新本地消息数据，彻底清除按钮并让看板持久化显示
+      const currentData = parsedData || {}
+      const updatedData = {
+        ...currentData,
+        html_report: result.html_report,
+        can_generate_report: false // 彻底隐藏生成按钮
+      }
+      
+      updateMessage(message.id, {
+        data: JSON.stringify(updatedData)
+      })
+      alert('✨ 深度分析看板已生成成功，内容已永久保存！')
+    } catch (err) {
+      console.error('报告生成错误:', err)
+      alert('看板生成失败，可能由于数据量过大或超时，请重试。')
+    } finally {
+      setIsGeneratingReport(false)
+    }
+  }
+
+  // 🚀 重新生成逻辑
+  const handleRegenerate = () => {
+    if (!currentSession || isLoading) return
+    
+    // 1. 找到该消息的父级 (用户提问)
+    const parentMessage = allMessages.find(m => m.id === message.parent_id)
+    if (!parentMessage) {
+      console.warn('找不到父级消息，无法重新生成')
+      return
+    }
+
+    // 2. 更新本地 UI (回退到父级)
+    const parentIndex = allMessages.findIndex(m => m.id === parentMessage.id)
+    if (parentIndex !== -1) {
+      setMessages(allMessages.slice(0, parentIndex + 1))
+    }
+
+    // 3. 重新发起连接 (保持 parent_id 一致)
+    connect(
+      currentSession.id,
+      parentMessage.content,
+      { parent_id: parentMessage.parent_id }, 
+      { 
+        onError: (err) => alert('重新生成失败: ' + err)
+      }
+    )
+  }
+
+  // 👍/👎 反馈逻辑
+  const handleFeedback = async (score: number) => {
+    if (!currentSession) return
+    const newScore = localFeedback === score ? 0 : score
+    setLocalFeedback(newScore)
+    
+    try {
+      await messageApi.updateFeedback(currentSession.id, message.id, newScore)
+      updateMessage(message.id, { feedback: newScore })
+    } catch (err) {
+      console.error('反馈提交失败:', err)
+    }
+  }
+
+  const handleReportIssue = async () => {
+    if (!currentSession) return
+    try {
+      await messageApi.updateFeedback(currentSession.id, message.id, -1, feedbackText)
+      updateMessage(message.id, { feedback: -1, feedback_text: feedbackText })
+      setLocalFeedback(-1)
+      setShowFeedbackModal(false)
+      alert('感谢您的反馈，我们会尽快优化！')
+    } catch (err) {
+      alert('提交失败，请稍后重试')
+    }
+  }
 
   // 解析消息中的附加数据
   let parsedData: any = null
@@ -39,6 +268,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   }
 
   const isKnowledgeExtraction = parsedData?.is_knowledge_extraction
+  const htmlReport = parsedData?.html_report
   const pdfUrl = parsedData?.file_url ? `${getBaseURL().replace('/api', '')}${parsedData.file_url}` : null
 
   // 计算分支信息
@@ -278,6 +508,69 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
           {!isUser && message.sql && (
             <SqlBlock sql={message.sql} collapsed={sqlCollapsed} />
           )}
+
+          {/* 🚀 消息反馈与重新生成工具栏 */}
+          {!isUser && (
+            <div className="mt-3 flex items-center gap-1">
+              <button
+                onClick={() => handleFeedback(1)}
+                className={`p-1.5 rounded-lg transition-colors ${localFeedback === 1 ? 'bg-blue-50 text-blue-500' : 'hover:bg-gray-100 text-gray-400'}`}
+                title="赞同"
+              >
+                <ThumbsUp size={14} fill={localFeedback === 1 ? 'currentColor' : 'none'} />
+              </button>
+              <button
+                onClick={() => {
+                  if (localFeedback === -1) {
+                    setLocalFeedback(0)
+                    handleFeedback(0)
+                  } else {
+                    setShowFeedbackModal(true)
+                  }
+                }}
+                className={`p-1.5 rounded-lg transition-colors ${localFeedback === -1 ? 'bg-red-50 text-red-500' : 'hover:bg-gray-100 text-gray-400'}`}
+                title="不赞同并反馈问题"
+              >
+                <ThumbsDown size={14} fill={localFeedback === -1 ? 'currentColor' : 'none'} />
+              </button>
+              <div className="w-px h-3 bg-gray-200 mx-1" />
+              <button
+                onClick={handleRegenerate}
+                disabled={isLoading}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-30"
+                title="重新生成"
+              >
+                <RotateCcw size={14} className={isLoading ? 'animate-spin' : ''} />
+              </button>
+            </div>
+          )}
+
+          {/* 反馈对话框 */}
+          {showFeedbackModal && (
+            <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-gray-100">
+                <div className="flex items-center gap-3 mb-4 text-red-500">
+                  <AlertCircle size={20} />
+                  <h3 className="font-bold text-gray-800">反馈问题</h3>
+                </div>
+                <textarea
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="请描述回答中的错误或您的改进建议..."
+                  className="w-full h-32 p-3 bg-gray-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 resize-none border border-transparent focus:border-red-200"
+                />
+                <div className="mt-4 flex justify-end gap-2">
+                  <button onClick={() => setShowFeedbackModal(false)} className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">取消</button>
+                  <button 
+                    onClick={handleReportIssue}
+                    className="px-4 py-2 bg-red-500 text-white text-sm font-medium rounded-xl hover:bg-red-600 shadow-lg shadow-red-200 transition-all active:scale-95"
+                  >
+                    提交反馈
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           
           <div className="mt-4 flex items-center justify-end gap-1.5 border-t border-gray-100 pt-3 transition-all">
             {isUser && !isEditing && (
@@ -372,6 +665,44 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </div>
             )}
           </div>
+
+          {/* 🚀 手动触发生成报告按钮 (集成自 DataAnalysis_main) */}
+          {parsedData?.can_generate_report && !htmlReport && (
+            <div className="mt-4">
+              <button
+                onClick={handleManualGenerateReport}
+                disabled={isGeneratingReport}
+                className={`w-full group relative flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border transition-all duration-300 active:scale-[0.98] ${
+                  isGeneratingReport 
+                    ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-wait' 
+                    : 'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-100 text-blue-600 hover:shadow-lg hover:shadow-blue-500/10 hover:border-blue-200'
+                }`}
+              >
+                {isGeneratingReport ? (
+                  <Loader2 size={16} className="animate-spin text-blue-500" />
+                ) : (
+                  <Zap size={16} className="text-yellow-500 group-hover:animate-pulse" />
+                )}
+                <span className="text-sm font-bold tracking-tight">
+                  {isGeneratingReport ? '系统正在深度建模分析中 (约需1分钟)...' : '✨ 生成深度洞察看板 (耗时约1分钟)'}
+                </span>
+                
+                {isGeneratingReport && (
+                  <div className="absolute bottom-0 left-0 h-0.5 bg-blue-500 animate-[loading_60s_linear_infinite]" style={{ width: '100%' }} />
+                )}
+              </button>
+              <p className="mt-1.5 text-[10px] text-gray-400 text-center italic">
+                {isGeneratingReport 
+                  ? '提示：正在蒸馏数据并构建 ECharts 看板，请耐心等待...' 
+                  : '提示：深度看板将为您自动总结业务洞察、推断隐藏趋势并生成全屏报表。'}
+              </p>
+            </div>
+          )}
+
+          {/* 🆕 渲染深度分析报告看板 (集成自 OCR 项目) */}
+          {htmlReport && (
+            <DashboardPreview report={htmlReport} token={token} />
+          )}
         </div>
       </div>
 

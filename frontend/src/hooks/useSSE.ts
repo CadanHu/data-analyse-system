@@ -41,7 +41,7 @@ export function useSSE() {
     setSqlResult,
     isThinkingMode
   } = useChatStore()
-  const { addMessage, updateLastMessage, updateSession } = useSessionStore()
+  const { addMessage, updateLastMessage, updateSession, updateMessageId } = useSessionStore()
 
   const connect = useCallback(
     async (sessionId: string, question: string, options?: ConnectOptions, handlers?: SSEHandlers) => {
@@ -225,16 +225,37 @@ export function useSSE() {
                   }
                   handlers?.onSummary?.(eventData.content)
                   break
-                                                  case 'done':
-                                                    setIsLoading(false)
-                                                    if (eventData.session_title) {
-                                                      console.log('📝 [SSE] 收到新标题，正在更新 UI:', eventData.session_title);
-                                                      updateSession(sessionId, { title: eventData.session_title });
-                                                    }
-                                                    handlers?.onDone?.(eventData)
-                                  
-                                    options?.onMessageSent?.()
-                                    break
+                case 'done':
+                  setIsLoading(false)
+                  if (eventData.session_title) {
+                    console.log('📝 [SSE] 收到新标题，正在更新 UI:', eventData.session_title);
+                    updateSession(sessionId, { title: eventData.session_title });
+                  }
+                  
+                  // 🚀 核心修复 1：同步消息 ID 到数据库真实 ID
+                  if (eventData.message_id && assistantMessageId) {
+                    console.log(`🔗 [SSE] 同步消息 ID: ${assistantMessageId} -> ${eventData.message_id}`);
+                    updateMessageId(assistantMessageId, eventData.message_id);
+                    assistantMessageId = eventData.message_id; // 同步闭包变量
+                  }
+
+                  // 🚀 核心修复 2：同步所有最终标记
+                  const finalData = {
+                    ...assistantData,
+                    ...(eventData.html_report ? { html_report: eventData.html_report } : {}),
+                    ...(eventData.can_generate_report ? { can_generate_report: true } : {})
+                  }
+
+                  if (Object.keys(finalData).length > 0) {
+                    console.log('✨ [SSE] 流结束，同步最终数据至 UI');
+                    updateLastMessage({
+                      data: JSON.stringify(finalData)
+                    })
+                  }
+
+                  handlers?.onDone?.(eventData)
+                  options?.onMessageSent?.()
+                  break
                 
                 case 'error':
                   setIsLoading(false)
