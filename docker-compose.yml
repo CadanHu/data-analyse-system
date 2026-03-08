@@ -7,7 +7,7 @@ services:
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: data_pulse_sessions
+      MYSQL_DATABASE: test
     ports:
       - "3306:3306"
     volumes:
@@ -19,6 +19,47 @@ services:
       timeout: 20s
       retries: 10
 
+  postgres:
+    image: postgres:15
+    container_name: data-analyse-pg
+    environment:
+      POSTGRES_PASSWORD: root
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 🚀 数据种子服务：容器启动后自动填充 16w+ 仿真数据
+  db-seed:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: data-analyse-seed
+    depends_on:
+      db:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=root
+      - POSTGRES_HOST=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=root
+    command: python /app/scripts/setup_all_data.py
+    networks:
+      - app-network
+
   backend:
     build:
       context: ./backend
@@ -27,17 +68,24 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
       - ./backend/logs:/app/logs
       - ./backend/uploads:/app/uploads
+      - ./scripts:/app/scripts
     environment:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - MYSQL_HOST=db
       - MYSQL_PORT=3306
       - MYSQL_USER=root
       - MYSQL_PASSWORD=root
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=root
       - MYSQL_SESSION_DATABASE=data_pulse_sessions
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     restart: unless-stopped
@@ -59,6 +107,7 @@ services:
 
 volumes:
   mysql_data:
+  pg_data:
 
 networks:
   app-network:

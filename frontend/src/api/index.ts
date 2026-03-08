@@ -37,7 +37,7 @@ export const getBaseURL = () => {
 
 const api = axios.create({
   baseURL: getBaseURL(),
-  timeout: 10000,
+  timeout: 60000, // 🚀 全局超时提升至 60 秒，确保 OCR 和模型加载不中断
   headers: {
     'X-Client-Platform': 'ios-simulator',
     'Cache-Control': 'no-cache',
@@ -124,21 +124,24 @@ export const chatApi = {
 };
 
 export const uploadApi = {
-  upload: (file: File, sessionId: string, engine: string = 'light') => {
+  upload: (file: File, sessionId: string, engine: string = 'light', useHighPrecision: boolean = false) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('session_id', sessionId);
     formData.append('engine', engine);
+    if (useHighPrecision) formData.append('use_high_precision', 'true');
     return api.post('/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000 // 🚀 延长至 60 秒以加载模型
     }).then(res => res.data);
   },
   // 深度知识库处理接口
-  extractKnowledge: (file: File, sessionId: string, engine: string = 'pro', prompt?: string) => {
+  extractKnowledge: (file: File, sessionId: string, useHighPrecision: boolean = false, engine: string = 'pro', prompt?: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('session_id', sessionId);
     formData.append('engine', engine);
+    if (useHighPrecision) formData.append('use_high_precision', 'true');
     if (prompt) formData.append('prompt', prompt);
 
     return api.post('/upload/knowledge', formData, {

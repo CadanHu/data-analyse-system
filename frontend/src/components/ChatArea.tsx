@@ -23,7 +23,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   const { connect } = useSSE()
   const listRef = useRef<HTMLDivElement>(null)
   const [databases, setDatabases] = useState<Database[]>([])
-  const [currentDb, setCurrentDb] = useState<string>('business')
+  const [currentDb, setCurrentDb] = useState<string | null>(null)
   const [showDbSelector, setShowDbSelector] = useState(false)
 
   useEffect(() => {
@@ -44,9 +44,9 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       // 🚀 核心修复：会话切换时，必须强制后端同步切换到该会话绑定的库
       switchDatabase(sessionDbKey, false) 
     } else {
-      // 默认回退到 business
-      setCurrentDb('classic_business')
-      switchDatabase('classic_business', false)
+      // 🚀 优化：新建对话默认不选择数据库，强制用户手动触发
+      setCurrentDb(null)
+      setShowDbSelector(true) // 自动弹出选择器提示用户
     }
   }, [currentSession?.id])
 
@@ -123,10 +123,14 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
             <div className="flex-none relative">
               <button
                 onClick={() => setShowDbSelector(!showDbSelector)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-xl text-xs text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:py-0.5 landscape:px-2 landscape:text-[10px]"
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-gray-700 transition-all shadow-lg landscape:py-0.5 landscape:px-2 landscape:text-[10px] ${
+                  !currentDb 
+                    ? 'bg-gradient-to-r from-orange-400 to-red-400 text-white animate-pulse font-bold' 
+                    : 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] shadow-[0_4px_12px_rgba(191,255,217,0.3)]'
+                }`}
               >
                 <span className="font-medium truncate max-w-[70px] landscape:max-w-[100px]">
-                  {databases.find(d => d.key === currentDb)?.name || '数据库'}
+                  {databases.find(d => d.key === currentDb)?.name || '⚠️ 请选择数据库'}
                 </span>
                 <svg className="w-3 h-3 landscape:w-2 landscape:h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -160,6 +164,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
         <InputBar
           sessionId={selectedSessionId}
           onMessageSent={onMessageSent}
+          currentDb={currentDb}
         />
       </div>
     </div>

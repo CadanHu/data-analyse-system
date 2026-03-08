@@ -16,6 +16,12 @@ from services.sql_executor import SQLExecutor
 
 class SQLAgent:
     async def _chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
+        # 🚀 调试：打印发送给模型的全量 Prompt (每一个字都不能拉下)
+        print(f"\n📤 [Prompt (同步) 全量审计] >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        import json
+        print(json.dumps(messages, ensure_ascii=False, indent=2))
+        print(f"<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+        
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{API_BASE_URL}/chat/completions",
@@ -52,6 +58,12 @@ class SQLAgent:
         # 根据开关选择模型
         active_model = REASONER_MODEL if enable_thinking else CHAT_MODEL
         
+        # 🚀 调试：打印发送给模型的全量 Prompt (每一个字都不能拉下)
+        print(f"\n📤 [Prompt 全量审计] >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        import json
+        print(json.dumps(messages, ensure_ascii=False, indent=2))
+        print(f"<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+
         request_body = {
             "model": active_model,
             "messages": messages,
@@ -142,6 +154,32 @@ class SQLAgent:
             print(f"⚠️ [Agent] 生成标题失败: {e}")
             return question[:15] + "..."
 
+    async def rewrite_query_for_rag(self, question: str, history: str) -> str:
+        """利用 AI 将用户问题重写为更精准的检索词 (解决追问场景)"""
+        if not history or len(question) > 30:
+            return question # 如果问题足够长或没历史，直接返回
+            
+        prompt = f"""请根据以下对话历史，将用户最新的提问重写为一个独立、完整的检索词（包含核心业务关键词）。
+要求：
+1. 不要回答问题，只输出重写后的关键词。
+2. 确保关键词包含用户之前提到的核心业务主体（如特定地区、产品、指标）。
+3. 如果用户的问题已经是完整的业务需求，请保持原样。
+
+【对话历史】
+{history[-500:]}
+
+【用户最新提问】
+{question}
+
+重写后的检索词："""
+        
+        try:
+            # 使用同步 chat 接口快速获取结果
+            rewritten = await self._chat_completion([{"role": "user", "content": prompt}], temperature=0.1)
+            return rewritten.strip().replace('"', '').replace("'", "")
+        except:
+            return question
+
     async def _classify_intent(self, question: str) -> str:
         prompt = INTENT_CLASSIFICATION_PROMPT.format(question=question)
         messages = [
@@ -160,6 +198,7 @@ class SQLAgent:
         question: str,
         schema: str,
         history: str = "",
+        knowledge_context: str = "", # 🚀 新增：知识库检索内容
         enable_thinking: bool = False,
         database_name: str = "业务数据库",
         database_type_info: str = "",
@@ -174,6 +213,7 @@ class SQLAgent:
             schema=schema,
             history=history,
             question=question,
+            knowledge_context=knowledge_context, # 🚀 注入提示词
             table_list_query=table_list_query,
             quote_char=quote_char
         )
@@ -197,6 +237,7 @@ class SQLAgent:
         self,
         question: str,
         history: str = "",
+        knowledge_context: str = "", # 🚀 新增：知识库检索内容
         enable_thinking: bool = False,
         database_name: str = "未知",
         database_type: str = "未知",
@@ -205,6 +246,7 @@ class SQLAgent:
         prompt = CHAT_RESPONSE_PROMPT.format(
             history=history,
             question=question,
+            knowledge_context=knowledge_context, # 🚀 注入提示词
             database_name=database_name,
             database_type=database_type,
             tables=tables
@@ -403,9 +445,10 @@ class SQLAgent:
         self,
         question: str,
         history_str: str,
+        knowledge_context: str = "", # 🚀 新增：知识库检索内容
         enable_thinking: bool = False
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """增强的处理逻辑：包含 viz_config 解析"""
+        """增强的处理逻辑：集成 SQL 引擎与 RAG 知识库"""
         from config import DATABASES
         
         schema = await SchemaService.get_full_schema(include_sample=True)
@@ -441,7 +484,15 @@ class SQLAgent:
         if intent == "chat":
             full_summary_reasoning = ""
             summary_content = ""
-            async for stream_event in self._generate_chat_response_stream(question, history_str, enable_thinking, database_name, db_type, ", ".join(tables)):
+            async for stream_event in self._generate_chat_response_stream(
+                question, 
+                history_str, 
+                knowledge_context=knowledge_context, # 🚀 传递 RAG 内容
+                enable_thinking=enable_thinking, 
+                database_name=database_name, 
+                database_type=db_type, 
+                tables=", ".join(tables)
+            ):
                 if stream_event["type"] == "reasoning":
                     full_summary_reasoning += stream_event["content"]
                     yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
@@ -454,7 +505,15 @@ class SQLAgent:
         # HITL 逻辑
         is_executing_after_plan = (intent == "confirmation")
         if intent == "sql_query" and not is_executing_after_plan:
-            plan_prompt = PLAN_GENERATION_PROMPT.format(database_name=database_name, database_type=db_type, schema=schema, history=history_str, question=question)
+            # 🚀 改进：方案生成注入 RAG 知识，避免 AI 说“没数据”
+            plan_prompt = PLAN_GENERATION_PROMPT.format(
+                database_name=database_name, 
+                database_type=db_type, 
+                schema=schema, 
+                history=history_str, 
+                question=question,
+                knowledge_context=knowledge_context # 🚀 这里漏掉了注入 RAG 内容
+            )
             full_plan = ""
             full_reasoning = ""
             async for delta in self._chat_completion_stream([{"role": "system", "content": "你是一个专业的数据分析顾问。"}, {"role": "user", "content": plan_prompt}], temperature=0.3, enable_thinking=enable_thinking):
@@ -481,7 +540,8 @@ class SQLAgent:
 
                 full_reasoning = ""
                 sql_response = None
-                async for stream_event in self.generate_sql_stream(current_question, schema, history_str, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char):
+                # 🚀 关键：注入 SQL 生成过程
+                async for stream_event in self.generate_sql_stream(current_question, schema, history_str, knowledge_context, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char):
                     if stream_event["type"] == "reasoning":
                         full_reasoning += stream_event["content"]
                         yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}

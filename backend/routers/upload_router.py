@@ -35,20 +35,17 @@ def get_file_type(filename: str) -> Optional[str]:
     return None
 
 import asyncio
-
-async def run_deep_extraction_task(file_path: Path, filename: str, session_id: str, engine: str, prompt: str = None):
-    """后台执行深度提取任务 (彻底解放主线程)"""
+async def run_deep_extraction_task(file_path: Path, filename: str, session_id: str, engine: str, prompt: str = None, use_high_precision: bool = False):
+    """后台执行深度提取任务 (支持百度 OCR 开关)"""
     loop = asyncio.get_event_loop()
     try:
-        logger.info(f"🚀 [Background] 启动深度任务: {filename} (异步线程模式)")
-        
-        # 1. 深度解析文档 - 强制在独立线程中运行，不阻塞主循环
-        # 注意：这里改用 loop.run_in_executor
-        text_content = await loop.run_in_executor(
-            None, 
-            DocumentProcessor.process_document, 
-            file_path, 
-            engine
+        logger.info(f"🚀 [Background] 启动深度任务: {filename} (异步线程模式, 高精度: {use_high_precision})")
+
+        # 1. 深度解析文档 - 异步执行
+        text_content = await DocumentProcessor.process_document(
+            file_path,
+            engine,
+            use_high_precision
         )
         
         if text_content.startswith("错误:"):
@@ -112,7 +109,8 @@ async def upload_for_knowledge(
     file: UploadFile = File(...),
     session_id: str = Form(...),
     engine: str = Form("pro"),
-    prompt: Optional[str] = Form(None)
+    prompt: Optional[str] = Form(None),
+    use_high_precision: bool = Form(False) # 🚀 接收高精度标志
 ):
     """上传并提交后台深度提取任务 (立即返回)"""
     if not file.filename: raise HTTPException(status_code=400, detail="文件名为空")
@@ -126,17 +124,26 @@ async def upload_for_knowledge(
             f.write(content)
 
         # --- 关键修复：先将处理中的提示消息持久化存入数据库 ---
-        processing_msg = f"⏳ **任务已成功提交至后台执行**\n文件: 《{file.filename}》\n状态: 系统正在进行深度解析与知识提取，您可以继续其他操作。解析完成后，结果将自动出现在对话列表中。"
+        precision_tag = " [✨ 高精度模式]" if use_high_precision else ""
+        processing_msg = f"⏳ **任务已成功提交至后台执行{precision_tag}**\n文件: 《{file.filename}》\n状态: 系统正在进行深度解析与知识提取，您可以继续其他操作。解析完成后，结果将自动出现在对话列表中。"
 
         await session_db.create_message({
             "session_id": session_id,
             "role": "assistant",
             "content": processing_msg,
-            "data": json.dumps({"status": "processing", "file": file.filename})
+            "data": json.dumps({"status": "processing", "file": file.filename, "high_precision": use_high_precision})
         })
 
-        # 立即启动后台任务
-        background_tasks.add_task(run_deep_extraction_task, file_path, file.filename, session_id, engine, prompt)
+        # 立即启动后台任务 - 透传高精度开关
+        background_tasks.add_task(
+            run_deep_extraction_task, 
+            file_path, 
+            file.filename, 
+            session_id, 
+            engine, 
+            prompt,
+            use_high_precision # 🚀 透传
+        )
 
         return {
             "filename": file.filename,
@@ -151,7 +158,8 @@ async def upload_for_knowledge(
 async def upload_file(
     file: UploadFile = File(...),
     session_id: str = Form(...),
-    engine: str = Form("light")
+    engine: str = Form("light"),
+    use_high_precision: bool = Form(False) # 🚀 接收高精度标志
 ):
     """普通上传并同步 RAG 索引"""
     unique_filename = f"{uuid.uuid4()}{Path(file.filename).suffix.lower()}"
@@ -161,13 +169,34 @@ async def upload_file(
         with open(file_path, "wb") as f:
             f.write(content)
         
-        text_content = DocumentProcessor.process_document(file_path, engine=engine)
+        # 🚀 关键修复：补全 await 并透传高精度标志
+        text_content = await DocumentProcessor.process_document(
+            file_path, 
+            engine=engine, 
+            use_high_precision=use_high_precision
+        )
+        
+        # 🔍 调试日志：打印解析出的文本内容
+        print(f"\n📄 [OCR/Parser 结果] ================================")
+        print(f"📄 文件: {file.filename}")
+        print(f"📄 内容预览 (前 2000 字):\n{text_content[:2000]}")
+        
+        if not text_content or text_content.strip() == "" or text_content.startswith("错误:"):
+            print(f"⚠️ [警告] 解析失败，拒绝存入向量库。原因: {text_content}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"图片解析失败: {text_content if text_content else '解析内容为空'}"
+            )
+        
+        print(f"==================================================\n")
+
         await vector_store.add_text(text_content, {"filename": file.filename}, session_id=session_id)
 
         return {
             "filename": file.filename,
             "url": f"/api/uploads/{unique_filename}",
-            "status": "indexed"
+            "status": "indexed",
+            "text_preview": text_content[:200] if text_content else "内容识别为空" # 🚀 关键：返回内容预览
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

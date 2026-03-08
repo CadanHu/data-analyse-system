@@ -244,7 +244,18 @@ class KnowledgeExtractionService:
             pass
 
     async def extract_and_save(self, text: str, doc_id: str, prompt: Optional[str] = None) -> List[Dict[str, Any]]:
-        """保留原接口兼容性"""
-        return [{"status": "success", "message": "深度分析已完成"}]
+        """保留原接口兼容性，并执行实际的切分分析"""
+        logger.info(f"📑 [Knowledge] 正在为文档 {doc_id} 执行知识抽取并同步至数据库")
+        try:
+            # 实际上可以调用内部的智能切分
+            chunks = self.splitter.split_text(text)
+            return chunks
+        except Exception as e:
+            logger.error(f"❌ [Knowledge] 抽取失败: {e}")
+            return []
+
+    async def extract_knowledge(self, text: str, prompt: Optional[str] = None) -> List[Dict[str, Any]]:
+        """为 upload_router 提供显式调用接口"""
+        return await self.extract_and_save(text, "uploaded_file", prompt)
 
 knowledge_extraction_service = KnowledgeExtractionService()

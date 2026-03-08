@@ -177,10 +177,35 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
         try:
             from services.vector_store import VectorStore
             vs = VectorStore()
-            search_results = await vs.search(request.question, top_k=3, session_id=request.session_id)
+            agent = get_sql_agent()
+            
+            # 🚀 革命性升级：不再硬编码关键词，而是利用 AI 自动重写检索词
+            history_str = await memory_manager.get_history_text(request.session_id)
+            search_query = await agent.rewrite_query_for_rag(request.question, history_str)
+            
+            if search_query != request.question:
+                print(f"🔄 [RAG] 自动重写查询词: '{request.question}' -> '{search_query}'")
+
+            search_results = await vs.search(search_query, top_k=8, session_id=request.session_id)
             if search_results:
-                rag_context = "\n\n【参考知识库内容】:\n" + "\n".join([f"- {r['content']}" for r in search_results])
-                print(f"✅ [RAG] 检索成功，获取到 {len(search_results)} 条片段")
+                # 🚀 改进：基于内容进行去重，防止重复片段浪费 Token
+                seen_contents = set()
+                unique_results = []
+                for r in search_results:
+                    content_hash = hash(r['content'])
+                    if content_hash not in seen_contents:
+                        unique_results.append(r)
+                        seen_contents.add(content_hash)
+
+                # 🔍 核心日志：打印去重后的 RAG 检索到的具体内容
+                print(f"\n💡 [RAG 检索结果详情] --------------------------------")
+                for i, r in enumerate(unique_results):
+                    print(f"  片段 {i+1}: {r['content'][:150]}... (来源: {r['metadata'].get('filename')})")
+                print(f"--------------------------------------------------\n")
+                
+                # 🚀 移除多余的标题，直接由模板控制格式
+                rag_context = "\n".join([f"- {r['content']}" for r in unique_results])
+                print(f"✅ [RAG] 检索成功，获取到 {len(unique_results)} 条唯一片段 (原始 {len(search_results)} 条)")
             else:
                 print("⚠️ [RAG] 知识库检索结果为空")
         except Exception as e:
@@ -204,10 +229,15 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
 
             print("🤖 [Agent] 正在调用 AI 模型处理...")
             agent = get_sql_agent()
-            final_question = request.question + rag_context
             history_str = await memory_manager.get_history_text(request.session_id)
             
-            async for event in agent.process_question_with_history(final_question, history_str, request.enable_thinking):
+            # 🚀 关键修复：使用显式的 knowledge_context 参数，不再暴力拼接字符串
+            async for event in agent.process_question_with_history(
+                request.question, 
+                history_str, 
+                knowledge_context=rag_context, 
+                enable_thinking=request.enable_thinking
+            ):
                 event_type = event.get("event")
                 event_data = event.get("data", {})
 

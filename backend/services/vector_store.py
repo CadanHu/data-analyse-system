@@ -69,13 +69,20 @@ class VectorStore:
         print(f"✅ [VectorStore] 向量库已就绪: {self.persist_dir}")
 
     async def add_text(self, text: str, metadata: Dict[str, Any], session_id: str = None):
-        """将解析出的文本切片并存入向量库"""
-        # 强制在执行器中初始化，防止阻塞
+        """将解析出的文本切片并存入向量库 (带幂等性检查)"""
+        # 强制在执行器中初始化
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.initialize)
         
         if session_id:
             metadata["session_id"] = session_id
+            
+            # 🚀 幂等检查：先搜一下是否已经存过
+            existing = await self.search(text[:100], top_k=1, session_id=session_id)
+            for r in existing:
+                if r['content'].strip() == text.strip():
+                    print(f"⚠️ [VectorStore] 检测到内容完全一致，跳过重复索引: {metadata.get('filename')}")
+                    return True
             
         docs = [Document(page_content=text, metadata=metadata)]
         split_docs = self.text_splitter.split_documents(docs)

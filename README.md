@@ -33,13 +33,43 @@ DataPulse 是一款基于 AI 的全栈数据分析系统，旨在通过自然语
 - **前端**: React + Vite + Tailwind CSS + Zustand
 - **移动端**: Capacitor (iOS/Android 适配中)
 
+## 🗄️ 仿真数据库环境 (Enterprise Simulation)
+
+本项目内置了四个**企业级仿真数据库**，专为测试 AI 的复杂 SQL 生成、大数据量分析及多维可视化能力而设计。
+
+### 核心特性
+- **数据规模**：包含 **16万+** 真实订单记录及 **50万+** 用户行为点击流日志。
+- **业务复杂度**：支持**多租户架构**（5个全球分公司）、**多币种自动换算**、**价格变动历史追踪**。
+- **真实噪声**：模拟了真实世界的**离群值**、**数据空缺**、**双11爆发式增长**及**非结构化客户投诉文本**。
+- **数据库对齐**：
+  - `classic_business`: 核心 ERP/CRM 供应链，含 1800+ 条情感分析反馈。
+  - `global_analysis`: 包含 AI 预测模型（Sales Forecast）及 15+ 种可视化专用表。
+  - `test`: 财务审计专用，含部门预算与实绩对比。
+  - `postgres`: 演示 PG 特性，含 JSONB 审计日志与地理信息节点。
+
 ---
 
-## 📦 快速启动
+## 🚀 快速启动
 
-1. **环境配置**: 复制 `.env.example` 并配置 API 密钥（DeepSeek, 百度千帆, MinerU 等）。
-2. **启动后端**: `cd backend && python3 main.py`
-3. **启动前端**: `cd frontend && npm run dev`
+### 方案 A：Docker 一键启动 (推荐)
+克隆项目后，在根目录执行：
+```bash
+docker-compose up --build
+```
+系统会自动启动 MySQL、PostgreSQL，并由 `db-seed` 服务**自动填充所有仿真数据**。
+
+### 方案 B：本地手动启动
+1. **环境配置**: 复制 `.env.example` 为 `.env` 并配置数据库连接。
+2. **初始化数据**:
+   ```bash
+   # 安装依赖
+   cd backend && pip install -r requirements.txt
+   # 执行一键数据构建脚本 (需确保本地 MySQL/PG 已启动)
+   python ../scripts/setup_all_data.py
+   ```
+3. **运行后端**: `python3 main.py`
+4. **运行前端**: `cd ../frontend && npm run dev`
+
 
 ---
 

@@ -62,7 +62,7 @@ DATABASES = {
         "database": os.getenv("MYSQL_DATABASE", "test"),
         "user": MYSQL_USER,
         "password": MYSQL_PASSWORD,
-        "name": "MySQL 示例数据库"
+        "name": "test"
     },
     "classic_business": {
         "type": "mysql",
@@ -71,7 +71,7 @@ DATABASES = {
         "database": "classic_business",
         "user": MYSQL_USER,
         "password": MYSQL_PASSWORD,
-        "name": "经典商业分析库 (MySQL)"
+        "name": "classic_business"
     },
     "global_analysis": {
         "type": "mysql",
@@ -80,7 +80,7 @@ DATABASES = {
         "database": "global_analysis",
         "user": MYSQL_USER,
         "password": MYSQL_PASSWORD,
-        "name": "全场景商业分析库 (MySQL)"
+        "name": "global_analysis"
     },
     "postgres_example": {
         "type": "postgresql",
@@ -89,12 +89,12 @@ DATABASES = {
         "database": os.getenv("POSTGRES_DB", "postgres"),
         "user": os.getenv("POSTGRES_USER", "postgres"),
         "password": os.getenv("POSTGRES_PASSWORD", ""),
-        "name": "PostgreSQL 示例数据库"
+        "name": "postgres"
     }
 }
 
-# 默认业务数据库 ID
-DEFAULT_BUSINESS_DB = "classic_business"
+# 默认业务数据库 ID (设为 None 强制用户手动选择)
+DEFAULT_BUSINESS_DB = None
 
 # 内存配置
 MEMORY_WINDOW_SIZE = 10  # 保留最近 N 轮对话

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { Sparkles, Loader2, Send, Paperclip, X, Trash2, Globe, Layout, Layers, Wand2 } from 'lucide-react' // 🚀 引入新图标
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
@@ -8,9 +9,10 @@ import { uploadApi, messageApi } from '@/api'
 interface InputBarProps {
   sessionId: string | null
   onMessageSent?: () => void
+  currentDb?: string | null
 }
 
-export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
+export default function InputBar({ sessionId, onMessageSent, currentDb }: InputBarProps) {
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -18,6 +20,7 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
   const { messages, addMessage } = useSessionStore()
   const [isRAGMode, setRAGMode] = useState(false)
   const [isKnowledgeMode, setKnowledgeMode] = useState(false)
+  const [useHighPrecision, setUseHighPrecision] = useState(false) // 🚀 高精度 OCR 开关
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
   const [showEngineSelect, setShowEngineSelect] = useState(false)
   const { connect, disconnect } = useSSE()
@@ -103,23 +106,23 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
       const file = files[0]
       const fileName = file.name.trim()
       const isPDF = fileName.toLowerCase().endsWith('.pdf')
+      const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName)
       const isOtherDoc = /\.(txt|md|csv|xlsx|xls)$/i.test(fileName)
       
-      console.log('文件选择触发:', fileName, '是否PDF:', isPDF, '是否其他文档:', isOtherDoc)
-      alert(`已选择文件: ${fileName}, 模式: ${isKnowledgeMode ? '深度抽取' : '普通对话'}`)
+      console.log('文件选择触发:', fileName, '是否PDF:', isPDF, '是否图片:', isImage, '是否其他文档:', isOtherDoc)
 
       if (isKnowledgeMode) {
         // 在“深度”模式下，所有支持的文档都直接进入抽取流程
-        if (isPDF || isOtherDoc) {
+        if (isPDF || isOtherDoc || isImage) {
           console.log('Entering startKnowledgeExtraction')
           startKnowledgeExtraction(file)
         } else {
           alert('该文件类型暂不支持深度知识抽取')
         }
       } else {
-        // 普通模式逻辑：如果是 PDF 弹窗选引擎，否则直接上传
-        if (isPDF) {
-          console.log('Showing engine select modal')
+        // 普通模式逻辑：如果是 PDF 或 图片，弹出引擎选择框
+        if (isPDF || isImage) {
+          console.log('Showing engine select modal for:', fileName)
           setPendingFile(file)
           setShowEngineSelect(true)
         } else if (isOtherDoc) {
@@ -136,14 +139,22 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
       }
     }
   }
+const handleStandardUpload = async (file: File) => {
+  try {
+    setIsLoading(true)
+    // 🚀 传给后端高精度标志
+    const response = await uploadApi.upload(file, sessionId!, 'light', useHighPrecision)
+    setRAGMode(true)
+    console.log('文件已索引:', file.name)
 
-  const handleStandardUpload = async (file: File) => {
-    try {
-      setIsLoading(true)
-      await uploadApi.upload(file, sessionId!)
-      setRAGMode(true)
-      console.log('文件已索引:', file.name)
-    } catch (error: any) {
+    // ✨ 在 UI 中给出明确的正面反馈
+    addMessage({
+      id: `sys_${Date.now()}`,
+      session_id: sessionId!,
+      role: 'assistant',
+      content: `✅ **图片解析成功并已存入知识库**\n文件: 《${file.name}》\n\n**识别内容预览:**\n> ${response.text_preview}...\n\n您可以基于这些数据向我发起提问了！`
+    })
+  } catch (error: any) {
       console.error('文件上传失败:', error)
       alert('文件预处理失败: ' + (error.response?.data?.detail || error.message))
     } finally {
@@ -194,7 +205,7 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
         })
       }, 1000)
 
-      const response = await uploadApi.extractKnowledge(file, sessionId!)
+      const response = await uploadApi.extractKnowledge(file, sessionId!, useHighPrecision)
       
       // 如果后端返回正在处理（异步模式）
       if (response.status === 'processing') {
@@ -345,6 +356,26 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
           </button>
+
+          {/* 🚀 高精度 OCR 模式开关 */}
+          <button
+            onClick={() => {
+              setUseHighPrecision(!useHighPrecision);
+              if (!useHighPrecision) {
+                // 自动给个提示
+                console.log('✨ 已启用百度高精度 OCR');
+              }
+            }}
+            className={`flex-shrink-0 w-9 h-9 landscape:w-7 landscape:h-7 flex items-center justify-center rounded-xl transition-all border ${
+              useHighPrecision 
+                ? 'bg-purple-500/10 border-purple-500/40 text-purple-600 shadow-[0_0_15px_rgba(168,85,247,0.2)]' 
+                : 'bg-gray-100/50 border-gray-200/50 text-gray-400 grayscale'
+            }`}
+            title={useHighPrecision ? "✨ 已开启百度高精度 OCR" : "开启百度高精度 OCR (建议处理表格/图片)"}
+          >
+            <Sparkles size={18} className={useHighPrecision ? 'animate-pulse' : ''} />
+          </button>
+          
           <input
             ref={fileInputRef}
             type="file"
@@ -357,8 +388,16 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={!sessionId ? t('chat.noSession') : (isKnowledgeMode ? '深度抽取模式：点击加号上传文档' : t('chat.placeholder'))}
-            disabled={isLoading || !sessionId}
+            placeholder={
+              !sessionId 
+                ? t('chat.noSession') 
+                : !currentDb 
+                  ? '⚠️ 请点击右上角选择一个数据库以开始分析' 
+                  : isKnowledgeMode 
+                    ? '深度抽取模式：点击加号上传文档' 
+                    : t('chat.placeholder')
+            }
+            disabled={isLoading || !sessionId || !currentDb}
             className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed landscape:text-xs landscape:leading-tight"
             rows={1}
           />
@@ -433,7 +472,7 @@ export default function InputBar({ sessionId, onMessageSent }: InputBarProps) {
             )}
             <button
               onClick={() => handleSubmit()}
-              disabled={!input.trim() || !sessionId || isLoading}
+              disabled={!input.trim() || !sessionId || isLoading || !currentDb}
               className="flex items-center gap-2 px-4 py-2 landscape:px-3 landscape:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:shadow-none"
             >
               <svg className="w-4.5 h-4.5 landscape:w-3 landscape:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">

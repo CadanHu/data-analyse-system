@@ -48,11 +48,18 @@ class DocumentProcessor:
             return f"Excel 解析失败 (请确保安装 pandas/tabulate): {str(e)}"
 
     @classmethod
-    def process_document(cls, file_path: Path, engine: str = "light") -> str:
-        """分发器"""
+    async def process_document(cls, file_path: Path, engine: str = "light", use_high_precision: bool = False) -> str:
+        """分发器 (支持图片 OCR 与高精度开关)"""
         ext = file_path.suffix.lower()
-        print(f"📥 [Processor] 开始解析文件: {file_path.name}, 引擎: {engine}")
-        
+        print(f"📥 [Processor] 开始解析文件: {file_path.name}, 引擎: {engine}, 高精度: {use_high_precision}")
+
+        # 1. 图片处理
+        if ext in {".jpg", ".jpeg", ".png", ".bmp", ".webp"}:
+            from services.ocr_service import ocr_service
+            # 🚀 修复参数名：使用 engine
+            return await ocr_service.process_file(file_path, engine=engine)
+
+        # 2. PDF 处理
         if ext == ".pdf":
             if engine == "pro":
                 return cls.process_pdf_pro(file_path)
