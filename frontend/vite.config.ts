@@ -3,23 +3,24 @@ import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import os from 'node:os'
 
-// 自动检测局域网 IPv4 地址
-function getLocalIP() {
+// 自动检测所有局域网 IPv4 地址
+function getAllLocalIPs() {
   const interfaces = os.networkInterfaces();
+  const ips = [];
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name] || []) {
-      // 忽略 IPv6 和 回环地址
       if (iface.family === 'IPv4' && !iface.internal) {
-        // 返回找到的第一个有效的局域网 IP
-        return iface.address;
+        ips.push(iface.address);
       }
     }
   }
-  return 'localhost';
+  return ips;
 }
 
-const currentIP = getLocalIP();
-console.log(`📡 [Vite] 自动探测到局域网 IP: ${currentIP}`);
+const allIPs = getAllLocalIPs();
+const currentIP = allIPs[0] || 'localhost';
+console.log(`📡 [Vite] 探测到局域网 IP 列表: ${allIPs.join(', ')}`);
+console.log(`📡 [Vite] 默认选择首个 IP: ${currentIP}`);
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {

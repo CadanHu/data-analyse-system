@@ -6,58 +6,79 @@ import type { Session, Message, User, UserLogin, RegisterCredentials, TokenRespo
 import { useAuthStore } from '@/stores/authStore'
 
 import { Capacitor } from '@capacitor/core'
+import { getMobileBaseURL } from '../mobile/api'
 
 /**
  * 动态获取 API 基础路径
- * 
- * 重要提示：
- * 1. 网页端开发：默认指向 localhost:8000，无需额外配置。
- * 2. 手机端/原生开发：由于手机无法直接访问 localhost，必须使用电脑局域网 IP。
- *    请在 frontend/ 目录下创建 `.env.development.local` 文件并添加：
- *    VITE_API_BASE_URL=http://<你的电脑局域网IP>:8000/api
  */
 export const getBaseURL = () => {
-  // 1. 如果是网页端，优先使用当前页面的域名和协议
-  if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
-    const { hostname, protocol } = window.location;
-    // 如果是开发环境且没指定端口，默认指向 8000
-    return `${protocol}//${hostname}:8000/api`;
+  // 1. 核心修复：检查 Vite 注入的变量 (例如 http://192.168.1.10:8000/api)
+  const injectedUrl = (window as any).__DEV_API_URL__;
+  
+  if (Capacitor.isNativePlatform()) {
+    // 强制：如果是原生移动端，必须是 http 开头的绝对路径
+    if (injectedUrl && typeof injectedUrl === 'string' && injectedUrl.startsWith('http')) {
+      return injectedUrl;
+    }
+    // 推断逻辑：如果注入失败，尝试从 mobile/api.ts 获取
+    return getMobileBaseURL();
   }
 
-  // 2. 只有在移动端原生环境下，才尝试自动探测的 IP
-  try {
-    const autoUrl = (window as any).__DEV_API_URL__;
-    if (autoUrl) return autoUrl;
-  } catch (e) {}
+  // 2. 网页端开发：支持局域网 IP 直接访问
+  if (typeof window !== 'undefined') {
+    const { hostname, protocol } = window.location;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return `${protocol}//${hostname}:8000/api`;
+    }
+  }
 
-  // 3. 兜底逻辑
+  // 3. 默认兜底：哪怕是本地开发也写全地址，防止 relative path 导致的歧义
   return 'http://localhost:8000/api';
 }
 
-
 const api = axios.create({
   baseURL: getBaseURL(),
-  timeout: 60000, // 🚀 全局超时提升至 60 秒，确保 OCR 和模型加载不中断
+  timeout: 60000, 
   headers: {
-    'X-Client-Platform': 'ios-simulator',
+    'X-Client-Platform': Capacitor.isNativePlatform() ? 'mobile' : 'web',
     'Cache-Control': 'no-cache',
     'Pragma': 'no-cache'
   }
 });
 
-// 请求拦截器：注入 Token
+// 核心自愈：如果在移动端但 baseURL 不含协议头，直接抛出警告
+if (Capacitor.isNativePlatform() && !api.defaults.baseURL?.startsWith('http')) {
+    console.error(`❌ [API-Fatal] 移动端路径错误: "${api.defaults.baseURL}"。请确保重启了 npm run dev！`);
+}
+
+// 打印初始化信息
+console.log(`🚀 [API-Init] 基准地址: ${api.defaults.baseURL}`);
+
+// 请求拦截器
 api.interceptors.request.use(config => {
   const token = useAuthStore.getState().token;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
-    console.log(`🔑 [API] ${config.method?.toUpperCase()} ${config.url} (Token injected)`)
   }
+  
+  // 打印绝对完整的请求地址，用于排查是否撞到 5173
+  const bUrl = config.baseURL || '';
+  const finalBase = bUrl.endsWith('/') ? bUrl.slice(0, -1) : bUrl;
+  console.log(`📡 [API-Request] ${config.method?.toUpperCase()} ${finalBase}${config.url}`)
+  
   return config;
 });
 
-// 响应拦截器：处理 401
+// 响应拦截器：检测 HTML 异常响应
 api.interceptors.response.use(
-  response => response,
+  response => {
+    // 如果响应是 HTML 源码，说明请求被 5173 误拦截了
+    if (typeof response.data === 'string' && response.data.trim().startsWith('<!doctype html>')) {
+      console.error('❌ [API-Error] 撞到了前端 5173 端口! 检查 getBaseURL 是否正确。');
+      return Promise.reject(new Error('Backend returned HTML instead of JSON. Check your API IP/Port.'));
+    }
+    return response;
+  },
   error => {
     if (error.response?.status === 401) {
       useAuthStore.getState().logout();

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { X, Terminal, RefreshCw, Maximize2, Minimize2, Move, Minus, ChevronUp } from 'lucide-react';
+import { getBaseURL } from '../api';
 
 interface LogViewerProps {
   onClose: () => void;
@@ -28,10 +29,12 @@ const LogViewer: React.FC<LogViewerProps> = ({ onClose }) => {
     }
     
     setStatus('connecting');
-    const protocol = window.location.protocol;
-    const host = window.location.hostname;
-    const port = '8000'; 
-    const url = `${protocol}//${host}:${port}/api/observability/logs/stream`;
+    
+    // 🚀 核心修复：使用全局动态 API 地址
+    const baseUrl = getBaseURL();
+    const url = `${baseUrl}/observability/logs/stream`;
+    
+    console.log(`📡 [LogViewer] 尝试连接日志流: ${url}`);
     
     try {
       const es = new EventSource(url);

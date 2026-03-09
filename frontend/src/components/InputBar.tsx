@@ -16,7 +16,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { isLoading, isThinkingMode, setThinkingMode, pendingMessage, setPendingMessage, setIsLoading } = useChatStore()
+  const { isLoading, isThinkingMode, setThinkingMode, pendingMessage, setPendingMessage, setIsLoading, isMobile, orientation } = useChatStore()
   const { messages, addMessage } = useSessionStore()
   const [isRAGMode, setRAGMode] = useState(false)
   const [isKnowledgeMode, setKnowledgeMode] = useState(false)
@@ -40,11 +40,11 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      const isLandscape = window.innerWidth > window.innerHeight;
-      const maxHeight = isLandscape ? 60 : 150;
+      const isMobileLandscape = isMobile && orientation === 'landscape'
+      const maxHeight = isMobileLandscape ? 60 : 150;
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, maxHeight)}px`
     }
-  }, [input])
+  }, [input, isMobile, orientation])
 
   const handleSubmit = async (overrideInput?: string) => {
     const textToSubmit = overrideInput || input
@@ -314,10 +314,10 @@ const handleStandardUpload = async (file: File) => {
   }
 
   return (
-    <div className="relative landscape:px-2 landscape:pb-1">
+    <div className="relative data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1">
       {showEngineSelect && (
-        <div className="absolute bottom-full left-0 mb-2 p-3 bg-white/90 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl z-50 w-64 landscape:w-80 landscape:grid landscape:grid-cols-2 landscape:gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <h3 className="text-sm font-bold text-gray-800 mb-2 landscape:col-span-2">选择处理方式</h3>
+        <div className="absolute bottom-full left-0 mb-2 p-3 bg-white/90 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl z-50 w-64 data-[mobile=true]:data-[orientation=landscape]:w-80 data-[mobile=true]:data-[orientation=landscape]:grid data-[mobile=true]:data-[orientation=landscape]:grid-cols-2 data-[mobile=true]:data-[orientation=landscape]:gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <h3 className="text-sm font-bold text-gray-800 mb-2 data-[mobile=true]:data-[orientation=landscape]:col-span-2">选择处理方式</h3>
           
           <button
             onClick={() => selectEngine('light')}
@@ -337,7 +337,7 @@ const handleStandardUpload = async (file: File) => {
 
           <button
             onClick={() => selectEngine('knowledge')}
-            className="w-full text-left p-2 rounded-xl hover:bg-purple-50 transition-colors border border-transparent hover:border-purple-200 landscape:col-span-2 mt-1"
+            className="w-full text-left p-2 rounded-xl hover:bg-purple-50 transition-colors border border-transparent hover:border-purple-200 data-[mobile=true]:data-[orientation=landscape]:col-span-2 mt-1"
           >
             <div className="text-[11px] font-bold text-purple-700">💎 深度知识抽取 (MinerU)</div>
             <div className="text-[9px] text-gray-500">识别表格/公式并结构化存入 PostgreSQL</div>
@@ -345,14 +345,14 @@ const handleStandardUpload = async (file: File) => {
         </div>
       )}
 
-      <div className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] landscape:rounded-xl">
-        <div className="flex items-start gap-2 px-4 pt-4 landscape:px-2 landscape:pt-2">
+      <div className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] data-[mobile=true]:data-[orientation=landscape]:rounded-xl">
+        <div className="flex items-start gap-2 px-4 pt-4 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pt-2">
           <button
             onClick={handleFileUpload}
-            className="flex-shrink-0 w-9 h-9 landscape:w-7 landscape:h-7 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:shadow-none"
+            className="flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
             title={t('chat.upload')}
           >
-            <svg className="w-5 h-5 landscape:w-4 landscape:h-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 data-[mobile=true]:data-[orientation=landscape]:w-4 data-[mobile=true]:data-[orientation=landscape]:h-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
           </button>
@@ -366,7 +366,7 @@ const handleStandardUpload = async (file: File) => {
                 console.log('✨ 已启用百度高精度 OCR');
               }
             }}
-            className={`flex-shrink-0 w-9 h-9 landscape:w-7 landscape:h-7 flex items-center justify-center rounded-xl transition-all border ${
+            className={`flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl transition-all border ${
               useHighPrecision 
                 ? 'bg-purple-500/10 border-purple-500/40 text-purple-600 shadow-[0_0_15px_rgba(168,85,247,0.2)]' 
                 : 'bg-gray-100/50 border-gray-200/50 text-gray-400 grayscale'
@@ -398,10 +398,10 @@ const handleStandardUpload = async (file: File) => {
                     : t('chat.placeholder')
             }
             disabled={isLoading || !sessionId || !currentDb}
-            className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed landscape:text-xs landscape:leading-tight"
+            className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed data-[mobile=true]:data-[orientation=landscape]:text-xs data-[mobile=true]:data-[orientation=landscape]:leading-tight"
             rows={1}
           />
-          <div className="flex flex-col gap-1.5 landscape:flex-row landscape:gap-1">
+          <div className="flex flex-col gap-1.5 data-[mobile=true]:data-[orientation=landscape]:flex-row data-[mobile=true]:data-[orientation=landscape]:gap-1">
             <button
               onClick={() => {
                 if (isLoading) return
@@ -409,7 +409,7 @@ const handleStandardUpload = async (file: File) => {
                 if (!isKnowledgeMode) setRAGMode(false)
               }}
               disabled={isLoading}
-              className={`flex-shrink-0 px-2 h-7 landscape:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+              className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
                 isLoading ? 'opacity-50 cursor-not-allowed' : ''
               } ${
                 isKnowledgeMode
@@ -418,12 +418,12 @@ const handleStandardUpload = async (file: File) => {
               }`}
               title="深度知识库处理（MinerU + LangExtract）"
             >
-              <span className="text-[10px] landscape:text-[9px]">深度</span>
+              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">深度</span>
             </button>
             <button
               onClick={() => !isLoading && setThinkingMode(!isThinkingMode)}
               disabled={isLoading}
-              className={`flex-shrink-0 px-2 h-7 landscape:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+              className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
                 isLoading ? 'opacity-50 cursor-not-allowed' : ''
               } ${
                 isThinkingMode
@@ -432,7 +432,7 @@ const handleStandardUpload = async (file: File) => {
               }`}
               title={isThinkingMode ? t('chat.thinkingMode') + ' ON' : t('chat.thinkingMode') + ' OFF'}
             >
-              <span className="text-[10px] landscape:text-[9px]">{t('chat.thinkingMode')}</span>
+              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.thinkingMode')}</span>
             </button>
             <button
               onClick={() => {
@@ -441,7 +441,7 @@ const handleStandardUpload = async (file: File) => {
                 if (!isRAGMode) setKnowledgeMode(false)
               }}
               disabled={isLoading}
-              className={`flex-shrink-0 px-2 h-7 landscape:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+              className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
                 isLoading ? 'opacity-50 cursor-not-allowed' : ''
               } ${
                 isRAGMode
@@ -450,35 +450,35 @@ const handleStandardUpload = async (file: File) => {
               }`}
               title={isRAGMode ? t('chat.ragMode') + `: ${ragEngine === 'light' ? t('chat.lightMode') : t('chat.proMode')}` : t('chat.ragMode') + ' OFF'}
             >
-              <span className="text-[10px] landscape:text-[9px]">{t('chat.ragMode')}</span>
+              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.ragMode')}</span>
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-between px-4 pb-3 landscape:px-2 landscape:pb-1 landscape:mt-1">
-          <div className="text-xs text-gray-400 landscape:text-[9px]">
+        <div className="flex items-center justify-between px-4 pb-3 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1 data-[mobile=true]:data-[orientation=landscape]:mt-1">
+          <div className="text-xs text-gray-400 data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
             {isLoading ? t('common.loading') : 'Enter ' + t('chat.send')}
           </div>
           <div className="flex items-center gap-2">
             {isLoading && (
               <button
                 onClick={disconnect}
-                className="flex items-center gap-2 px-4 py-2 landscape:px-3 landscape:py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all active:scale-95 border border-red-100"
+                className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all active:scale-95 border border-red-100"
               >
-                <svg className="w-4 h-4 landscape:w-3 landscape:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                <span className="text-sm font-medium landscape:text-xs">停止</span>
+                <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">停止</span>
               </button>
             )}
             <button
               onClick={() => handleSubmit()}
               disabled={!input.trim() || !sessionId || isLoading || !currentDb}
-              className="flex items-center gap-2 px-4 py-2 landscape:px-3 landscape:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] landscape:shadow-none"
+              className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
             >
-              <svg className="w-4.5 h-4.5 landscape:w-3 landscape:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-4.5 h-4.5 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
-              <span className="text-sm font-medium landscape:text-xs">{t('chat.send')}</span>
+              <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">{t('chat.send')}</span>
             </button>
           </div>
         </div>

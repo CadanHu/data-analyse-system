@@ -16,6 +16,7 @@ import Features from './components/Features'
 import Changelog from './components/Changelog'
 import UserSync from './components/UserSync'
 import LogViewer from './components/LogViewer'
+import MobileDebugPanel from './mobile/DebugPanel'
 import { Terminal } from 'lucide-react'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
@@ -28,24 +29,30 @@ export default function App() {
   const [showLogs, setShowLogs] = useState(false)
   const { isAuthenticated, user, setAuth } = useAuthStore()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
-  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen } = useChatStore()
+  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen, isMobile, setIsMobile, orientation, setOrientation } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [isMobile, setIsMobile] = useState(false)
 
   useEffect(() => {
-    // 只有在认证状态下才初始化移动端检测
-    const checkMobile = () => {
-      const isPortrait = window.innerHeight > window.innerWidth
-      setIsMobile(isPortrait && window.innerWidth < 768)
+    const checkLayout = () => {
+      const width = window.innerWidth
+      const height = window.innerHeight
+      const isPortrait = height > width
+      const currentOrientation = isPortrait ? 'portrait' : 'landscape'
+      setOrientation(currentOrientation)
+
+      // 更加鲁棒的移动端判断
+      const isMobileSize = width < 1024 || (height < 600 && width < 1024)
+      setIsMobile(isMobileSize)
     }
+
     
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    window.addEventListener('orientationchange', checkMobile)
+    checkLayout()
+    window.addEventListener('resize', checkLayout)
+    window.addEventListener('orientationchange', checkLayout)
     
     return () => {
-      window.removeEventListener('resize', checkMobile)
-      window.removeEventListener('orientationchange', checkMobile)
+      window.removeEventListener('resize', checkLayout)
+      window.removeEventListener('orientationchange', checkLayout)
     }
   }, [])
 
@@ -154,15 +161,19 @@ export default function App() {
         
         <Route element={<ProtectedRoute />}>
         <Route path="/app" element={
-          <div className="h-screen w-screen overflow-hidden bg-[#FAFAFA]">
+          <div 
+            className="fixed inset-0 h-dvh w-screen overflow-hidden bg-[#FAFAFA]"
+            data-mobile={isMobile}
+            data-orientation={orientation}
+          >
           <UserSync />
           <div className="absolute inset-0 overflow-hidden pointer-events-none">              <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40rem] h-[40rem] bg-gradient-to-br from-[#E0FFFF]/20 via-[#BFFFD9]/15 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '4s' }} />
             </div>
 
-            <div className="relative z-10 h-full p-4 md:p-6 landscape:p-0">
-              <div className="h-full rounded-3xl landscape:rounded-none overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 landscape:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
+            <div className="relative z-10 h-full p-4 md:p-6 data-[mobile=true]:data-[orientation=landscape]:p-0">
+              <div className="h-full rounded-3xl data-[mobile=true]:data-[orientation=landscape]:rounded-none overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 data-[mobile=true]:data-[orientation=landscape]:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
                 {/* 全屏覆盖层 */}
                 {isFullScreen && isRightPanelVisible && (
                   <div className="absolute inset-0 z-[200] bg-white">
@@ -174,7 +185,7 @@ export default function App() {
                   <div className="h-full flex flex-col relative">
                     <button 
                       onClick={() => navigate('/')}
-                      className="absolute left-2 z-[100] p-1 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-gray-700 transition-all shadow-sm landscape:top-1"
+                      className="absolute left-2 z-[100] p-1 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-gray-700 transition-all shadow-sm data-[mobile=true]:data-[orientation=landscape]:top-1"
                       style={{ top: 'calc(env(safe-area-inset-top) + 0.4rem)' }}
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -182,11 +193,11 @@ export default function App() {
                       </svg>
                     </button>
 
-                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm landscape:bg-white/60" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-                      <div className="flex pl-10 landscape:pl-12">
+                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm data-[mobile=true]:data-[orientation=landscape]:bg-white/60" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                      <div className="flex pl-10 data-[mobile=true]:data-[orientation=landscape]:pl-12">
                         <button
                           onClick={() => setActiveTab('sessions')}
-                          className={`flex-1 px-4 py-3 landscape:py-1 text-sm landscape:text-[11px] font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 data-[mobile=true]:data-[orientation=landscape]:py-1 text-sm data-[mobile=true]:data-[orientation=landscape]:text-[11px] font-medium transition-all ${
                             activeTab === 'sessions'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -196,7 +207,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setActiveTab('chat')}
-                          className={`flex-1 px-4 py-3 landscape:py-1 text-sm landscape:text-[11px] font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 data-[mobile=true]:data-[orientation=landscape]:py-1 text-sm data-[mobile=true]:data-[orientation=landscape]:text-[11px] font-medium transition-all ${
                             activeTab === 'chat'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -206,7 +217,7 @@ export default function App() {
                         </button>
                         <button
                           onClick={() => setActiveTab('charts')}
-                          className={`flex-1 px-4 py-3 landscape:py-1 text-sm landscape:text-[11px] font-medium transition-all ${
+                          className={`flex-1 px-4 py-3 data-[mobile=true]:data-[orientation=landscape]:py-1 text-sm data-[mobile=true]:data-[orientation=landscape]:text-[11px] font-medium transition-all ${
                             activeTab === 'charts'
                               ? 'text-[#BFFFD9] border-b-2 border-[#BFFFD9]'
                               : 'text-gray-500 hover:text-gray-700'
@@ -295,6 +306,9 @@ export default function App() {
       {showLogs && (
         <LogViewer onClose={() => setShowLogs(false)} />
       )}
+
+      {/* 📱 移动端调试面板，仅在原生平台可见 */}
+      <MobileDebugPanel />
     </ErrorBoundary>
   )
 }

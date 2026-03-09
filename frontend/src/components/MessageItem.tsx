@@ -405,7 +405,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 {thinkingCollapsed ? '查看 AI 思考过程' : '收起思考过程'}
               </button>
               {!thinkingCollapsed && (
-                <div className="mt-3 bg-amber-50/50 rounded-xl p-4 text-xs text-gray-600 italic border border-amber-100/50 markdown-body prose prose-sm max-w-none landscape:text-[10px]">
+                <div className="mt-3 bg-amber-50/50 rounded-xl p-4 text-xs text-gray-600 italic border border-amber-100/50 markdown-body prose prose-sm max-w-none data-[mobile=true]:data-[orientation=landscape]:text-[10px]">
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                     {preprocessContent(message.thinking)}
                   </ReactMarkdown>
@@ -414,7 +414,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             </div>
           )}
           
-          <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed overflow-x-auto markdown-body landscape:text-[11px]">
+          <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed overflow-x-auto markdown-body data-[mobile=true]:data-[orientation=landscape]:text-[11px]">
             {isEditing ? (
               <div className="flex flex-col gap-2 min-w-[260px] max-w-full">
                 <textarea
