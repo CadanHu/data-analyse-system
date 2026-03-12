@@ -1,95 +1,88 @@
-# DataPulse - 智能数据分析助手
+# Data Analyse System
 
-DataPulse 是一款基于 AI 的全栈数据分析系统，旨在通过自然语言与多种文档输入（PDF, 图片, Markdown）实现深度的知识提取、结构化分析与商业级可视化报表。
+An open-source AI-assisted data analysis system for building automated data pipelines, visualization workflows, and intelligent insights.
 
-## 🌟 核心新特性 (v1.9.0)
+[![GitHub Topics](https://img.shields.io/badge/topics-data--analysis%20%7C%20python%20%7C%20automation%20%7C%20ai--tools%20%7C%20llm-blue)](https://github.com/CadanHu/data-analyse-system)
 
-### 1. 💎 深度知识提取 (Deep Extraction)
-- **多引擎支持**：集成 MinerU (云端) 与 Baidu Qianfan DeepSeek-OCR，支持扫描版 PDF 与复杂表格的高精度识别。
-- **标题感知分块**：引入 `TitleBasedMarkdownSplitter`，保留文档层级结构，实现毫秒级的精准 RAG 溯源。
-- **高并发分析**：利用异步线程池并行分析文档章节，大幅提升处理速度。
+## Features
 
-### 2. 📊 智能报告工厂
-- **炫酷大屏看板**：生成基于 ECharts 的深色极客风可视化看板，支持 Grid 响应式布局。
-- **离线 PDF 导出**：集成 WeasyPrint 引擎，支持生成带封面、页码、专业排版的离线商业报告（已修复 macOS 字体兼容性）。
-- **按需生成**：支持手动触发深度洞察，节省 Token 消耗并提供进度感知。
+- **AI-Powered Data Insights**: Automatically generate statistical summaries and strategic recommendations using LLMs (OpenAI, Gemini, Claude, DeepSeek).
+- **Automated Analysis Pipelines**: End-to-end processing from raw data ingestion to structured report generation.
+- **Smart Visualization**: Dynamic ECharts generation and interactive dashboards with responsive layouts.
+- **Deep Knowledge Extraction**: Integrated MinerU and OCR engines for processing complex PDFs, images, and Markdown.
+- **Enterprise-Grade Simulation**: Includes massive datasets (160k+ orders) for stress-testing SQL generation and analysis.
+- **Mobile-Ready**: Precision-optimized interface for mobile devices with real-time SSE log streaming.
 
-### 3. 🧠 交互与反馈闭环
-- **对话分支管理**：支持“重新生成”答案，自动处理对话分叉并持久化多个版本。
-- **反馈评价系统**：支持对 AI 回答点赞/点踩，并可提交详细的问题报告。
-- **Token 精准统计**：在数据库层面记录每一条消息的提示与回答消耗，成本一目了然。
+## Why this project exists
 
-### 4. 🛠️ 移动端深度优化 (v1.9.5 新增)
-- **智能连接器 (DEBUG)**：内置移动端专属调试面板，支持局域网 IP 自动探测与手动覆盖，解决“真机连不上后端”的老大难问题。
-- **样式完美隔离**：重构了 Tailwind 响应式架构，确保移动端横屏样式不再误伤网页端，完美适配刘海屏。
-- **实时日志透传**：手机端现已支持实时观测后端内核日志流 (SSE)，调试无盲区。
+Many developers and analysts need simple, powerful tools to explore datasets and build analysis workflows without complex setups. This project provides a lightweight yet extensible system to automate common data analysis tasks while leveraging the latest Large Language Models to provide human-like insights.
+
+## Future roadmap
+
+- **AI-Assisted Data Insights**: Deeper correlation analysis and predictive modeling.
+- **Automated Report Generation**: One-click professional PDF/HTML reports with advanced styling.
+- **LLM-Based Analysis Tools**: Specialized agents for financial auditing and supply chain optimization.
+- **Automated Pull Request Review**: Integrated AI workflows for code and data schema changes.
+
+## Example workflow
+
+1. **Load Dataset**: Ingest CSV, Excel, or SQL databases.
+2. **Run Automated Analysis**: AI agents classify intent and generate optimized SQL queries.
+3. **Generate Visualization**: Real-time rendering of charts based on data patterns.
+4. **Export Report**: Generate professional PDF or interactive HTML dashboards.
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/CadanHu/data-analyse-system.git
+
+# Quick Start with Docker (Recommended)
+docker-compose up --build
+```
+
+## AI-Assisted Analysis
+
+The project is designed to support AI-powered workflows out of the box. You can use the built-in analysis module to get instant insights from any pandas DataFrame.
+
+Example:
+
+```python
+import pandas as pd
+from ai_analysis import analyze_dataset
+
+# Load your data
+df = pd.read_csv("your_data.csv")
+
+# Get AI insights
+insights = analyze_dataset(df)
+print(insights)
+```
 
 ---
 
-## 🏗️ 技术架构
+# 中文文档 (Chinese Documentation)
 
-- **后端**: FastAPI (Python 3.12) + SQLAlchemy + PostgreSQL/MySQL
-- **AI 编排**: LangChain + DeepSeek-V3/R1 + Baidu Qianfan API
-- **文档处理**: MinerU + WeasyPrint (PDF 渲染)
-- **前端**: React + Vite + Tailwind CSS + Zustand
-- **移动端**: Capacitor (iOS/Android 适配中)
+DataPulse 是一款基于 AI 的全栈数据分析系统，旨在通过自然语言与多种文档输入实现深度的知识提取、结构化分析与商业级可视化报表。
 
-## 🗄️ 仿真数据库环境 (Enterprise Simulation)
+## 🌟 核心特性
 
-本项目内置了四个**企业级仿真数据库**，专为测试 AI 的复杂 SQL 生成、大数据量分析及多维可视化能力而设计。
+- **💎 深度知识提取**: 集成 MinerU 与 OCR，支持扫描版 PDF 与复杂表格高精度识别。
+- **📊 智能报告工厂**: 生成基于 ECharts 的深色极客风看板，支持离线 PDF 导出。
+- **🧠 交互与反馈闭环**: 支持对话分支管理、重新生成及 Token 精准统计。
+- **🛠️ 移动端适配**: 内置调试面板，支持局域网自动探测与实时日志流。
 
-### 核心特性
-- **数据规模**：包含 **16万+** 真实订单记录及 **50万+** 用户行为点击流日志。
-- **业务复杂度**：支持**多租户架构**（5个全球分公司）、**多币种自动换算**、**价格变动历史追踪**。
-- **真实噪声**：模拟了真实世界的**离群值**、**数据空缺**、**双11爆发式增长**及**非结构化客户投诉文本**。
-- **数据库对齐**：
-  - `classic_business`: 核心 ERP/CRM 供应链，含 1800+ 条情感分析反馈。
-  - `global_analysis`: 包含 AI 预测模型（Sales Forecast）及 15+ 种可视化专用表。
-  - `test`: 财务审计专用，含部门预算与实绩对比。
-  - `postgres`: 演示 PG 特性，含 JSONB 审计日志与地理信息节点。
+## 🚀 快速启动 (方案 A：Docker)
 
----
-
-## 🚀 快速启动
-
-### 方案 A：Docker 一键启动 (推荐)
 克隆项目后，在根目录执行：
 ```bash
 docker-compose up --build
 ```
-系统会自动启动 MySQL、PostgreSQL，并由 `db-seed` 服务**自动填充所有仿真数据**。
-
-### 方案 B：本地手动启动
-1. **环境配置**: 复制 `.env.example` 为 `.env` 并配置数据库连接。
-2. **初始化数据**:
-   ```bash
-   # 安装依赖
-   cd backend && pip install -r requirements.txt
-   # 执行一键数据构建脚本 (需确保本地 MySQL/PG 已启动)
-   python ../scripts/setup_all_data.py
-   ```
-3. **运行后端**: `python3 main.py`
-4. **运行前端**: `cd ../frontend && npm run dev`
-
+系统会自动启动所有服务并填充 16万+ 仿真业务数据。
 
 ---
 
-## 📝 架构演进 (History)
+## GitHub Topics (Recommended)
 
-- **v1.9.0 (2026-03-08)**: 
-    - 集成 MinerU 与百度 OCR 深度提取；
-    - 实现专业离线 PDF 报告引擎与 Token 成本精准核算；
-    - 增加消息反馈系统与对话分支管理；
-    - 修复全屏渲染与 macOS 字体显示问题。
-- **v1.7.0 (2026-02-27)**: 扩展 15+ 种进阶可视化图表（雷达图、漏斗图等）；引入 AI 驱动的 ECharts 动态配置生成引擎。
-- **v1.6.0**: 彻底废除 SQLite，全面转向 SQLAlchemy (MySQL/PG)；标准化 SSE 流式协议。
-- **v1.5.0**: 实现 Android/iOS 移动端适配，引入思考可视化方案。
-- **v1.4.0**: 集成 RAG 知识库功能，支持 MinerU 与 PyMuPDF 解析。
-
----
-
-## ⚠️ 已知问题 (已修复关键项)
-- ✅ **移动端布局崩溃** (已修复：通过 h-dvh 与样式隔离机制解决)
-* ✅ **手机端 API 401/404** (已修复：通过智能 API 连接器解决)
-* 📄 **ECharts 图片缺失** (待优化：WeasyPrint 静态渲染限制，计划引入后端截屏)
-* 🧠 **长文本截断** (待优化：DeepSeek 输出长度限制，计划引入流式内容动态拼接)
+To help others find this project, please add these topics to your repository settings:
+`data-analysis`, `python`, `automation`, `ai-tools`, `llm`, `fastapi`, `langchain`.

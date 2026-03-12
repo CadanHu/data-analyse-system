@@ -181,7 +181,12 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
             
             # 🚀 革命性升级：不再硬编码关键词，而是利用 AI 自动重写检索词
             history_str = await memory_manager.get_history_text(request.session_id)
-            search_query = await agent.rewrite_query_for_rag(request.question, history_str)
+            search_query = await agent.rewrite_query_for_rag(
+                request.question, 
+                history_str,
+                provider=request.model_provider,
+                model_name=request.model_name
+            )
             
             if search_query != request.question:
                 print(f"🔄 [RAG] 自动重写查询词: '{request.question}' -> '{search_query}'")
@@ -231,12 +236,14 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
             agent = get_sql_agent()
             history_str = await memory_manager.get_history_text(request.session_id)
             
-            # 🚀 关键修复：使用显式的 knowledge_context 参数，不再暴力拼接字符串
+            # 🚀 关键修复：使用显式的 knowledge_context 参数，并支持多模型切换
             async for event in agent.process_question_with_history(
                 request.question, 
                 history_str, 
                 knowledge_context=rag_context, 
-                enable_thinking=request.enable_thinking
+                enable_thinking=request.enable_thinking,
+                provider=request.model_provider,
+                model_name=request.model_name
             ):
                 event_type = event.get("event")
                 event_data = event.get("data", {})
@@ -257,7 +264,11 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                     # AI 智能生成标题
                     current_title = session.get("title", "")
                     if current_title.startswith("新会话") or not current_title:
-                        new_title = await agent.generate_ai_title(request.question)
+                        new_title = await agent.generate_ai_title(
+                            request.question,
+                            provider=request.model_provider,
+                            model_name=request.model_name
+                        )
                         from database.session_db import session_db
                         await session_db.update_session_title(request.session_id, user_id, new_title)
                         event_data["session_title"] = new_title 

@@ -5,156 +5,127 @@ import json
 import re
 import httpx
 from typing import Dict, Any, Optional, List, AsyncGenerator
-from config import API_KEY, API_BASE_URL, CHAT_MODEL, REASONER_MODEL, MAX_RETRY_COUNT
-from utils.prompt_templates import (
-    SQL_GENERATION_PROMPT, SUMMARY_PROMPT, CHART_CONFIG_PROMPT, 
-    INTENT_CLASSIFICATION_PROMPT, CHAT_RESPONSE_PROMPT, PLAN_GENERATION_PROMPT
-)
+from config import API_KEY, API_BASE_URL, CHAT_MODEL, REASONER_MODEL, MAX_RETRY_COUNT, ModelProvider, DEFAULT_PROVIDER
+from services.llm_factory import llm_factory
 from services.schema_service import SchemaService
 from services.sql_executor import SQLExecutor
 
-
 class SQLAgent:
-    async def _chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
-        # 🚀 调试：打印发送给模型的全量 Prompt (每一个字都不能拉下)
-        print(f"\n📤 [Prompt (同步) 全量审计] >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    async def _chat_completion(
+        self, 
+        messages: List[Dict[str, str]], 
+        temperature: float = 0.7,
+        provider: str = None,
+        model_name: str = None
+    ) -> str:
+        provider = provider or DEFAULT_PROVIDER
+        model_name = model_name or llm_factory.get_model_params(provider)["model"]
+        
+        # 🚀 调试：打印发送给模型的全量 Prompt
+        print(f"\n📤 [Prompt ({provider})] >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         import json
         print(json.dumps(messages, ensure_ascii=False, indent=2))
         print(f"<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
+
+        # 使用 LangChain 统一调用
+        llm = llm_factory.get_langchain_model(provider=provider, model_name=model_name, temperature=temperature)
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
         
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{API_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": CHAT_MODEL,
-                    "messages": messages,
-                    "temperature": temperature
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-            
-            # --- 核心改进：打印详细交互日志 ---
-            print(f"\n📡 [DeepSeek 交互详情]")
-            print(f"📥 [模型]: {result.get('model')}")
-            raw_content = result.get('choices')[0].get('message').get('content')
-            print(f"📥 [原始响应]: {json.dumps(raw_content, ensure_ascii=False, indent=2)}")
-            usage = result.get("usage", {})
-            print(f"💰 [Token 消耗]: 总计 {usage.get('total_tokens', 0)}, 提示 {usage.get('prompt_tokens', 0)}, 回答 {usage.get('completion_tokens', 0)}")
-            print("-" * 30)
-            
-            return result["choices"][0]["message"]["content"]
+        lc_messages = []
+        for m in messages:
+            if m["role"] == "system": lc_messages.append(SystemMessage(content=m["content"]))
+            elif m["role"] == "user": lc_messages.append(HumanMessage(content=m["content"]))
+            elif m["role"] == "assistant": lc_messages.append(AIMessage(content=m["content"]))
+        
+        response = await llm.ainvoke(lc_messages)
+        content = response.content
+        
+        print(f"\n📡 [{provider} 交互详情]")
+        print(f"📥 [模型]: {model_name}")
+        print(f"📥 [响应]: {content[:200]}...")
+        print("-" * 30)
+        
+        return content
     
     async def _chat_completion_stream(
         self, 
         messages: List[Dict[str, str]], 
         temperature: float = 0.7,
-        enable_thinking: bool = True
+        enable_thinking: bool = True,
+        provider: str = None,
+        model_name: str = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        # 根据开关选择模型
-        active_model = REASONER_MODEL if enable_thinking else CHAT_MODEL
+        provider = provider or DEFAULT_PROVIDER
         
-        # 🚀 调试：打印发送给模型的全量 Prompt (每一个字都不能拉下)
-        print(f"\n📤 [Prompt 全量审计] >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        # 深度处理模型选择
+        if not model_name:
+            params = llm_factory.get_model_params(provider, is_reasoning=enable_thinking)
+            model_name = params["model"]
+        
+        print(f"\n📤 [Prompt ({provider}) 流式请求] >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         import json
         print(json.dumps(messages, ensure_ascii=False, indent=2))
         print(f"<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
 
-        request_body = {
-            "model": active_model,
-            "messages": messages,
-            "temperature": temperature,
-            "stream": True,
-            "stream_options": {"include_usage": True} # 启用精准结算
-        }
+        llm = llm_factory.get_langchain_model(
+            provider=provider, 
+            model_name=model_name, 
+            temperature=temperature,
+            streaming=True
+        )
         
-        print(f"\n📡 [DeepSeek 流式请求发起]")
-        print(f"📤 [模型]: {active_model} | [思考模式]: {enable_thinking}")
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        lc_messages = []
+        for m in messages:
+            if m["role"] == "system": lc_messages.append(SystemMessage(content=m["content"]))
+            elif m["role"] == "user": lc_messages.append(HumanMessage(content=m["content"]))
+            elif m["role"] == "assistant": lc_messages.append(AIMessage(content=m["content"]))
+
+        print(f"\n📡 [{provider} 流式请求发起]")
+        print(f"📤 [模型]: {model_name} | [思考模式]: {enable_thinking}")
         
         full_content = ""
         full_reasoning = ""
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                f"{API_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json=request_body
-            ) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    print(f"❌ DeepSeek API 错误: {response.status_code} - {error_text.decode()}")
-                response.raise_for_status()
-                
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data_str = line[6:]
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            
-                            # 1. 精确结算日志 (通常在最后一个 chunk)
-                            if chunk.get("usage"):
-                                usage = chunk["usage"]
-                                print(f"\n💰 [流式 Token 结算]")
-                                print(f"   - 总计: {usage.get('total_tokens', 0)}")
-                                print(f"   - 提示 (Prompt): {usage.get('prompt_tokens', 0)}")
-                                print(f"   - 回答 (Completion): {usage.get('completion_tokens', 0)}")
-                                if usage.get('completion_tokens_details', {}).get('reasoning_tokens'):
-                                    print(f"   - 推理 (Reasoning): {usage['completion_tokens_details']['reasoning_tokens']}")
-                            
-                            # 2. 内容处理与实时提示
-                            if chunk.get("choices"):
-                                delta = chunk["choices"][0].get("delta", {})
-                                
-                                # 实时捕获思考
-                                reasoning = delta.get("reasoning_content", "")
-                                if reasoning:
-                                    if not full_reasoning:
-                                        print("🧠 [AI 正在思考...]")
-                                    full_reasoning += reasoning
-                                
-                                # 实时捕获回答
-                                content = delta.get("content", "")
-                                if content:
-                                    full_content += content
-                                
-                                if reasoning or content:
-                                    yield {
-                                        "reasoning_content": reasoning,
-                                        "content": content
-                                    }
-                        except json.JSONDecodeError:
-                            pass
-                
-                # 请求结束时，打印完整响应内容
-                if full_content:
-                    print(f"\n📥 [AI 完整回答]:\n{full_content}")
-                if full_reasoning:
-                    print(f"\n🧠 [AI 完整思考过程]:\n{full_reasoning}")
-                print("-" * 30)
-    async def generate_ai_title(self, question: str) -> str:
+        async for chunk in llm.astream(lc_messages):
+            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+            
+            # 处理不同供应商的思考/推理内容
+            reasoning = ""
+            # DeepSeek 特有逻辑 (如果通过 LangChain 调用，可能在 additional_kwargs 中)
+            if hasattr(chunk, "additional_kwargs"):
+                reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+            
+            # Gemini/Claude 的思考内容可能也在 metadata 或其他地方，
+            # 但目前主流 LangChain 适配器将大部分内容放在 content 中
+            # 这里我们通过 yield 统一结构
+            
+            if reasoning:
+                full_reasoning += reasoning
+                yield {"reasoning_content": reasoning, "content": ""}
+            
+            if content:
+                full_content += content
+                yield {"reasoning_content": "", "content": content}
+
+        # 请求结束时日志
+        if full_content:
+            print(f"\n📥 [{provider} 完整回答]:\n{full_content[:500]}...")
+        print("-" * 30)
+    async def generate_ai_title(self, question: str, provider: str = None, model_name: str = None) -> str:
         """根据对话内容生成专业标题 (AI 智能版)"""
         from utils.prompt_templates import SESSION_TITLE_PROMPT
         prompt = SESSION_TITLE_PROMPT.format(question=question)
         messages = [{"role": "user", "content": prompt}]
         try:
             # 使用较快的 chat 模型，低温确保稳定性
-            title = await self._chat_completion(messages, temperature=0.3)
+            title = await self._chat_completion(messages, temperature=0.3, provider=provider, model_name=model_name)
             return title.strip().replace('"', '').replace("'", "")
         except Exception as e:
             print(f"⚠️ [Agent] 生成标题失败: {e}")
             return question[:15] + "..."
 
-    async def rewrite_query_for_rag(self, question: str, history: str) -> str:
+    async def rewrite_query_for_rag(self, question: str, history: str, provider: str = None, model_name: str = None) -> str:
         """利用 AI 将用户问题重写为更精准的检索词 (解决追问场景)"""
         if not history or len(question) > 30:
             return question # 如果问题足够长或没历史，直接返回
@@ -175,18 +146,18 @@ class SQLAgent:
         
         try:
             # 使用同步 chat 接口快速获取结果
-            rewritten = await self._chat_completion([{"role": "user", "content": prompt}], temperature=0.1)
+            rewritten = await self._chat_completion([{"role": "user", "content": prompt}], temperature=0.1, provider=provider, model_name=model_name)
             return rewritten.strip().replace('"', '').replace("'", "")
         except:
             return question
 
-    async def _classify_intent(self, question: str) -> str:
+    async def _classify_intent(self, question: str, provider: str = None, model_name: str = None) -> str:
         prompt = INTENT_CLASSIFICATION_PROMPT.format(question=question)
         messages = [
             {"role": "system", "content": "你是一个智能助手，负责根据用户问题判断其意图。"},
             {"role": "user", "content": prompt}
         ]
-        response_content = await self._chat_completion(messages, temperature=0.0)
+        response_content = await self._chat_completion(messages, temperature=0.0, provider=provider, model_name=model_name)
         try:
             intent_json = json.loads(response_content)
             return intent_json.get("intent", "chat")
@@ -204,7 +175,9 @@ class SQLAgent:
         database_type_info: str = "",
         database_version: str = "unknown",
         table_list_query: str = "请使用：SHOW TABLES",
-        quote_char: str = '"'
+        quote_char: str = '"',
+        provider: str = None,
+        model_name: str = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = SQL_GENERATION_PROMPT.format(
             database_name=database_name,
@@ -224,7 +197,7 @@ class SQLAgent:
         ]
 
         full_content = ""
-        async for delta in self._chat_completion_stream(messages, temperature=0.1, enable_thinking=enable_thinking):
+        async for delta in self._chat_completion_stream(messages, temperature=0.1, enable_thinking=enable_thinking, provider=provider, model_name=model_name):
             if delta["reasoning_content"]:
                 yield {"type": "reasoning", "content": delta["reasoning_content"]}
             if delta["content"]:
@@ -241,7 +214,9 @@ class SQLAgent:
         enable_thinking: bool = False,
         database_name: str = "未知",
         database_type: str = "未知",
-        tables: str = "未知"
+        tables: str = "未知",
+        provider: str = None,
+        model_name: str = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = CHAT_RESPONSE_PROMPT.format(
             history=history,
@@ -258,7 +233,7 @@ class SQLAgent:
         ]
 
         full_content = ""
-        async for delta in self._chat_completion_stream(messages, temperature=0.7, enable_thinking=enable_thinking):
+        async for delta in self._chat_completion_stream(messages, temperature=0.7, enable_thinking=enable_thinking, provider=provider, model_name=model_name):
             if delta["reasoning_content"]:
                 yield {"type": "reasoning", "content": delta["reasoning_content"]}
             if delta["content"]:
@@ -286,7 +261,9 @@ class SQLAgent:
         self,
         sql_result: str,
         chart_type: str,
-        enable_thinking: bool = False
+        enable_thinking: bool = False,
+        provider: str = None,
+        model_name: str = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = SUMMARY_PROMPT.format(
             sql_result=sql_result,
@@ -299,7 +276,7 @@ class SQLAgent:
         ]
 
         full_content = ""
-        async for delta in self._chat_completion_stream(messages, temperature=0.3, enable_thinking=enable_thinking):
+        async for delta in self._chat_completion_stream(messages, temperature=0.3, enable_thinking=enable_thinking, provider=provider, model_name=model_name):
             if delta["reasoning_content"]:
                 yield {"type": "reasoning", "content": delta["reasoning_content"]}
             if delta["content"]:
@@ -312,7 +289,9 @@ class SQLAgent:
         self,
         sql_result: Dict[str, Any],
         chart_type: str,
-        viz_config: Optional[Dict[str, Any]] = None
+        viz_config: Optional[Dict[str, Any]] = None,
+        provider: str = None,
+        model_name: str = None
     ) -> Dict[str, Any]:
         """
         根据 SQL 结果和 AI 建议生成图表配置
@@ -344,7 +323,7 @@ class SQLAgent:
                 "treemap", "sankey", "boxplot", "waterfall", "candlestick"
             ]
             if chart_type in complex_types:
-                ai_config = await self._generate_complex_chart_config(sql_result, chart_type)
+                ai_config = await self._generate_complex_chart_config(sql_result, chart_type, provider=provider, model_name=model_name)
                 if ai_config:
                     return ai_config
 
@@ -410,7 +389,7 @@ class SQLAgent:
             print(f"❌ 图表生成错误: {str(e)}")
             return self._get_default_chart_config(chart_type)
 
-    async def _generate_complex_chart_config(self, sql_result: Dict[str, Any], chart_type: str) -> Optional[Dict[str, Any]]:
+    async def _generate_complex_chart_config(self, sql_result: Dict[str, Any], chart_type: str, provider: str = None, model_name: str = None) -> Optional[Dict[str, Any]]:
         """调用 AI 生成复杂图表的 ECharts 配置"""
         from utils.json_utils import json_dumps
         try:
@@ -423,7 +402,7 @@ class SQLAgent:
                 {"role": "user", "content": prompt}
             ]
             
-            response = await self._chat_completion(messages, temperature=0.2)
+            response = await self._chat_completion(messages, temperature=0.2, provider=provider, model_name=model_name)
             
             # 提取 JSON
             json_match = re.search(r'\{[\s\S]*\}', response)
@@ -446,10 +425,15 @@ class SQLAgent:
         question: str,
         history_str: str,
         knowledge_context: str = "", # 🚀 新增：知识库检索内容
-        enable_thinking: bool = False
+        enable_thinking: bool = False,
+        provider: str = None,
+        model_name: str = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """增强的处理逻辑：集成 SQL 引擎与 RAG 知识库"""
         from config import DATABASES
+        
+        # 统一 provider
+        provider = provider or DEFAULT_PROVIDER
         
         schema = await SchemaService.get_full_schema(include_sample=True)
         tables = await SchemaService.get_table_names()
@@ -479,7 +463,7 @@ class SQLAgent:
         yield {"event": "thinking", "data": {"content": "正在理解您的问题..."}}
         yield {"event": "schema_loaded", "data": {"tables": tables}}
 
-        intent = await self._classify_intent(question)
+        intent = await self._classify_intent(question, provider=provider, model_name=model_name)
 
         if intent == "chat":
             full_summary_reasoning = ""
@@ -491,7 +475,9 @@ class SQLAgent:
                 enable_thinking=enable_thinking, 
                 database_name=database_name, 
                 database_type=db_type, 
-                tables=", ".join(tables)
+                tables=", ".join(tables),
+                provider=provider,
+                model_name=model_name
             ):
                 if stream_event["type"] == "reasoning":
                     full_summary_reasoning += stream_event["content"]
@@ -516,7 +502,7 @@ class SQLAgent:
             )
             full_plan = ""
             full_reasoning = ""
-            async for delta in self._chat_completion_stream([{"role": "system", "content": "你是一个专业的数据分析顾问。"}, {"role": "user", "content": plan_prompt}], temperature=0.3, enable_thinking=enable_thinking):
+            async for delta in self._chat_completion_stream([{"role": "system", "content": "你是一个专业的数据分析顾问。"}, {"role": "user", "content": plan_prompt}], temperature=0.3, enable_thinking=enable_thinking, provider=provider, model_name=model_name):
                 if delta["reasoning_content"]:
                     full_reasoning += delta["reasoning_content"]
                     yield {"event": "model_thinking", "data": {"content": delta["reasoning_content"]}}
@@ -541,7 +527,7 @@ class SQLAgent:
                 full_reasoning = ""
                 sql_response = None
                 # 🚀 关键：注入 SQL 生成过程
-                async for stream_event in self.generate_sql_stream(current_question, schema, history_str, knowledge_context, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char):
+                async for stream_event in self.generate_sql_stream(current_question, schema, history_str, knowledge_context, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char, provider=provider, model_name=model_name):
                     if stream_event["type"] == "reasoning":
                         full_reasoning += stream_event["content"]
                         yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
@@ -563,12 +549,12 @@ class SQLAgent:
                 yield {"event": "sql_result", "data": sql_result}
                 
                 # 关键：传递 viz_config
-                chart_config = await self.generate_chart_config(sql_result, chart_type, viz_config)
+                chart_config = await self.generate_chart_config(sql_result, chart_type, viz_config, provider=provider, model_name=model_name)
                 yield {"event": "chart_ready", "data": {"option": chart_config, "chart_type": chart_config.get("chart_type", chart_type)}}
                 
                 formatted_result = SQLExecutor.format_sql_result(sql_result)
                 summary = ""
-                async for stream_event in self.generate_summary_stream(formatted_result, chart_type, enable_thinking):
+                async for stream_event in self.generate_summary_stream(formatted_result, chart_type, enable_thinking, provider=provider, model_name=model_name):
                     if stream_event["type"] == "reasoning":
                         yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
                     elif stream_event["type"] == "content":

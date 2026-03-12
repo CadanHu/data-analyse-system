@@ -5,7 +5,6 @@
 from typing import Annotated, TypedDict, List, Dict, Any, Optional
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -14,7 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import API_KEY, API_BASE_URL, MODEL_NAME
+from config import API_KEY, API_BASE_URL, MODEL_NAME, DEFAULT_PROVIDER
+from services.llm_factory import llm_factory
 from databases.database_manager import DatabaseManager
 from services.sql_executor import SQLExecutor
 
@@ -76,14 +76,14 @@ def get_database_schema() -> str:
 class DataAnalysisAgent:
     """基于 LangGraph 的数据分析 Agent"""
 
-    def __init__(self, db_key: str = "business"):
+    def __init__(self, db_key: str = "business", provider: str = None, model_name: str = None):
         self.db_key = db_key
         self.tools = [sql_query_tool, get_database_schema]
         
-        self.llm = ChatOpenAI(
-            model=MODEL_NAME,
-            base_url=API_BASE_URL,
-            api_key=API_KEY,
+        provider = provider or DEFAULT_PROVIDER
+        self.llm = llm_factory.get_langchain_model(
+            provider=provider,
+            model_name=model_name,
             temperature=0.1
         )
         

@@ -1,0 +1,20 @@
+name: AI PR Review
+
+on:
+  pull_request:
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: AI review
+        run: |
+          echo "AI review placeholder"
+          echo "This project is configured to support AI-assisted PR reviews."
+          # To enable, you can integrate with tools like:
+          # - coderabbitai/ai-pr-reviewer
+          # - google-github-actions/get-secretmanager-secrets (for API Keys)
+          # - Custom python script using ai_analysis.py logic

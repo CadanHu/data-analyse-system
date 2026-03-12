@@ -37,3 +37,5 @@ class ChatRequest(BaseModel):
     parent_id: Optional[str] = None # 用于分支功能：如果用户修改了中间的消息，则带上父消息 ID
     enable_thinking: bool = False
     enable_rag: bool = False
+    model_provider: Optional[str] = None # 可选：deepseek, openai, gemini, claude
+    model_name: Optional[str] = None # 可选：具体模型名称

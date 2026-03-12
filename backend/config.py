@@ -36,10 +36,33 @@ SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER)
 
 # API 配置
 API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # DeepSeek API Key
-API_BASE_URL = "https://api.deepseek.com"  # DeepSeek API 地址
+API_BASE_URL = os.getenv("DEEPSEEK_API_BASE_URL", "https://api.deepseek.com")  # DeepSeek API 地址
 CHAT_MODEL = "deepseek-chat"      # 标准对话模型 (V3)
 REASONER_MODEL = "deepseek-reasoner"  # 深度思考模型 (R1)
 MODEL_NAME = CHAT_MODEL # 默认模型
+
+# OpenAI 配置
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+# Gemini 配置
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-pro")
+
+# Claude 配置
+CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", "")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20240620")
+
+# 模型供应商常量
+class ModelProvider:
+    DEEPSEEK = "deepseek"
+    OPENAI = "openai"
+    GEMINI = "gemini"
+    CLAUDE = "claude"
+
+# 默认供应商
+DEFAULT_PROVIDER = os.getenv("DEFAULT_LLM_PROVIDER", ModelProvider.DEEPSEEK)
 
 # LangChain 配置
 LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"

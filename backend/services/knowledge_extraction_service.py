@@ -3,14 +3,13 @@ import re
 import sys
 import json
 import asyncio
-import textwrap
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from utils.logger import logger
-from database.knowledge_db import knowledge_db
 from utils.prompt_templates import VISUALIZATION_REPORT_PROMPT
-from openai import AsyncOpenAI
+from config import API_KEY, API_BASE_URL, CHAT_MODEL, ModelProvider, DEFAULT_PROVIDER
+from services.llm_factory import llm_factory
 
 # 动态定位 external/langextract 并加入 sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -99,7 +98,7 @@ class KnowledgeDistiller:
 
     @staticmethod
     def build_visualization_context(chunks_analysis: List[Dict[str, Any]]) -> str:
-        """根据切分块的分析结果构建紧凑上下文 (集成自 DataAnalysis_main)"""
+        """根据切分块的分析结果构建紧凑上下文"""
         context_parts = ["# 核心数据洞察与逻辑校验\n"]
         for i, chunk in enumerate(chunks_analysis):
             path = chunk.get("metadata", {}).get("header_path", "未知章节")
@@ -135,16 +134,18 @@ class KnowledgeDistiller:
 # ==================== 3. 主服务类 ====================
 class KnowledgeExtractionService:
     def __init__(self):
-        self.api_key = os.getenv("LANGEXTRACT_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
-        self.model_id = os.getenv("LANGEXTRACT_MODEL", "deepseek-chat")
-        self.base_url = os.getenv("LANGEXTRACT_BASE_URL", "https://api.deepseek.com")
-        self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        # 默认使用 DeepSeek 进行知识抽取
+        self.provider = ModelProvider.DEEPSEEK
+        self.model_id = CHAT_MODEL
         self.splitter = TitleBasedMarkdownSplitter(chunk_size=2500)
         self.executor = ThreadPoolExecutor(max_workers=10)
 
-    async def generate_visual_report(self, markdown_text: str, user_query: str = "分析该文档的核心业务指标和逻辑一致性") -> Dict[str, Any]:
+    async def generate_visual_report(self, markdown_text: str, user_query: str = "分析该文档的核心业务指标和逻辑一致性", provider: str = None, model_name: str = None) -> Dict[str, Any]:
         """🚀 高并发可视化报告生成流程 (集成逻辑校验与表格推断)"""
-        logger.info(f"🚀 [Report] 开始生成深度报告 | 长度: {len(markdown_text)}")
+        provider = provider or self.provider
+        model_id = model_name or self.model_id
+        
+        logger.info(f"🚀 [Report] 开始生成深度报告 | 供应商: {provider} | 模型: {model_id}")
         total_prompt_tokens = 0
         total_completion_tokens = 0
         
@@ -153,7 +154,7 @@ class KnowledgeExtractionService:
         logger.info(f"📊 任务拆解: {len(chunks)} 个章节正在并行审计中...")
 
         # 2. 并行分析 (注入审计级 Prompt)
-        tasks = [self._analyze_single_chunk(c) for c in chunks]
+        tasks = [self._analyze_single_chunk(c, provider, model_id) for c in chunks]
         results_with_usage = await asyncio.gather(*tasks)
         
         chunks_results = []
@@ -172,22 +173,35 @@ class KnowledgeExtractionService:
         )
         
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model_id,
-                messages=[{"role": "user", "content": final_prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.2,
-                max_tokens=4000 # 🚀 关键：增加输出上限，防止 HTML 被截断
-            )
-            
-            # 累加 Token 消耗
-            total_prompt_tokens += response.usage.prompt_tokens
-            total_completion_tokens += response.usage.completion_tokens
+            # 只有 OpenAI 和 DeepSeek 支持 AsyncOpenAI 客户端的 response_format
+            if provider in [ModelProvider.OPENAI, ModelProvider.DEEPSEEK]:
+                client = llm_factory.get_openai_client(provider)
+                response = await client.chat.completions.create(
+                    model=model_id,
+                    messages=[{"role": "user", "content": final_prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.2,
+                    max_tokens=4000
+                )
+                
+                # 累加 Token 消耗
+                total_prompt_tokens += response.usage.prompt_tokens
+                total_completion_tokens += response.usage.completion_tokens
+                raw_content = response.choices[0].message.content
+            else:
+                # 其他供应商使用 LangChain
+                llm = llm_factory.get_langchain_model(provider=provider, model_name=model_id, temperature=0.2)
+                response = await llm.ainvoke([{"role": "user", "content": final_prompt + "\n请务必只返回 JSON 格式结果，不要包含 Markdown 代码块标记。"}])
+                raw_content = response.content
             
             # 增加安全解析逻辑
-            raw_content = response.choices[0].message.content
+            raw_content = raw_content.strip()
+            if raw_content.startswith("```json"):
+                raw_content = raw_content.split("```json")[1].split("```")[0].strip()
+            elif raw_content.startswith("```"):
+                raw_content = raw_content.split("```")[1].split("```")[0].strip()
+
             if not raw_content.strip().endswith('}'):
-                # 尝试手动补全截断的 JSON (简单的应急处理)
                 raw_content += '"}'
                 
             result = json.loads(raw_content)
@@ -205,34 +219,49 @@ class KnowledgeExtractionService:
             return result
         except Exception as e:
             logger.error(f"❌ [Report] 生成失败: {str(e)}")
-            # 🚀 返回一个明确的错误标记，让路由层知道失败了
             return {"error": True, "title": "生成失败", "summary": str(e), "html": f"<p>生成出错: {str(e)}</p>"}
 
-    async def _analyze_single_chunk(self, chunk: Dict[str, Any]) -> Dict[str, Any]:
-        """专业财务审计级分析 (返回消耗)"""
+    async def _analyze_single_chunk(self, chunk: Dict[str, Any], provider: str = None, model_id: str = None) -> Dict[str, Any]:
+        """专业财务审计级 analysis (返回消耗)"""
+        provider = provider or self.provider
+        model_id = model_id or self.model_id
+        
         prompt = f"""你是一个资深的专业财务分析师。请对以下文档片段进行深度分析并输出 JSON：
         内容: {chunk['content']}
         """
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model_id,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.1
-            )
-            return {
-                "metadata": chunk['metadata'],
-                "analysis": json.loads(response.choices[0].message.content),
-                "usage": {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens
+            if provider in [ModelProvider.OPENAI, ModelProvider.DEEPSEEK]:
+                client = llm_factory.get_openai_client(provider)
+                response = await client.chat.completions.create(
+                    model=model_id,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.1
+                )
+                return {
+                    "metadata": chunk['metadata'],
+                    "analysis": json.loads(response.choices[0].message.content),
+                    "usage": {
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens
+                    }
                 }
-            }
+            else:
+                llm = llm_factory.get_langchain_model(provider=provider, model_name=model_id, temperature=0.1)
+                response = await llm.ainvoke([{"role": "user", "content": prompt + "\n请务必只返回 JSON 格式结果。"}])
+                content = response.content.strip()
+                if content.startswith("```json"):
+                    content = content.split("```json")[1].split("```")[0].strip()
+                return {
+                    "metadata": chunk['metadata'],
+                    "analysis": json.loads(content),
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0}
+                }
         except:
             return {"metadata": chunk['metadata'], "analysis": {"summary": "分析失败", "tables": [], "key_points": []}, "usage": {}}
 
     def _save_report_locally(self, report: Dict[str, Any]):
-        """将生成的报告保存到 outputs 目录 (集成自 DataAnalysis_main)"""
+        """将生成的报告保存到 outputs 目录"""
         try:
             output_dir = Path("outputs")
             output_dir.mkdir(exist_ok=True)
@@ -247,7 +276,6 @@ class KnowledgeExtractionService:
         """保留原接口兼容性，并执行实际的切分分析"""
         logger.info(f"📑 [Knowledge] 正在为文档 {doc_id} 执行知识抽取并同步至数据库")
         try:
-            # 实际上可以调用内部的智能切分
             chunks = self.splitter.split_text(text)
             return chunks
         except Exception as e:
