@@ -435,7 +435,13 @@ const handleStandardUpload = async (file: File) => {
             className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed data-[mobile=true]:data-[orientation=landscape]:text-xs data-[mobile=true]:data-[orientation=landscape]:leading-tight"
             rows={1}
           />
-          <div className="flex flex-col gap-1.5 data-[mobile=true]:data-[orientation=landscape]:flex-row data-[mobile=true]:data-[orientation=landscape]:gap-1">
+        </div>
+        <div className="flex items-center justify-between px-4 pb-3 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1 data-[mobile=true]:data-[orientation=landscape]:mt-1">
+          <div className="text-xs text-gray-400 data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
+            {isLoading ? t('common.loading') : 'Enter ' + t('chat.send')}
+          </div>
+          
+          <div className="flex items-center gap-1.5 ml-auto mr-3">
             <button
               onClick={() => {
                 if (isLoading) return
@@ -522,11 +528,7 @@ const handleStandardUpload = async (file: File) => {
               <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.ragMode')}</span>
             </button>
           </div>
-        </div>
-        <div className="flex items-center justify-between px-4 pb-3 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1 data-[mobile=true]:data-[orientation=landscape]:mt-1">
-          <div className="text-xs text-gray-400 data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
-            {isLoading ? t('common.loading') : 'Enter ' + t('chat.send')}
-          </div>
+
           <div className="flex items-center gap-2">
             {isLoading && (
               <button

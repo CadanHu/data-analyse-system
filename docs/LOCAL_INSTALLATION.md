@@ -25,6 +25,36 @@ bash scripts/test-local.sh
 bash scripts/stop-test.sh
 ```
 
+## 🐳 Docker 部署避坑指南 (小白必读)
+
+如果您是第一次使用 Docker 部署本系统，请务必阅读以下注意事项，确保一键启动成功。
+
+### 1. 启动前置检查
+- **确保 Docker Desktop 已运行**：在执行命令前，请检查您的电脑状态栏（Mac 为小鲸鱼图标），确保 Docker 引擎已处于 `Running` 状态。
+- **配置环境变量**：
+  - 系统依赖 `.env` 文件。请在根目录执行 `cp .env.example .env`。
+  - **必填**：打开 `.env` 文件，填入您的 `DEEPSEEK_API_KEY`（或 OpenAI Key）。
+
+### 2. 解决端口冲突 (重要)
+Docker 会尝试占用您电脑的 `8000` (后端) 和 `80` (前端) 端口。
+- **关闭本地进程**：在执行 Docker 命令前，请确保您已经关闭了本地手动运行的 `python main.py` 和 `npm run dev`。
+- **报错提示**：如果看到 `port is already allocated`，说明您的电脑上已有其他服务占用了这些端口。
+
+### 3. 一键启动命令
+在项目根目录下，执行以下组合命令：
+```bash
+# 停止旧容器 -> 重新构建镜像 -> 启动服务
+docker-compose down && docker-compose up --build
+```
+
+### 4. 自动数据灌入 (DB Seeding)
+- **无需手动导入 SQL**：容器启动后，`db-seed` 服务会自动运行。它会检测数据库状态，并自动创建表结构、注入 **16 万条模拟业务数据**。
+- **等待时间**：第一次启动时，由于需要下载镜像和初始化数据，可能需要 3-5 分钟，请耐心等待终端显示 `✅ [Report] 数据库持久化成功`。
+
+### 5. 访问地址
+- **前端页面**：浏览器访问 `http://localhost`
+- **API 文档**：浏览器访问 `http://localhost:8000/docs`
+
 ---
 
 ## 🛠️ 第一步：后端配置 (Backend)

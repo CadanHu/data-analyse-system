@@ -3,7 +3,7 @@
 ## 1. System Overview
 DataPulse is an AI-driven intelligent data analysis platform featuring a dual-engine architecture for structured data query (SQL) and unstructured document analysis (RAG).
 
-## 2. Core Architecture: Dual-Engine Logic
+## 2. Core Architecture: Multi-Engine Logic (v3.0)
 
 ### 2.1 Smart SQL Engine (Text-to-SQL)
 - **Natural Language Processing**: Translates user intent into high-precision SQL queries using DeepSeek R1 reasoning models.
@@ -15,6 +15,12 @@ DataPulse is an AI-driven intelligent data analysis platform featuring a dual-en
 - **Document Processing**: Integrated with **MinerU** and **PyMuPDF** for high-quality PDF, Markdown, and TXT parsing.
 - **Vector Storage**: Uses **ChromaDB** for efficient embedding storage and semantic retrieval.
 - **Contextual Reasoning**: Enhances AI responses by retrieving relevant context from uploaded business documents.
+
+### 2.3 AI Data Scientist Engine (v3.0)
+- **Python Execution Layer**: Features a secure, **AST-audited sandbox** that runs AI-generated Python code for complex data modeling (e.g., trend prediction, correlation analysis).
+- **Visualization Capturing**: Automatically captures **Matplotlib/Seaborn** plots as Base64 images and integrates them into the chat stream.
+- **Async Report Orchestration**: Utilizes **FastAPI BackgroundTasks** for long-running analytics, ensuring a responsive UI with persistent progress tracking.
+- **Standardized Libraries**: Pre-configured environment including `pandas`, `numpy`, `scipy`, `matplotlib`, `seaborn`, and `scikit-learn`.
 
 ## 3. Technology Stack
 
