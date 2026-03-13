@@ -1,88 +1,88 @@
-# DataPulse: AI-Powered Smart Data Analytics Assistant
+# DataPulse: AI-Powered Smart Data Analytics Assistant (v3.0)
 
-[中文](./README.md) | English
+[中文](../README_CN.md) | English
 
-An AI-driven intelligent data analysis system, a dual-engine commercial platform that enables structured data query (SQL) and unstructured document analysis (RAG) through natural language conversation.
+An AI-driven intelligent data analysis system, a multi-engine commercial platform that enables structured data query (SQL), professional data science modeling (Python), and unstructured document analysis (RAG) through natural language conversation.
+
+---
 
 ## 📸 Interface Preview
 
 ### 🖥️ Web Dashboard
-
 ![Web Dashboard](./assets/web_mockup.svg)
-
-> **⚠️ Note**: The images above are **mockups** showing the final UI visual standards.
-> **Desktop Features**: Three-column layout · Real-time streaming output · AI thought visualization · Multi-chart type switching · SQL code preview
+*Three-column layout · Real-time streaming · Python Sandbox · Multi-chart switching · SQL preview*
 
 ### 📱 Mobile Native
-
 | Portrait Mode | Landscape Mode |
 | :---: | :---: |
 | ![Mobile Portrait](./assets/mobile_mockup.svg) | ![iOS Landscape](./assets/ios_mockup.svg) |
-
-> **⚠️ Note**: The images above are **mobile mockups**.
-> **Mobile Features**: Capacitor 6 native adaptation · Notch screen compatible · Auto landscape/portrait switching · Touch-optimized · Safe Area support
-
-## 🎯 Core Capabilities
-
-### Dual-Engine Analysis Logic
-- ✅ **Smart SQL Engine**: Driven by SQLAlchemy, supporting MySQL and PostgreSQL. Automatically recognizes schemas and converts natural language into high-precision SQL statements.
-- ✅ **RAG Knowledge Base Enhancement**: Supports uploading PDF/Markdown/TXT, integrates **PyMuPDF** and **MinerU** for efficient parsing, combined with **ChromaDB** vector storage to assist AI in terminology alignment and business metric interpretation.
-
-### Native Mobile Experience
-- 📱 **Full Platform Adaptation**: Built with Capacitor 6, natively supporting **iOS (iPhone)** and **Android (Pixel/Samsung)**.
-- 👁️ **AI Thought Process Visualization**: Standard SSE streaming transmission, real-time display of DeepSeek R1 reasoning chains, making AI inference transparent and visible.
-
-### Enterprise-Grade Backend Architecture
-- 🏗️ **Unified Adaptation Layer**: Implements cross-database general schema extraction and asynchronous query execution based on SQLAlchemy.
-- 🔒 **User Authentication System**: Complete JWT registration, login, and token verification processes, supporting multi-user data isolation.
-- ⚡ **Performance Optimization**: Asynchronous FastAPI architecture combined with standard Event-Stream protocol ensures second-level response times.
+*Capacitor 6 native adaptation · Notch screen compatible · Touch-optimized · Safe Area support*
 
 ---
 
-## 📦 Project Structure (Organized)
+## 🎯 Core Capabilities (v3.0)
+
+### 🧪 AI Data Scientist Engine (New)
+- 🐍 **Secure Python Sandbox**: Executes AI-generated Python code in a secure environment with AST auditing. Supports **Pandas, Numpy, Matplotlib, and Seaborn**.
+- 📈 **High-Definition Plotting**: Automatically captures Matplotlib/Seaborn figures and renders them as high-quality images with dedicated "View Original" controls.
+- 🔗 **Multi-Table Join Awareness**: Automatically detects database schemas and performs complex cross-table joins and statistical modeling in memory.
+
+### 🤖 Agentic Interoperability
+- 📥 **Bring Your Own Data (BYOD)**: Supports receiving `external_data` via API. Other AI agents can provide their own datasets for DataPulse to analyze and visualize.
+- ⚡ **Streamed Insights**: Provides real-time streaming of analysis strategies, reasoning chains, and final business summaries.
+
+### 🏗️ Enterprise Architecture
+- ✅ **Dual-Engine Logic**: Seamlessly switch between **SQL Query mode** (for massive datasets) and **Scientist mode** (for deep modeling).
+- ✅ **RAG Knowledge Base**: Integrates **MinerU** and **OCR** for high-precision parsing of complex PDFs/images, combined with **ChromaDB** for terminology alignment.
+- ✅ **Mobile-First Design**: Precision viewport optimization (`dvh`) and real-time SSE log streaming for remote debugging.
+
+---
+
+## 🚀 Future Exploration: The Agentic Ecosystem
+
+We are actively expanding DataPulse from a standalone tool into a core component of the AI Agent ecosystem:
+
+### 🛠️ External Tool Support (MCP)
+We are exploring integration with the **Model Context Protocol (MCP)**. This will allow DataPulse to:
+- Act as an MCP Server, providing data analysis "capabilities" to other LLM clients (like Claude Desktop or custom agents).
+- Consume external MCP tools to fetch live web data, weather, or financial markets into the analysis loop.
+
+### 🌐 Agent-as-a-Service (External Calls)
+DataPulse is evolving into an "Analysis Middle-End." External agents can call our endpoints to:
+- Offload complex data cleaning and visualization tasks.
+- Obtain structured JSON insights and Base64-encoded professional charts from private datasets.
+- Leverage our secure Python execution sandbox without building their own.
+
+---
+
+## 📦 Project Structure
 
 ```
 data-analyse-system/
-├── backend/            # Backend Project (FastAPI, SQLAlchemy, Agents)
-│   ├── agents/        # Core AI Agent Logic
-│   ├── database/      # SQLAlchemy Models and Storage Logic
-│   ├── databases/     # Database Adapters (MySQL/PostgreSQL)
-│   ├── services/      # Document Processing, Vector Store, Stream Services
-│   ├── routers/       # API Routers
-│   └── tests/         # Unit Tests and Test Documents
-│       └── knowledge_base/ # Business Metric Test Sets
-├── frontend/           # Frontend Project (React, Vite, Tailwind)
-│   ├── ios/           # iOS Native Projects
-│   └── android/       # Android Native Projects
-├── scripts/            # Environment Verification, Init, Data Injection & Maintenance Scripts
-├── docs/               # Deployment Guides, Architecture, Known Bugs, Restart Guide
-└── docker-compose.yml  # Containerized Deployment Configuration
-```
-
----
-
-## 🚀 Quick Start
-
-### 1. Prerequisites
-- **Backend**: Python 3.12+, MySQL 8.0+
-- **Frontend**: Node.js 18+
-
-### 2. Local Installation
-For detailed steps, please refer to: [Local Installation and Testing Guide](./docs/LOCAL_INSTALLATION.md)
-
-### 3. Architecture
-For detailed technical design, please refer to: [Architectural Design Document](./docs/ARCHITECTURE_EN.md)
-
-### 4. Environment Verification
-Run the following script to check your MySQL and API configurations:
-```bash
-python3 scripts/check_db_env.py
+├── backend/            # FastAPI, LangChain, Python Sandbox
+│   ├── agents/        # Advanced Data Scientist & SQL Agents
+│   ├── services/      # Python Executor, Document Processing, Vector Store
+│   └── routers/       # External Agent & Chat Stream API
+├── frontend/           # React (TS), Vite, Tailwind, Capacitor 6
+├── scripts/            # Simulation & External Agent Testing scripts
+└── docs/               # Technical Guides & Roadmap
 ```
 
 ---
 
 ## 📝 Architecture Evolution
-- **v1.7.0 (2026-02-27)**: Expanded to 15+ types of advanced visualization charts (Radar, Funnel, etc.); introduced AI-driven ECharts dynamic configuration engine for automatic display type adaptation.
-- **v1.6.0**: Completely deprecated SQLite, shifted fully to SQLAlchemy (MySQL/PG); standardized SSE streaming protocol; normalized directory structure.
-- **v1.5.0**: Implemented Android/iOS mobile adaptation, introduced thought visualization solution.
-- **v1.4.0**: Integrated RAG knowledge base features, supporting **MinerU** and **PyMuPDF** for complex PDF parsing.
+- **v3.0 (Current)**: Launched **AI Data Scientist Mode**; Added **External Data Ingestion**; Fixed JSON serialization for complex Pandas types; Implemented high-contrast UI & code folding.
+- **v1.7.0**: Expanded to 15+ chart types; introduced AI-driven ECharts dynamic configuration.
+- **v1.6.0**: Deprecated SQLite for SQLAlchemy (MySQL/PG); standardized SSE protocol.
+- **v1.5.0**: Mobile adaptation via Capacitor 6; Reasoning chain visualization.
+- **v1.4.0**: MinerU integration for professional PDF/Image knowledge extraction.
+
+---
+
+## 🚀 Quick Start
+
+Refer to [Local Installation Guide](./LOCAL_INSTALLATION.md) for detailed setup or use Docker:
+```bash
+docker-compose up --build
+```
+This will initialize MySQL/PostgreSQL and inject **160k+ simulation records** automatically.
