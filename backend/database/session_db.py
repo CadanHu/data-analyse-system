@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, text, Index
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, text, Index, Boolean
 from sqlalchemy.future import select
 from sqlalchemy import delete as sqlalchemy_delete
 
@@ -23,6 +23,12 @@ class SessionModel(Base):
     title = Column(String(255))
     database_key = Column(String(64), default='business')
     status = Column(String(20), default='active')
+    
+    # 🚀 模式持久化字段
+    enable_data_science = Column(Boolean, default=False)
+    enable_thinking = Column(Boolean, default=False)
+    enable_rag = Column(Boolean, default=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -189,6 +195,25 @@ class SessionDatabase:
             s = result.scalar_one_or_none()
             if s:
                 s.database_key = database_key
+                s.updated_at = datetime.utcnow()
+                await session.commit()
+                return True
+            return False
+
+    async def update_session_modes(self, session_id: str, user_id: int, modes: Dict[str, bool]) -> bool:
+        """更新会话模式 (科学家、思考、知识库)"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user_id)
+            )
+            s = result.scalar_one_or_none()
+            if s:
+                if 'enable_data_science' in modes:
+                    s.enable_data_science = modes['enable_data_science']
+                if 'enable_thinking' in modes:
+                    s.enable_thinking = modes['enable_thinking']
+                if 'enable_rag' in modes:
+                    s.enable_rag = modes['enable_rag']
                 s.updated_at = datetime.utcnow()
                 await session.commit()
                 return True

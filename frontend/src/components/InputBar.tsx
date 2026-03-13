@@ -4,7 +4,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
-import { uploadApi, messageApi } from '@/api'
+import { uploadApi, messageApi, sessionApi } from '@/api'
 
 interface InputBarProps {
   sessionId: string | null
@@ -28,8 +28,29 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     isMobile, 
     orientation 
   } = useChatStore()
-  const { messages, addMessage } = useSessionStore()
+  const { messages, addMessage, currentSession, updateSession } = useSessionStore()
   const [isRAGMode, setRAGMode] = useState(false)
+
+  // 🚀 核心逻辑：从会话中恢复模式状态
+  useEffect(() => {
+    if (currentSession && sessionId === currentSession.id) {
+      console.log('🔄 [InputBar] 正在从会话恢复模式状态:', currentSession.title);
+      setThinkingMode(!!currentSession.enable_thinking)
+      setDataScienceMode(!!currentSession.enable_data_science)
+      setRAGMode(!!currentSession.enable_rag)
+    }
+  }, [currentSession?.id, sessionId])
+
+  // 🚀 辅助函数：同步模式到后端
+  const syncModes = async (updates: { enable_data_science?: boolean, enable_thinking?: boolean, enable_rag?: boolean }) => {
+    if (!sessionId) return
+    try {
+      await sessionApi.updateSessionModes(sessionId, updates)
+      updateSession(sessionId, updates) // 更新本地 store
+    } catch (e) {
+      console.error('Failed to sync modes:', e)
+    }
+  }
   const [isKnowledgeMode, setKnowledgeMode] = useState(false)
   const [useHighPrecision, setUseHighPrecision] = useState(false) // 🚀 高精度 OCR 开关
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
@@ -434,7 +455,15 @@ const handleStandardUpload = async (file: File) => {
               <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">深度</span>
             </button>
             <button
-              onClick={() => !isLoading && setThinkingMode(!isThinkingMode)}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (!isLoading) {
+                  const newVal = !isThinkingMode
+                  setThinkingMode(newVal)
+                  syncModes({ enable_thinking: newVal })
+                }
+              }}
               disabled={isLoading}
               className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
                 isLoading ? 'opacity-50 cursor-not-allowed' : ''
@@ -448,7 +477,15 @@ const handleStandardUpload = async (file: File) => {
               <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.thinkingMode')}</span>
             </button>
             <button
-              onClick={() => !isLoading && setDataScienceMode(!isDataScienceMode)}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (!isLoading) {
+                  const newVal = !isDataScienceMode
+                  setDataScienceMode(newVal)
+                  syncModes({ enable_data_science: newVal })
+                }
+              }}
               disabled={isLoading}
               className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
                 isLoading ? 'opacity-50 cursor-not-allowed' : ''
@@ -462,10 +499,15 @@ const handleStandardUpload = async (file: File) => {
               <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">科学家</span>
             </button>
             <button
-              onClick={() => {
-                if (isLoading) return
-                setRAGMode(!isRAGMode)
-                if (!isRAGMode) setKnowledgeMode(false)
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                if (!isLoading) {
+                  const newVal = !isRAGMode
+                  setRAGMode(newVal)
+                  if (newVal) setKnowledgeMode(false)
+                  syncModes({ enable_rag: newVal })
+                }
               }}
               disabled={isLoading}
               className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${

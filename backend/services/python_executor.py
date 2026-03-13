@@ -86,6 +86,15 @@ class PythonExecutor:
     @staticmethod
     def execute_analysis(df_input: Any, code: str) -> Dict[str, Any]:
         """执行代码并返回数据、图表配置和日志"""
+        # 🚀 预清洗：彻底替换 AI 可能生成的“智能引号”或特殊中文标点
+        replacements = {
+            '‘': "'", '’': "'", '“': '"', '”': '"',
+            '，': ',', '：': ':', '；': ';', '！': '!',
+            '（': '(', '）': ')', '—': '-', '。': '.'
+        }
+        for old, new in replacements.items():
+            code = code.replace(old, new)
+        
         # 0. 安全审计
         is_safe, error_msg = PythonExecutor._is_safe(code)
         if not is_safe:
@@ -122,15 +131,23 @@ class PythonExecutor:
             with contextlib.redirect_stdout(stdout):
                 exec(code, exec_globals)
             
-            # 🚀 捕获图表
+            # 🚀 捕获图表：增强版捕获逻辑
             plot_base64 = None
-            figures = plt.get_fignums()
-            if figures:
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
-                buf.seek(0)
-                plot_base64 = base64.b64encode(buf.read()).decode('utf-8')
-                plt.close('all')
+            try:
+                # 检查是否有活跃的 Figure，或者当前 Figure 是否有内容（轴）
+                fig = plt.gcf()
+                if fig and fig.get_axes():
+                    logger.info(f"🎨 [Executor] 检测到活跃图表，正在渲染...")
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+                    buf.seek(0)
+                    plot_base64 = base64.b64encode(buf.read()).decode('utf-8')
+                    logger.info(f"✅ [Executor] 图表捕获成功，长度: {len(plot_base64)}")
+                    plt.close('all')
+                else:
+                    logger.info("⚠️ [Executor] 未检测到有效绘图输出")
+            except Exception as e:
+                logger.error(f"❌ [Executor] 绘图捕获失败: {str(e)}")
 
             # 🚀 关键：在返回前清理所有数据
             return {

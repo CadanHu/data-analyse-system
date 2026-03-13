@@ -239,9 +239,14 @@ export function useSSE() {
                     updateSession(sessionId, { title: eventData.session_title });
                   }
                   
-                  // 🚀 核心修复 1：同步消息 ID 到数据库真实 ID
+                  // 🚀 核心修复 1：同步消息 ID 到数据库真实 ID (用户 + 助手)
+                  if (eventData.user_message_id && userMessageId) {
+                    console.log(`🔗 [SSE] 同步用户消息 ID: ${userMessageId} -> ${eventData.user_message_id}`);
+                    updateMessageId(userMessageId, eventData.user_message_id);
+                  }
+
                   if (eventData.message_id && assistantMessageId) {
-                    console.log(`🔗 [SSE] 同步消息 ID: ${assistantMessageId} -> ${eventData.message_id}`);
+                    console.log(`🔗 [SSE] 同步助手消息 ID: ${assistantMessageId} -> ${eventData.message_id}`);
                     updateMessageId(assistantMessageId, eventData.message_id);
                     assistantMessageId = eventData.message_id; // 同步闭包变量
                   }

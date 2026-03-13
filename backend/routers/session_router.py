@@ -15,6 +15,11 @@ router = APIRouter(prefix="/sessions", tags=["会话管理"])
 class SessionTitleUpdate(BaseModel):
     title: str
 
+class SessionModesUpdate(BaseModel):
+    enable_data_science: Optional[bool] = None
+    enable_thinking: Optional[bool] = None
+    enable_rag: Optional[bool] = None
+
 class SessionDatabaseUpdate(BaseModel):
     database_key: str
 
@@ -72,6 +77,16 @@ async def update_session_title(session_id: str, data: SessionTitleUpdate, curren
     success = await session_db.update_session_title(session_id, user_id, data.title)
     if not success:
         raise HTTPException(status_code=404, detail="更新失败或无权限")
+    return {"success": True}
+
+@router.patch("/{session_id}/modes")
+async def update_session_modes(session_id: str, data: SessionModesUpdate, current_user: dict = Depends(get_current_user)):
+    """更新会话的模式开关 (科学家、思考、知识库)"""
+    user_id = current_user["id"]
+    modes = data.dict(exclude_none=True)
+    success = await session_db.update_session_modes(session_id, user_id, modes)
+    if not success:
+        raise HTTPException(status_code=404, detail="更新模式失败或无权限")
     return {"success": True}
 
 @router.post("/{session_id}/database")

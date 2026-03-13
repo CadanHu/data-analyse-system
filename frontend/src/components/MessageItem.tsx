@@ -30,10 +30,12 @@ import { sessionApi, getBaseURL, messageApi } from '@/api'
 import { useSSE } from '../hooks/useSSE'
 
 // 🆕 深度分析看板预览组件
-const DashboardPreview = ({ report, token }: { report: { title: string, summary: string, html: string }, token: string | null }) => {
+const DashboardPreview = ({ report, token }: { report: { title?: string, summary?: string, html?: string }, token: string | null }) => {
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  const summaries = report.summary.split('\n').filter(s => s.trim())
+  
+  // 🚀 安全处理：防止 summary 为空导致 split 崩溃
+  const summaries = (report.summary || '').split('\n').filter(s => s.trim())
 
   const handleExportPDF = async () => {
     try {
@@ -128,7 +130,7 @@ const DashboardPreview = ({ report, token }: { report: { title: string, summary:
             </div>
           </div>
           <iframe 
-            srcDoc={report.html} 
+            srcDoc={report.html || ''} 
             className="flex-1 w-full border-none bg-black"
             title="Dashboard"
           />
@@ -294,10 +296,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     ? parsedData.markdown_full 
     : message.content
 
-  // 如果有持久化的绘图数据且内容中尚未包含该图片，则追加显示
-  const finalDisplayContent = (plotImageBase64 && !displayContent.includes('data:image/png;base64'))
-    ? `${displayContent}\n\n![分析图表](data:image/png;base64,${plotImageBase64})`
-    : displayContent
+  // 🚀 核心优化：不再将图片注入 Markdown 文本流，防止长 Base64 导致渲染卡顿或显示“图片失败”图标
+  // 图片由下方的专属容器（带紫色按钮和缩略图）独立渲染
+  const finalDisplayContent = displayContent
 
   // 计算分支信息
   // 逻辑：寻找具有相同 parent_id (包括 null) 且 role 相同的消息
@@ -357,6 +358,12 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   }, [message.thinking, isLoading, message.content])
 
   const handleShowChart = () => {
+    // 🚀 核心优化：科学家模式下的看板拦截
+    if (parsedData?.is_data_science) {
+      alert('💡 当前为“科学家模式”，分析结论与图表已在对话框中直接展示。如需使用“传统可视化看板”，请切换至普通 SQL 模式。')
+      return
+    }
+
     let chartConfig = (message as any).chartConfig
     if (!chartConfig && message.chart_cfg) {
       try {
@@ -388,11 +395,19 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   const preprocessContent = (content: string) => {
     if (!content) return ''
-    return content
+    
+    let processed = content
       .replace(/\\\[/g, '$$$$')
       .replace(/\\\]/g, '$$$$')
       .replace(/\\\(/g, '$$')
       .replace(/\\\)/g, '$$')
+
+    // 🚀 科学家模式深度清理：移除所有 Markdown 图像语法，防止文本流中出现损坏的占位符
+    if (parsedData?.is_data_science) {
+      processed = processed.replace(/!\[.*?\]\(.*?\)/g, '')
+    }
+    
+    return processed
   }
 
   const handleCopy = () => {
@@ -473,6 +488,14 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   remarkPlugins={[remarkMath]} 
                   rehypePlugins={[rehypeKatex, rehypeRaw]}
                   components={{
+                    // 🚀 核心修复：拦截并禁止渲染损坏的图片节点
+                    img({ src, alt, ...props }: any) {
+                      // 如果是科学家模式，且图片是 AI 误生成的占位符，直接隐藏
+                      if (parsedData?.is_data_science && (alt?.includes('图表') || !src)) {
+                        return null
+                      }
+                      return <img src={src} alt={alt} {...props} className="max-w-full h-auto rounded-lg shadow-sm my-2" />
+                    },
                     code({ node, inline, className, children, ...props }: any) {
                       // 🚀 更加鲁棒的判断：如果内容不含换行符，且没有明显的语言标识，则视为行内代码
                       const isInline = inline || !String(children).includes('\n')
@@ -731,14 +754,18 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               <div className="relative group/action">
                 <button
                   onClick={handleShowChart}
-                  className="p-1.5 bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-500 rounded-lg border border-gray-100 hover:border-blue-100 transition-all active:scale-95"
+                  className={`p-1.5 rounded-lg border transition-all active:scale-95 ${
+                    parsedData?.is_data_science 
+                      ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed' 
+                      : 'bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-500 border-gray-100 hover:border-blue-100'
+                  }`}
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </button>
                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
-                  可视看板
+                  {parsedData?.is_data_science ? '当前模式不支持' : '可视看板'}
                 </span>
               </div>
             )}

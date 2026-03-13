@@ -55,6 +55,7 @@ class AdvancedDataAgent:
 1. **实时方案说明**：首先用中文流利地说明你的分析思路。
 2. **强制绘图**：只要涉及趋势、对比或分布分析，**必须**编写 Matplotlib/Seaborn 绘图代码，并显式调用 `plt.show()`。不要只给出一个配置字典。
 3. **代码实现**：将分析代码放在唯一的 ```python ... ``` 块中。
+   - **语法要求**：严禁使用中文全角引号（如 ‘, ’, “, ”），所有 Python 字符串必须使用标准 ASCII 引号 (' 或 ")。
    - 必须使用 `df_xxx` 变量。
    - 最终数据 -> `result_data`。
    - 可视化配置 (ECharts) -> `viz_config`。
@@ -112,8 +113,22 @@ class AdvancedDataAgent:
                 report_text = re.sub(r'!\[.*?\]\(data:image\/.*?;base64,.*?\)', '', report_text)
                 yield {"event": "summary", "data": {"content": f"\n\n---\n**💡 核心发现：**\n{report_text}"}}
             
-            yield {"event": "done", "data": {"result": exec_result["data"], "code": ai_code}}
+            yield {"event": "done", "data": {
+                "result": exec_result["data"], 
+                "code": ai_code,
+                "plot_image_base64": exec_result["plot_image"]
+            }}
         else:
             yield {"event": "done", "data": {}}
+
+    async def generate_ai_title(self, question: str) -> str:
+        """生成极简的会话标题"""
+        llm = llm_factory.get_langchain_model(provider=self.provider, temperature=0)
+        prompt = f"根据用户问题生成一个10字以内的专业标题，直接返回标题文本，不要标点：{question}"
+        try:
+            res = await llm.ainvoke(prompt)
+            return res.content.strip()
+        except:
+            return "数据科学分析"
 
 advanced_data_agent = AdvancedDataAgent()

@@ -1,51 +1,39 @@
 import pymysql
-import os
-from dotenv import load_dotenv
-from pathlib import Path
-
-# 加载配置
-env_path = Path(__file__).parent.parent / "backend" / ".env"
-load_dotenv(env_path)
-
-MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
-MYSQL_PORT = int(os.getenv("MYSQL_PORT", 3306))
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "root")
-MYSQL_SESSION_DATABASE = os.getenv("MYSQL_SESSION_DATABASE", "data_pulse_sessions")
+from backend.config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_SESSION_DATABASE
 
 def fix_schema():
-    print(f"📡 [Fix] 正在连接数据库 {MYSQL_SESSION_DATABASE} 以修复表结构...")
+    print(f"📡 正在连接数据库 {MYSQL_SESSION_DATABASE} 以更新 Schema...")
+    conn = pymysql.connect(
+        host=MYSQL_HOST, 
+        port=MYSQL_PORT, 
+        user=MYSQL_USER, 
+        password=MYSQL_PASSWORD,
+        database=MYSQL_SESSION_DATABASE
+    )
+    
     try:
-        conn = pymysql.connect(
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_SESSION_DATABASE,
-            charset='utf8mb4',
-            autocommit=True
-        )
         with conn.cursor() as cursor:
-            # 基础反馈列
-            cols = {
-                'feedback': 'INT DEFAULT 0',
-                'feedback_text': 'TEXT',
-                'tokens_prompt': 'INT DEFAULT 0',
-                'tokens_completion': 'INT DEFAULT 0'
+            # 检查字段是否存在，不存在则添加
+            fields = {
+                "enable_data_science": "BOOLEAN DEFAULT 0",
+                "enable_thinking": "BOOLEAN DEFAULT 0",
+                "enable_rag": "BOOLEAN DEFAULT 0"
             }
             
-            for col_name, col_type in cols.items():
-                cursor.execute(f"SHOW COLUMNS FROM messages LIKE '{col_name}'")
-                if not cursor.fetchone():
-                    print(f"➕ 正在添加 {col_name} 列...")
-                    cursor.execute(f"ALTER TABLE messages ADD COLUMN {col_name} {col_type}")
-                else:
-                    print(f"✅ {col_name} 列已存在")
-
-        print("✨ [成功] 数据库表结构修复完成！")
+            for field, definition in fields.items():
+                try:
+                    cursor.execute(f"ALTER TABLE sessions ADD COLUMN {field} {definition}")
+                    print(f"✅ 成功添加字段: {field}")
+                except pymysql.err.InternalError as e:
+                    if e.args[0] == 1060: # Column already exists
+                        print(f"ℹ️ 字段 {field} 已存在，跳过")
+                    else:
+                        print(f"❌ 添加字段 {field} 失败: {e}")
+        
+        conn.commit()
+        print("🎉 数据库 Schema 同步完成！")
+    finally:
         conn.close()
-    except Exception as e:
-        print(f"❌ [失败] 修复过程中出现错误: {e}")
 
 if __name__ == "__main__":
     fix_schema()
