@@ -1,3 +1,4 @@
+import os
 import pymysql
 import psycopg2
 import random
@@ -68,10 +69,17 @@ def sync_postgresql(db_name, user, password, host, port):
     conn.close()
 
 if __name__ == "__main__":
+    mysql_host = os.getenv("MYSQL_HOST", "localhost")
+    mysql_user = os.getenv("MYSQL_USER", "root")
+    mysql_pass = os.getenv("MYSQL_PASSWORD", "root")
+    
     # MySQL 增强
     for db in ['test', 'classic_business', 'global_analysis']:
-        sync_mysql(db, 'root', 'root', 'localhost', 3306)
+        sync_mysql(db, mysql_user, mysql_pass, mysql_host, 3306)
     
     # PG 增强
-    sync_postgresql('postgres', 'postgres', '', 'localhost', 5432)
+    pg_host = os.getenv("POSTGRES_HOST", "localhost")
+    pg_user = os.getenv("POSTGRES_USER", "postgres")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "")
+    sync_postgresql('postgres', pg_user, pg_pass, pg_host, 5432)
     print("\n✅ 所有 4 个数据库同步增强完成！")

@@ -1,3 +1,4 @@
+import os
 import pymysql
 import psycopg2
 import random
@@ -92,8 +93,16 @@ def optimize_postgres(host, port, user, password):
     conn.close()
 
 if __name__ == "__main__":
-    optimize_mysql_classic('localhost', 'root', 'root')
-    optimize_mysql_global('localhost', 'root', 'root')
-    optimize_mysql_test('localhost', 'root', 'root')
-    optimize_postgres('localhost', 5432, 'postgres', '')
+    mysql_host = os.getenv("MYSQL_HOST", "localhost")
+    mysql_user = os.getenv("MYSQL_USER", "root")
+    mysql_pass = os.getenv("MYSQL_PASSWORD", "root")
+    
+    optimize_mysql_classic(mysql_host, mysql_user, mysql_pass)
+    optimize_mysql_global(mysql_host, mysql_user, mysql_pass)
+    optimize_mysql_test(mysql_host, mysql_user, mysql_pass)
+    
+    pg_host = os.getenv("POSTGRES_HOST", "localhost")
+    pg_user = os.getenv("POSTGRES_USER", "postgres")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "")
+    optimize_postgres(pg_host, 5432, pg_user, pg_pass)
     print("\n🏆 全球顶级仿真数据库优化已完成！")

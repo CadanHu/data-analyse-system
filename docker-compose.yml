@@ -54,6 +54,9 @@ services:
       - POSTGRES_HOST=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=root
+    volumes:
+      - ./scripts:/app/scripts
+      - ./backend:/app
     command: python /app/scripts/setup_all_data.py
     networks:
       - app-network

@@ -1,3 +1,4 @@
+import os
 import pymysql
 import random
 import math
@@ -5,7 +6,10 @@ from datetime import datetime, timedelta
 
 def setup_enhanced_global_analysis():
     conn = pymysql.connect(
-        host='localhost', user='root', password='root', port=3306,
+        host=os.getenv("MYSQL_HOST", "localhost"),
+        user=os.getenv("MYSQL_USER", "root"),
+        password=os.getenv("MYSQL_PASSWORD", "root"),
+        port=3306,
         charset='utf8mb4', autocommit=True
     )
     cur = conn.cursor()

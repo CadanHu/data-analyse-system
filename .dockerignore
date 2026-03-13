@@ -14,5 +14,7 @@
 **/.env
 **/node_modules
 **/dist
-logs/*
-uploads/*
+backend/logs/*
+backend/uploads/*
+frontend/node_modules
+frontend/dist

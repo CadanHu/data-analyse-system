@@ -8,6 +8,7 @@ langchain
 langchain-community
 langchain-core
 langchain-openai
+langchain-google-genai
 langchain-huggingface
 langchain-text-splitters
 openai>=1.0.0
@@ -33,7 +34,7 @@ openpyxl
 
 # 工具库
 python-dotenv
-pydantic>=2.0.0
+pydantic[email]>=2.0.0
 pydantic-settings
 passlib[bcrypt]
 python-jose[cryptography]
