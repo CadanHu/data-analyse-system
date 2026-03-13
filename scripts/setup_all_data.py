@@ -23,10 +23,11 @@ def main():
         scripts_dir / "init_global_analysis.py",
         scripts_dir / "upgrade_to_enterprise_db.py",
         scripts_dir / "ultimate_db_optimization.py",
-        scripts_dir / "full_db_enterprise_sync.py"
+        scripts_dir / "full_db_enterprise_sync.py",
+        scripts_dir / "seed_test_user.py"
     ]
     
-    print("🌟 正在一键构建企业级仿真数据库环境...")
+    print("🌟 正在一键构建企业级仿真数据库环境与测试账号...")
     print("------------------------------------------")
     
     for script in pipeline:
@@ -36,9 +37,10 @@ def main():
             print(f"⚠️ 跳过缺失的脚本: {script.name}")
             
     print("------------------------------------------")
-    print("🎉 所有数据库已就绪！")
+    print("🎉 系统环境一键就绪！")
+    print("   - 默认账号: demo@example.com")
+    print("   - 默认密码: password123")
     print("   - MySQL: test, classic_business, global_analysis")
-    print("   - PostgreSQL: postgres")
 
 if __name__ == "__main__":
     main()

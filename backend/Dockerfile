@@ -6,6 +6,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
+    libpango-1.0-0 \
+    libharfbuzz0b \
+    libpangoft2-1.0-0 \
+    libpangocairo-1.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件

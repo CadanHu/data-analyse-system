@@ -9,6 +9,7 @@ langchain-community
 langchain-core
 langchain-openai
 langchain-google-genai
+langchain-anthropic
 langchain-huggingface
 langchain-text-splitters
 openai>=1.0.0
@@ -39,6 +40,7 @@ pydantic-settings
 passlib[bcrypt]
 python-jose[cryptography]
 fpdf2
+weasyprint
 
 # 测试
 pytest
