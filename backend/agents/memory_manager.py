@@ -79,6 +79,11 @@ class MemoryManager:
         memory = await self.get_or_create_memory(session_id)
         return memory.get_history_text()
 
+    async def get_history(self, session_id: str) -> List[Dict[str, str]]:
+        """获取结构化历史对话列表"""
+        memory = await self.get_or_create_memory(session_id)
+        return memory.messages
+
     async def clear_memory(self, session_id: str):
         """清空指定会话的记忆"""
         if session_id in self._memories:

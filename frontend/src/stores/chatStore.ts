@@ -17,6 +17,8 @@ export const useChatStore = create<ChatState & {
   setRightPanelVisible: (visible: boolean) => void
   isThinkingMode: boolean
   setThinkingMode: (enabled: boolean) => void
+  isDataScienceMode: boolean
+  setDataScienceMode: (enabled: boolean) => void
   activeTab: 'chat' | 'sessions' | 'charts'
   setActiveTab: (tab: 'chat' | 'sessions' | 'charts') => void
   isFullScreen: boolean
@@ -39,6 +41,7 @@ export const useChatStore = create<ChatState & {
   currentSessionId: null,
   isRightPanelVisible: false,
   isThinkingMode: false,
+  isDataScienceMode: false,
   activeTab: 'sessions',
   isFullScreen: false,
   isMobile: false,
@@ -49,6 +52,8 @@ export const useChatStore = create<ChatState & {
   setFullScreen: (enabled: boolean) => set({ isFullScreen: enabled }),
   setIsMobile: (isMobile: boolean) => set({ isMobile }),
   setOrientation: (orientation: 'portrait' | 'landscape') => set({ orientation }),
+
+  setDataScienceMode: (enabled: boolean) => set({ isDataScienceMode: enabled }),
 
   // 关键修复：从历史消息中同步分析结果到右侧面板
   setCurrentAnalysis: (sql: string, result: SQLResult | null, chartType?: string, chartOption?: ChartOption | null) => {

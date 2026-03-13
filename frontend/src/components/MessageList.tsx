@@ -13,9 +13,19 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
   const { isLoading, thinkingContent, setPendingMessage } = useChatStore()
   const { messages: storeMessages } = useSessionStore()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const isAutoScrollEnabled = useRef(true)
+
+  // 监听滚动事件，判断用户是否手动向上滚动
+  const handleScroll = () => {
+    if (!scrollRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+    // 如果距离底部超过 150px，则认为用户在手动阅读，停止自动滚动
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 150
+    isAutoScrollEnabled.current = isAtBottom
+  }
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && isAutoScrollEnabled.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [storeMessages, thinkingContent])
@@ -86,7 +96,11 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+    <div 
+      ref={scrollRef} 
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
+    >
       {Array.isArray(storeMessages) && storeMessages.map((message) => (
         <MessageItem 
           key={message.id} 

@@ -160,6 +160,24 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const { token } = useAuthStore()
   const { connect } = useSSE()
 
+  // 🚀 辅助函数：安全地在新窗口打开高清图 (处理超长 Base64)
+  const handleOpenImage = (base64: string) => {
+    try {
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/png' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    } catch (e) {
+      console.error('Failed to open image:', e);
+      window.open(`data:image/png;base64,${base64}`, '_blank');
+    }
+  }
+
   // 🚀 手动触发生成深度报告
   const handleManualGenerateReport = async () => {
     if (!currentSession || isGeneratingReport) return
@@ -270,6 +288,16 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const isKnowledgeExtraction = parsedData?.is_knowledge_extraction
   const htmlReport = parsedData?.html_report
   const pdfUrl = parsedData?.file_url ? `${getBaseURL().replace('/api', '')}${parsedData.file_url}` : null
+  const plotImageBase64 = parsedData?.plot_image_base64
+
+  const displayContent = (isFullTextExpanded && parsedData?.markdown_full) 
+    ? parsedData.markdown_full 
+    : message.content
+
+  // 如果有持久化的绘图数据且内容中尚未包含该图片，则追加显示
+  const finalDisplayContent = (plotImageBase64 && !displayContent.includes('data:image/png;base64'))
+    ? `${displayContent}\n\n![分析图表](data:image/png;base64,${plotImageBase64})`
+    : displayContent
 
   // 计算分支信息
   // 逻辑：寻找具有相同 parent_id (包括 null) 且 role 相同的消息
@@ -379,19 +407,19 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   return (
     <div className={`flex py-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[92%] md:max-w-[85%] ${isUser ? 'flex justify-end' : ''}`}>
-        <div className={`rounded-2xl px-4 py-3 backdrop-blur-sm shadow-[0_2px_12px_rgba(0,0,0,0.04)] ${
+        <div className={`rounded-2xl px-4 py-3 shadow-[0_2px_12px_rgba(0,0,0,0.08)] ${
           isUser 
-            ? 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-tr-sm text-gray-700 border border-white/40' 
-            : 'bg-white/70 rounded-tl-sm text-gray-700 border border-white/40'
+            ? 'bg-gradient-to-r from-[#A0FCD0] to-[#D0F0FF] rounded-tr-sm text-gray-900 border border-white/60' 
+            : 'bg-white rounded-tl-sm text-gray-900 border border-gray-100'
         }`}>
           {!isUser && message.thinking && message.thinking.trim().length > 0 && (
             <div className="mb-4">
               <button
                 onClick={() => setThinkingCollapsed(!thinkingCollapsed)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   thinkingCollapsed 
-                    ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-100' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
+                    ? 'bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-200' 
+                    : 'bg-gray-200 text-gray-800 hover:bg-gray-300 border border-gray-300'
                 }`}
               >
                 <svg 
@@ -405,7 +433,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 {thinkingCollapsed ? '查看 AI 思考过程' : '收起思考过程'}
               </button>
               {!thinkingCollapsed && (
-                <div className="mt-3 bg-amber-50/50 rounded-xl p-4 text-xs text-gray-600 italic border border-amber-100/50 markdown-body prose prose-sm max-w-none data-[mobile=true]:data-[orientation=landscape]:text-[10px]">
+                <div className="mt-3 bg-amber-50 rounded-xl p-4 text-xs text-gray-800 border border-amber-200/60 markdown-body prose prose-sm max-w-none data-[mobile=true]:data-[orientation=landscape]:text-[10px]">
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                     {preprocessContent(message.thinking)}
                   </ReactMarkdown>
@@ -414,7 +442,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             </div>
           )}
           
-          <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed overflow-x-auto markdown-body data-[mobile=true]:data-[orientation=landscape]:text-[11px]">
+          <div className="prose prose-sm max-w-none text-gray-900 font-medium leading-relaxed overflow-x-auto markdown-body data-[mobile=true]:data-[orientation=landscape]:text-[11px]">
             {isEditing ? (
               <div className="flex flex-col gap-2 min-w-[260px] max-w-full">
                 <textarea
@@ -445,11 +473,70 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   remarkPlugins={[remarkMath]} 
                   rehypePlugins={[rehypeKatex, rehypeRaw]}
                   components={{
-                    code({ inline, className, children, ...props }: any) {
+                    code({ node, inline, className, children, ...props }: any) {
+                      // 🚀 更加鲁棒的判断：如果内容不含换行符，且没有明显的语言标识，则视为行内代码
+                      const isInline = inline || !String(children).includes('\n')
+                      
+                      if (isInline) {
+                        return (
+                          <code className="bg-gray-200/80 text-pink-600 px-1.5 py-0.5 rounded font-bold text-[0.9em]" {...props}>
+                            {children}
+                          </code>
+                        )
+                      }
+                      
+                      // 只有真正的多行代码块才显示 Mac 窗口
+                      const match = /language-(\w+)/.exec(className || '')
+                      const lang = match ? match[1] : 'python'
+                      
+                      // 代码块折叠逻辑
+                      const [isExpanded, setIsExpanded] = useState(false)
+                      const content = String(children).replace(/\n$/, '')
+                      const lineCount = content.split('\n').length
+                      const shouldShowToggle = lineCount > 10
+
                       return (
-                        <code className={`${className} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`} {...props}>
-                          {children}
-                        </code>
+                        <div className="my-4 rounded-xl overflow-hidden border border-white/10 shadow-2xl transition-all duration-300">
+                          <div className="flex items-center justify-between px-4 py-2 bg-gray-800/90 border-b border-white/5">
+                            <div className="flex items-center gap-3">
+                              <div className="flex gap-1.5">
+                                <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
+                                <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+                              </div>
+                              <span className="text-[10px] text-gray-400 font-mono uppercase tracking-wider">{lang}</span>
+                            </div>
+                            
+                            {shouldShowToggle && (
+                              <button 
+                                onClick={() => setIsExpanded(!isExpanded)}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[9px] text-gray-300 transition-colors border border-white/10"
+                              >
+                                {isExpanded ? '收起代码' : `展开代码 (${lineCount}行)`}
+                              </button>
+                            )}
+                          </div>
+                          <pre 
+                            className={`p-4 bg-[#1e1e1e] overflow-x-auto custom-scrollbar transition-all duration-500 ease-in-out ${
+                              isExpanded ? 'max-h-[2000px]' : 'max-h-[240px]'
+                            }`}
+                          >
+                            <code className="text-[#e0e0e0] font-mono text-xs leading-relaxed" {...props}>
+                              {children}
+                            </code>
+                          </pre>
+                          {!isExpanded && shouldShowToggle && (
+                            <div 
+                              className="h-8 bg-gradient-to-t from-[#1e1e1e] to-transparent cursor-pointer flex items-center justify-center -mt-8 relative z-10"
+                              onClick={() => setIsExpanded(true)}
+                            >
+                              <div className="bg-gray-800/80 px-3 py-1 rounded-full text-[10px] text-gray-400 border border-white/10 flex items-center gap-1 hover:text-white transition-colors">
+                                <ChevronRight size={10} className="rotate-90" />
+                                点击展开全部代码
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )
                     },
                     table({ children }) {
@@ -463,7 +550,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                     }
                   }}
                 >
-                  {preprocessContent(isFullTextExpanded && parsedData?.markdown_full ? parsedData.markdown_full : message.content)}
+                  {preprocessContent(finalDisplayContent)}
                 </ReactMarkdown>
                 
                 {isKnowledgeExtraction && parsedData?.markdown_full && (
@@ -476,6 +563,37 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </button>
+                )}
+
+                {/* 🚀 独立绘图展示区：解决 Base64 图片裂开的问题 */}
+                {plotImageBase64 && (
+                  <div className="mt-4 space-y-3">
+                    {/* 按钮触发器 */}
+                    <button 
+                      onClick={() => handleOpenImage(plotImageBase64)}
+                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-200 hover:shadow-indigo-300 active:scale-95 transition-all group"
+                    >
+                      <BarChart3 size={14} className="group-hover:rotate-12 transition-transform" />
+                      点击查看 AI 生成的高清分析图表
+                    </button>
+
+                    {/* 预览图 */}
+                    <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-xl bg-white p-3 group/plot relative">
+                      <div className="text-[10px] text-gray-400 mb-2 font-bold flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <BarChart3 size={12} className="text-indigo-500" />
+                          <span className="tracking-tight">数据洞察缩略图 (点击放大)</span>
+                        </div>
+                      </div>
+                      <img 
+                        src={`data:image/png;base64,${plotImageBase64}`} 
+                        alt="Data Insight Plot" 
+                        className="w-full h-auto rounded-lg object-contain cursor-zoom-in hover:brightness-95 transition-all"
+                        onClick={() => handleOpenImage(plotImageBase64)}
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
                 )}
               </>
             )}

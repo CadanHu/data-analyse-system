@@ -27,6 +27,10 @@ interface SSEHandlers {
 interface ConnectOptions {
   enable_rag?: boolean
   rag_engine?: 'light' | 'pro'
+  enable_data_science_agent?: boolean
+  enable_thinking?: boolean
+  model_provider?: string
+  model_name?: string
   parent_id?: string
   onMessageSent?: () => void
 }
@@ -110,9 +114,12 @@ export function useSSE() {
             session_id: sessionId,
             question: question,
             parent_id: options?.parent_id,
-            enable_thinking: isThinkingMode,
+            enable_thinking: options?.enable_thinking ?? isThinkingMode,
             enable_rag: options?.enable_rag || false,
-            rag_engine: options?.rag_engine || 'light'
+            rag_engine: options?.rag_engine || 'light',
+            enable_data_science_agent: options?.enable_data_science_agent || false,
+            model_provider: options?.model_provider,
+            model_name: options?.model_name
           }),
           signal: controller.signal
         })

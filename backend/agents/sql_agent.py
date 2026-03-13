@@ -9,6 +9,10 @@ from config import API_KEY, API_BASE_URL, CHAT_MODEL, REASONER_MODEL, MAX_RETRY_
 from services.llm_factory import llm_factory
 from services.schema_service import SchemaService
 from services.sql_executor import SQLExecutor
+from utils.prompt_templates import (
+    SQL_GENERATION_PROMPT, SUMMARY_PROMPT, CHART_CONFIG_PROMPT, 
+    INTENT_CLASSIFICATION_PROMPT, CHAT_RESPONSE_PROMPT, PLAN_GENERATION_PROMPT
+)
 
 class SQLAgent:
     async def _chat_completion(

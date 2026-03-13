@@ -233,10 +233,112 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 yield {"event": "rag_retrieval", "data": {"content": rag_context, "status": "completed"}}
 
             print("🤖 [Agent] 正在调用 AI 模型处理...")
+            history_messages = await memory_manager.get_history(request.session_id)
+            
+            # --- 🚀 核心集成：AI 数据科学家模式 (Python 驱动) ---
+            if request.enable_data_science_agent:
+                print("🧪 [Agent] 启动数据科学家模式 (Python 驱动)")
+                from agents.advanced_data_agent import AdvancedDataAgent
+                import pandas as pd
+                
+                data_map = {}
+                additional_context = ""
+
+                # 🚀 优先处理外部 Agent 传来的独有数据
+                if request.external_data:
+                    print(f"📥 [Agent] 接收到外部 Agent 数据，共 {len(request.external_data)} 条记录")
+                    data_map["df_external"] = pd.DataFrame(request.external_data)
+                    additional_context = "\n【外部数据集变量】: `df_external` (这是你本次分析的唯一数据源)\n"
+                else:
+                    # 原有的数据库加载逻辑
+                    from services.sql_executor import SQLExecutor
+                    from services.schema_service import SchemaService
+                    tables = await SchemaService.get_table_names()
+                    print(f"📂 [Agent] 扫描本地库并准备数据集: {', '.join(tables)}")
+                    core_tables = ['orders', 'products', 'customers', 'order_details']
+                    active_tables = [t for t in tables if t in core_tables] or tables[:3]
+
+                    for table in active_tables:
+                        db_data = await SQLExecutor.execute_sql(f"SELECT * FROM `{table}` LIMIT 10000")
+                        import decimal
+                        cleaned_rows = []
+                        for row in db_data["rows"]:
+                            new_row = {k: (float(v) if isinstance(v, decimal.Decimal) else v) for k, v in row.items()}
+                            cleaned_rows.append(new_row)
+                        data_map[f"df_{table}"] = pd.DataFrame(cleaned_rows)
+                    
+                    tables_description = "\n".join([f"- `{var_name}`: 对应本地表 `{var_name.replace('df_', '')}`" for var_name in data_map.keys()])
+                    additional_context = f"\n【本地已加载的 DataFrame 变量】:\n{tables_description}\n"
+                
+                ds_agent = AdvancedDataAgent(provider=request.model_provider, model_name=request.model_name)
+                
+                full_summary = ""
+                full_code = ""
+                full_chart_cfg = ""
+                full_plot_image = ""
+                last_data = {}
+
+                async for event in ds_agent.process_analysis_flow(data_map, request.question + additional_context, history=history_messages):
+                    event_type = event.get("event")
+                    event_data = event.get("data", {})
+
+                    if event_type == "plot_ready":
+                        full_plot_image = event_data.get("image", "")
+                        # 🚀 移除 summary 注入，改由前端独立容器显示
+                        yield event
+                    elif event_type == "summary":
+                        full_summary += event_data.get("content", "")
+                        yield event
+                    elif event_type == "chart_ready":
+                        full_chart_cfg = json.dumps(event_data.get("option", {}), ensure_ascii=False)
+                        yield event
+                    elif event_type == "done":
+                        full_code = event_data.get("code", "")
+                        last_data = event_data.get("result", {})
+                        yield event
+                    else:
+                        yield event
+
+                # --- 🚀 关键修复：持久化保存消息 ---
+                from database.session_db import session_db
+                from agents.memory_manager import get_memory_manager
+                mm = get_memory_manager()
+
+                # 1. 保存用户消息
+                user_msg_id = await session_db.create_message({
+                    "session_id": request.session_id,
+                    "role": "user",
+                    "content": request.question,
+                    "parent_id": request.parent_id
+                })
+                await mm.add_user_message(request.session_id, request.question)
+
+                # 2. 保存助手消息 (包含合并后的 Plot 和 ECharts 数据)
+                from utils.json_utils import json_dumps as robust_json_dumps
+                assistant_data = {
+                    "result": last_data,
+                    "plot_image_base64": full_plot_image,
+                    "is_data_science": True
+                }
+                
+                assistant_msg_id = await session_db.create_message({
+                    "session_id": request.session_id,
+                    "role": "assistant",
+                    "content": full_summary,
+                    "sql": full_code, # 将 Python 代码存入 sql 字段以便 SqlBlock 渲染
+                    "chart_cfg": full_chart_cfg,
+                    "data": robust_json_dumps(assistant_data),
+                    "parent_id": user_msg_id
+                })
+                await mm.add_assistant_message(request.session_id, full_summary)
+
+                yield {"event": "done", "data": {"message_id": assistant_msg_id}}
+                return # 结束后直接返回
+
+            # --- 传统 SQL Agent 模式 ---
             agent = get_sql_agent()
             history_str = await memory_manager.get_history_text(request.session_id)
             
-            # 🚀 关键修复：使用显式的 knowledge_context 参数，并支持多模型切换
             async for event in agent.process_question_with_history(
                 request.question, 
                 history_str, 

@@ -16,7 +16,18 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { isLoading, isThinkingMode, setThinkingMode, pendingMessage, setPendingMessage, setIsLoading, isMobile, orientation } = useChatStore()
+  const { 
+    isLoading, 
+    isThinkingMode, 
+    setThinkingMode, 
+    isDataScienceMode, 
+    setDataScienceMode, 
+    pendingMessage, 
+    setPendingMessage, 
+    setIsLoading, 
+    isMobile, 
+    orientation 
+  } = useChatStore()
   const { messages, addMessage } = useSessionStore()
   const [isRAGMode, setRAGMode] = useState(false)
   const [isKnowledgeMode, setKnowledgeMode] = useState(false)
@@ -62,7 +73,9 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       { 
         enable_rag: isRAGMode, 
         rag_engine: ragEngine,
-        parent_id: parentId
+        parent_id: parentId,
+        enable_data_science_agent: isDataScienceMode,
+        enable_thinking: isThinkingMode
       },
       { 
         onMessageSent,
@@ -433,6 +446,20 @@ const handleStandardUpload = async (file: File) => {
               title={isThinkingMode ? t('chat.thinkingMode') + ' ON' : t('chat.thinkingMode') + ' OFF'}
             >
               <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.thinkingMode')}</span>
+            </button>
+            <button
+              onClick={() => !isLoading && setDataScienceMode(!isDataScienceMode)}
+              disabled={isLoading}
+              className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+                isLoading ? 'opacity-50 cursor-not-allowed' : ''
+              } ${
+                isDataScienceMode
+                  ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium shadow-indigo-200'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+              title="AI 数据科学家模式 (Python 驱动，支持复杂分析与建模)"
+            >
+              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">科学家</span>
             </button>
             <button
               onClick={() => {
