@@ -16,6 +16,7 @@ from utils.json_utils import json_dumps
 class PythonExecutor:
     """
     AI Data Agent 的 Python 代码执行沙盒 (带 AST 安全审计)
+    AI Data Agent Python Sandbox (with AST security audit)
     """
     
     # 允许的库列表
@@ -25,7 +26,7 @@ class PythonExecutor:
 
     @staticmethod
     def _is_safe(code: str) -> bool:
-        """简单的 AST 安全审计"""
+        """简单的 AST 安全审计 / Simple AST security audit"""
         try:
             # 🚀 预清洗：替换 AI 可能生成的“智能引号”或特殊不可见字符
             code = code.replace('‘', "'").replace('’', "'").replace('“', '"').replace('”', '"')
@@ -37,21 +38,21 @@ class PythonExecutor:
                     for name in node.names:
                         base_mod = name.name.split('.')[0]
                         if base_mod not in ['pandas', 'numpy', 'matplotlib', 'seaborn', 'sklearn', 'scipy', 'statsmodels', 'json', 'datetime']:
-                            return False, f"禁止导入模块: {name.name}"
+                            return False, f"Import forbidden (禁止导入模块): {name.name}"
                 
                 if isinstance(node, ast.ImportFrom):
                     if node.module:
                         base_mod = node.module.split('.')[0]
                         if base_mod not in ['pandas', 'numpy', 'matplotlib', 'seaborn', 'sklearn', 'scipy', 'statsmodels', 'json', 'datetime']:
-                            return False, f"禁止从该模块导入: {node.module}"
+                            return False, f"Import from forbidden (禁止从该模块导入): {node.module}"
                 
                 # 拦截 eval, exec, system 等
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                     if node.func.id in ['eval', 'exec', 'open', 'getattr', 'setattr', 'delattr']:
-                        return False, f"禁止调用函数: {node.func.id}"
+                        return False, f"Function call forbidden (禁止调用函数): {node.func.id}"
             return True, None
         except Exception as e:
-            return False, f"AST 解析错误: {str(e)}"
+            return False, f"AST Parse Error (AST 解析错误): {str(e)}"
 
     @staticmethod
     def _clean_result(obj: Any) -> Any:
@@ -98,7 +99,7 @@ class PythonExecutor:
         # 0. 安全审计
         is_safe, error_msg = PythonExecutor._is_safe(code)
         if not is_safe:
-            return {"success": False, "error": f"安全审计失败: {error_msg}"}
+            return {"success": False, "error": f"Security audit failed (安全审计失败): {error_msg}"}
 
         # 1. 准备执行环境
         exec_globals = {
@@ -137,17 +138,17 @@ class PythonExecutor:
                 # 检查是否有活跃的 Figure，或者当前 Figure 是否有内容（轴）
                 fig = plt.gcf()
                 if fig and fig.get_axes():
-                    logger.info(f"🎨 [Executor] 检测到活跃图表，正在渲染...")
+                    logger.info(f"🎨 [Executor] Active chart detected, rendering... (检测到活跃图表，正在渲染...)")
                     buf = io.BytesIO()
                     fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
                     buf.seek(0)
                     plot_base64 = base64.b64encode(buf.read()).decode('utf-8')
-                    logger.info(f"✅ [Executor] 图表捕获成功，长度: {len(plot_base64)}")
+                    logger.info(f"✅ [Executor] Chart captured successfully (图表捕获成功), len: {len(plot_base64)}")
                     plt.close('all')
                 else:
-                    logger.info("⚠️ [Executor] 未检测到有效绘图输出")
+                    logger.info("⚠️ [Executor] No valid plot output detected (未检测到有效绘图输出)")
             except Exception as e:
-                logger.error(f"❌ [Executor] 绘图捕获失败: {str(e)}")
+                logger.error(f"❌ [Executor] Chart capture failed (绘图捕获失败): {str(e)}")
 
             # 🚀 关键：在返回前清理所有数据
             return {
@@ -160,7 +161,7 @@ class PythonExecutor:
             }
         except Exception:
             err_traceback = traceback.format_exc()
-            logger.error(f"❌ [Executor] 代码执行崩溃:\n{err_traceback}")
+            logger.error(f"❌ [Executor] Execution crashed (代码执行崩溃):\n{err_traceback}")
             return {
                 "success": False,
                 "error": err_traceback,
@@ -179,13 +180,13 @@ class PythonExecutor:
         description = df.describe(include='all').to_dict()
         
         context = f"""
-[数据集元数据]
+[Dataset Metadata / 数据集元数据]
 {info_str}
 
-[数据样本 (前3行)]
+[Data Sample (First 3 rows) / 数据样本 (前3行)]
 {json_dumps(sample, indent=2)}
 
-[统计描述]
+[Statistical Description / 统计描述]
 {json_dumps(description, indent=2)}
 """
         return context

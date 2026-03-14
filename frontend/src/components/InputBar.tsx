@@ -102,7 +102,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
         onMessageSent,
         onError: (err) => {
           console.error('SSE Error:', err)
-          alert('分析失败: ' + err)
+          alert(`${t('alert.analysisFailed')}: ${err}`)
         }
       }
     )
@@ -120,7 +120,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
 
   const handleFileUpload = () => {
     if (!sessionId) {
-      alert('请先选择或创建一个会话')
+      alert(t('alert.selectSessionFirst'))
       return
     }
     fileInputRef.current?.click()
@@ -133,7 +133,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     if (files && files.length > 0 && sessionId) {
       if (isLoading) {
         console.log('isLoading is true, skipping file change')
-        alert('正在处理中，请稍候再试')
+        alert(t('alert.processing'))
         return
       }
 
@@ -151,7 +151,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
           console.log('Entering startKnowledgeExtraction')
           startKnowledgeExtraction(file)
         } else {
-          alert('该文件类型暂不支持深度知识抽取')
+          alert(t('alert.fileTypeNotSupported'))
         }
       } else {
         // 普通模式逻辑：如果是 PDF 或 图片，弹出引擎选择框
@@ -169,7 +169,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     } else {
       console.log('Condition not met: files:', !!files, 'sessionId:', !!sessionId)
       if (!sessionId) {
-        alert('错误：会话 ID 丢失，请刷新页面或重新创建会话')
+        alert(t('alert.sessionIdMissing'))
       }
     }
   }
@@ -186,11 +186,11 @@ const handleStandardUpload = async (file: File) => {
       id: `sys_${Date.now()}`,
       session_id: sessionId!,
       role: 'assistant',
-      content: `✅ **图片解析成功并已存入知识库**\n文件: 《${file.name}》\n\n**识别内容预览:**\n> ${response.text_preview}...\n\n您可以基于这些数据向我发起提问了！`
+      content: `✅ **${t('common.success')}**\nFile: 《${file.name}》\n\n**Preview:**\n> ${response.text_preview}...\n\n`
     })
   } catch (error: any) {
       console.error('文件上传失败:', error)
-      alert('文件预处理失败: ' + (error.response?.data?.detail || error.message))
+      alert(`${t('alert.filePreprocessingFailed')}: ${error.response?.data?.detail || error.message}`)
     } finally {
       setIsLoading(false)
     }
@@ -206,12 +206,18 @@ const handleStandardUpload = async (file: File) => {
       setKnowledgeMode(true)
       setShowEngineSelect(false)
       
-      const statuses = [
+      const statuses = t('language') === 'zh' ? [
         `第 1 步：正在上传文件到 MinerU 云端...`,
-        `第 2 步：正在进行 AI 布局分析 (OCR/公式识别)...`,
+        `第 2 步：正在进行 AI 布局 analysis (OCR/公式识别)...`,
         `第 3 步：正在调用 DeepSeek 进行知识建模...`,
         `第 4 步：正在将结构化知识点保存到数据库...`,
         `☕ 任务处理中，文件虽小但逻辑密集，请耐心等待最后一步完成...`
+      ] : [
+        `Step 1: Uploading file to MinerU Cloud...`,
+        `Step 2: AI Layout Analysis (OCR/Formula recognition)...`,
+        `Step 3: Calling DeepSeek for knowledge modeling...`,
+        `Step 4: Saving structured knowledge to database...`,
+        `☕ Processing... please wait for the final step to complete.`
       ]
       let statusIdx = 0
 
@@ -219,7 +225,7 @@ const handleStandardUpload = async (file: File) => {
         id: messageId,
         session_id: sessionId!,
         role: 'user',
-        content: `【深度知识抽取】文件：${file.name}\n当前进度：${statuses[0]} (已耗时: 0s)`
+        content: `【${t('chat.proMode')}】File: ${file.name}\nProgress: ${statuses[0]} (Elapsed: 0s)`
       })
 
       // 动态更新状态的计时器 (改为每 1 秒更新一次，以显示秒数)
@@ -227,7 +233,7 @@ const handleStandardUpload = async (file: File) => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000)
         const seconds = elapsed % 60
         const minutes = Math.floor(elapsed / 60)
-        const timeStr = minutes > 0 ? `${minutes}分${seconds}s` : `${seconds}s`
+        const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
         
         // 每 10 秒切换一次文本状态
         if (elapsed % 10 === 0 && elapsed > 0) {
@@ -235,7 +241,7 @@ const handleStandardUpload = async (file: File) => {
         }
 
         useSessionStore.getState().updateMessage(messageId, {
-          content: `【深度知识抽取】文件：${file.name}\n当前进度：${statuses[statusIdx]} (已耗时: ${timeStr})`
+          content: `【${t('chat.proMode')}】File: ${file.name}\nProgress: ${statuses[statusIdx]} (Elapsed: ${timeStr})`
         })
       }, 1000)
 
@@ -245,7 +251,7 @@ const handleStandardUpload = async (file: File) => {
       if (response.status === 'processing') {
         clearInterval(progressTimer)
         useSessionStore.getState().updateMessage(messageId, {
-          content: `⏳ **任务已成功提交至后台执行**\n文件: 《${file.name}》\n状态: 系统正在进行 MinerU 解析与知识提取，您可以继续其他操作。解析完成后，结果将自动出现在对话列表中。`
+          content: `⏳ **${t('alert.processing')}**\nFile: 《${file.name}》\nStatus: ${t('chat.proMode')} task submitted to background.`
         })
         
         // 开启一个轮询，每 10 秒刷新一次消息列表，直到看到完成消息
@@ -254,7 +260,7 @@ const handleStandardUpload = async (file: File) => {
           // 检查最后一条消息是否包含“完成”字样（简单判断）
           const currentMessages = useSessionStore.getState().messages
           const lastMsg = currentMessages[currentMessages.length - 1]
-          if (lastMsg?.content?.includes('完成') || lastMsg?.content?.includes('失败')) {
+          if (lastMsg?.content?.includes('完成') || lastMsg?.content?.includes('失败') || lastMsg?.content?.includes('Complete') || lastMsg?.content?.includes('Failed')) {
             clearInterval(pollInterval)
           }
         }, 10000)
@@ -266,7 +272,7 @@ const handleStandardUpload = async (file: File) => {
       clearInterval(progressTimer)
       const totalElapsed = Math.floor((Date.now() - startTime) / 1000)
       const knowledgeCount = response.knowledge_count
-      const summary = `✅ 深度抽取完成！(总耗时: ${totalElapsed}s)\n从《${file.name}》中提取了 ${knowledgeCount} 条结构化知识点并存入 PostgreSQL。\n\n**解析内容预览:**\n${response.markdown_preview.substring(0, 2000)}${response.markdown_preview.length > 2000 ? '...' : ''}`
+      const summary = `✅ ${t('common.success')}! (Total: ${totalElapsed}s)\nExtracted ${knowledgeCount} structured points from 《${file.name}》.`
       
       const finalResponseData = {
         knowledge: response.data,
@@ -305,14 +311,14 @@ const handleStandardUpload = async (file: File) => {
       
       let errorMsg = error.response?.data?.detail || error.message
       if (isTimeout) {
-        errorMsg = '网络连接超时（但后端任务可能仍在继续运行）。建议点击右下角【终端】图标查看实时进度，任务完成后刷新页面即可查看结果。'
+        errorMsg = 'Timeout (but background task might continue). Check terminal for progress.'
       }
       
       useSessionStore.getState().updateMessage(messageId, {
-        content: `⚠️ 处理反馈: ${file.name}\n状态: ${errorMsg}`
+        content: `⚠️ Error: ${file.name}\nStatus: ${errorMsg}`
       })
       
-      if (!isTimeout) alert('处理异常: ' + errorMsg)
+      if (!isTimeout) alert(`${t('alert.exception')}: ${errorMsg}`)
     } finally {
       setIsLoading(false)
       setKnowledgeMode(false)
@@ -337,7 +343,7 @@ const handleStandardUpload = async (file: File) => {
         setRAGMode(true)
         console.log('PDF已索引:', file.name)
       } catch (e: any) {
-        alert('解析失败: ' + e.message)
+        alert(`${t('alert.parseFailed')}: ${e.message}`)
       } finally {
         setIsLoading(false)
       }
@@ -351,30 +357,30 @@ const handleStandardUpload = async (file: File) => {
     <div className="relative data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1">
       {showEngineSelect && (
         <div className="absolute bottom-full left-0 mb-2 p-3 bg-white/90 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl z-50 w-64 data-[mobile=true]:data-[orientation=landscape]:w-80 data-[mobile=true]:data-[orientation=landscape]:grid data-[mobile=true]:data-[orientation=landscape]:grid-cols-2 data-[mobile=true]:data-[orientation=landscape]:gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <h3 className="text-sm font-bold text-gray-800 mb-2 data-[mobile=true]:data-[orientation=landscape]:col-span-2">选择处理方式</h3>
+          <h3 className="text-sm font-bold text-gray-800 mb-2 data-[mobile=true]:data-[orientation=landscape]:col-span-2">{t('chat.pdfModeTitle')}</h3>
           
           <button
             onClick={() => selectEngine('light')}
             className="w-full text-left p-2 rounded-xl hover:bg-green-50 transition-colors border border-transparent hover:border-green-200"
           >
-            <div className="text-xs font-bold text-gray-700">⚡ 快速摘要</div>
-            <div className="text-[9px] text-gray-500">基础解析，速度极快</div>
+            <div className="text-xs font-bold text-gray-700">⚡ {t('chat.lightMode')}</div>
+            <div className="text-[9px] text-gray-500">{t('chat.pdfModeDesc')}</div>
           </button>
 
           <button
             onClick={() => selectEngine('pro')}
             className="w-full text-left p-2 rounded-xl hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-200"
           >
-            <div className="text-xs font-bold text-gray-700">🧠 智能对话</div>
-            <div className="text-[9px] text-gray-500">结合知识库，精准问答</div>
+            <div className="text-xs font-bold text-gray-700">🧠 {t('chat.proMode')}</div>
+            <div className="text-[9px] text-gray-500">Enhanced knowledge-based chat</div>
           </button>
 
           <button
             onClick={() => selectEngine('knowledge')}
             className="w-full text-left p-2 rounded-xl hover:bg-purple-50 transition-colors border border-transparent hover:border-purple-200 data-[mobile=true]:data-[orientation=landscape]:col-span-2 mt-1"
           >
-            <div className="text-[11px] font-bold text-purple-700">💎 深度知识抽取 (MinerU)</div>
-            <div className="text-[9px] text-gray-500">识别表格/公式并结构化存入 PostgreSQL</div>
+            <div className="text-[11px] font-bold text-purple-700">💎 {t('feature.file.title')} (MinerU)</div>
+            <div className="text-[9px] text-gray-500">{t('feature.file.desc')}</div>
           </button>
         </div>
       )}
@@ -396,8 +402,7 @@ const handleStandardUpload = async (file: File) => {
             onClick={() => {
               setUseHighPrecision(!useHighPrecision);
               if (!useHighPrecision) {
-                // 自动给个提示
-                console.log('✨ 已启用百度高精度 OCR');
+                console.log('✨ Enabled High Precision OCR');
               }
             }}
             className={`flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl transition-all border ${
@@ -405,7 +410,7 @@ const handleStandardUpload = async (file: File) => {
                 ? 'bg-purple-500/10 border-purple-500/40 text-purple-600 shadow-[0_0_15px_rgba(168,85,247,0.2)]' 
                 : 'bg-gray-100/50 border-gray-200/50 text-gray-400 grayscale'
             }`}
-            title={useHighPrecision ? "✨ 已开启百度高精度 OCR" : "开启百度高精度 OCR (建议处理表格/图片)"}
+            title={useHighPrecision ? "✨ High Precision OCR ON" : "Enable High Precision OCR"}
           >
             <Sparkles size={18} className={useHighPrecision ? 'animate-pulse' : ''} />
           </button>
@@ -426,9 +431,9 @@ const handleStandardUpload = async (file: File) => {
               !sessionId 
                 ? t('chat.noSession') 
                 : !currentDb 
-                  ? '⚠️ 请点击右上角选择一个数据库以开始分析' 
+                  ? '⚠️ Please select a database in the top right' 
                   : isKnowledgeMode 
-                    ? '深度抽取模式：点击加号上传文档' 
+                    ? t('feature.file.title')
                     : t('chat.placeholder')
             }
             disabled={isLoading || !sessionId || !currentDb}
@@ -438,7 +443,7 @@ const handleStandardUpload = async (file: File) => {
         </div>
         <div className="flex items-center justify-between px-4 pb-3 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1 data-[mobile=true]:data-[orientation=landscape]:mt-1">
           <div className="text-xs text-gray-400 data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
-            {isLoading ? t('common.loading') : 'Enter ' + t('chat.send')}
+            {isLoading ? t('common.loading') : 'Enter to ' + t('chat.send')}
           </div>
           
           <div className="flex items-center gap-1.5 ml-auto mr-3">
@@ -456,9 +461,9 @@ const handleStandardUpload = async (file: File) => {
                   ? 'bg-purple-500 text-white font-medium shadow-purple-200'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
-              title="深度知识库处理（MinerU + LangExtract）"
+              title="MinerU Deep Knowledge Extraction"
             >
-              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">深度</span>
+              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.proMode')}</span>
             </button>
             <button
               onClick={(e) => {
@@ -500,9 +505,9 @@ const handleStandardUpload = async (file: File) => {
                   ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium shadow-indigo-200'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
-              title="AI 数据科学家模式 (Python 驱动，支持复杂分析与建模)"
+              title="Scientist Mode (Python Driven)"
             >
-              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">科学家</span>
+              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">Scientist</span>
             </button>
             <button
               onClick={(e) => {
@@ -538,7 +543,7 @@ const handleStandardUpload = async (file: File) => {
                 <svg className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">停止</span>
+                <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">Stop</span>
               </button>
             )}
             <button

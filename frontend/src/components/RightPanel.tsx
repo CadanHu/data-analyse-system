@@ -1,45 +1,23 @@
 import { useState, useMemo } from 'react'
 import EChartsRenderer from './EChartsRenderer'
 import { useChatStore } from '../stores/chatStore'
-
-const CHART_TYPES = [
-  { key: 'auto', label: '智能推荐', icon: '🧠' },
-  { key: 'line', label: '折线图', icon: '📈' },
-  { key: 'area', label: '面积图', icon: '🌊' },
-  { key: 'bar', label: '柱状/条形', icon: '📊' },
-  { key: 'pie', label: '饼图/环形', icon: '🥧' },
-  { key: 'scatter', label: '散点/气泡', icon: '✨' },
-  { key: 'radar', label: '雷达图', icon: '🕸️' },
-  { key: 'funnel', label: '漏斗图', icon: '⏳' },
-  { key: 'gauge', label: '仪表盘', icon: '⏲️' },
-  { key: 'candlestick', label: '蜡烛图', icon: '🕯️' },
-  { key: 'heatmap', label: '热力图', icon: '🔥' },
-  { key: 'treemap', label: '树状图', icon: '🌳' },
-  { key: 'sankey', label: '桑基图', icon: '🔀' },
-  { key: 'boxplot', label: '箱线图', icon: '📦' },
-  { key: 'waterfall', label: '瀑布图', icon: '⛲' },
-  { key: 'map', label: '地理地图', icon: '🗺️' },
-  { key: 'gantt', label: '甘特图', icon: '📅' },
-  { key: 'table', label: '原始表格', icon: '📋' }
-]
+import { useTranslation } from '../hooks/useTranslation'
 
 /**
  * 指标卡片组件 - 用于展示单一核心数值
  */
-function MetricCard({ value, label, unit }: { value: any; label: string; unit?: string }) {
-  // 简单的数值格式化
+function MetricCard({ value, label }: { value: any; label: string; unit?: string }) {
   const formattedValue = typeof value === 'number' 
-    ? new Intl.NumberFormat('zh-CN').format(value)
+    ? new Intl.NumberFormat('en-US').format(value)
     : value;
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-gradient-to-br from-white/80 to-[#BFFFD9]/20 backdrop-blur-md rounded-3xl border border-white/50 shadow-[0_8px_32px_rgba(191,255,217,0.15)] min-h-[300px]">
+    <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-gradient-to-br from-white/80 to-[#BFFFD9]/20 backdrop-blur-md rounded-3xl border border-white/50 shadow-[0_8px_32px_rgba(191,255,217,0.15)] min-h-[300px] select-text">
       <div className="text-gray-400 text-sm font-medium mb-2 uppercase tracking-widest">{label}</div>
       <div className="flex items-baseline gap-1">
         <span className="text-5xl md:text-6xl font-black bg-gradient-to-r from-gray-800 to-gray-600 bg-clip-text text-transparent">
           {formattedValue}
         </span>
-        {unit && <span className="text-lg font-bold text-gray-400">{unit}</span>}
       </div>
       <div className="mt-6 w-12 h-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] rounded-full opacity-60" />
     </div>
@@ -55,6 +33,7 @@ function DataTable({ sqlResult, onExportCsv }: { sqlResult: any; onExportCsv: ()
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
   const [filterText, setFilterText] = useState('')
+  const { t } = useTranslation()
 
   const columns = sqlResult?.columns || []
   const rows = sqlResult?.rows || []
@@ -87,15 +66,15 @@ function DataTable({ sqlResult, onExportCsv }: { sqlResult: any; onExportCsv: ()
       <div className="flex-none p-4 border-b border-white/30 flex items-center justify-between gap-2">
         <input
           type="text"
-          placeholder="过滤数据..."
+          placeholder={t('panel.filter')}
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
           className="flex-1 px-4 py-2 bg-white/60 backdrop-blur-sm border border-white/40 rounded-xl text-sm"
         />
-        <button onClick={onExportCsv} className="px-4 py-2 bg-white/80 rounded-xl text-sm shadow-sm border border-white">导出</button>
+        <button onClick={onExportCsv} className="px-4 py-2 bg-white/80 rounded-xl text-sm shadow-sm border border-white hover:bg-gray-50 transition-colors">{t('panel.export')}</button>
       </div>
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm select-text">
           <thead className="bg-white/40 sticky top-0">
             <tr>
               {columns.map((col: string) => (
@@ -121,12 +100,11 @@ function DataTable({ sqlResult, onExportCsv }: { sqlResult: any; onExportCsv: ()
 /**
  * 降级方案：自动生成图表配置
  */
-function fallbackGenerateChart(sqlResult: any, type: string) {
+function fallbackGenerateChart(sqlResult: any, type: string, t: any) {
   if (!sqlResult?.rows?.length || !sqlResult?.columns?.length) return null;
   const columns = sqlResult.columns;
   const rows = sqlResult.rows;
   
-  // 识别数值列
   const numericCols = columns.filter((c: string) => typeof rows[0][c] === 'number');
   const categoryCols = columns.filter((c: string) => !numericCols.includes(c));
   
@@ -135,7 +113,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
 
   const base = {
     title: { 
-      text: '分析结果', 
+      text: t('common.success'), 
       left: 'center', 
       top: 10, 
       textStyle: { fontSize: 14, color: '#374151', fontWeight: 'bold' } 
@@ -150,8 +128,8 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
     },
     grid: { 
       top: 80, 
-      bottom: 100, // 增加底部空间
-      left: 80,    // 增加左侧空间
+      bottom: 100, 
+      left: 80,    
       right: 50, 
       containLabel: true 
     },
@@ -159,14 +137,14 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
       type: 'category', 
       data: rows.map((r: any) => String(r[x])),
       axisLabel: { 
-        rotate: 45,      // 旋转标签
+        rotate: 45,      
         fontSize: 10, 
-        interval: 0,     // 强制显示所有标签
+        interval: 0,     
         color: '#6b7280',
-        hideOverlap: true // 自动隐藏重叠
+        hideOverlap: true 
       },
       axisLine: { lineStyle: { color: '#e5e7eb' } },
-      boundaryGap: true // 留出边缘间距
+      boundaryGap: true 
     },
     yAxis: { 
       type: 'value', 
@@ -192,7 +170,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
         series: [{ 
           type: 'pie', 
           radius: ['35%', '65%'], 
-          avoidLabelOverlap: true, // 开启防重叠
+          avoidLabelOverlap: true, 
           label: { fontSize: 10 },
           data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] })) 
         }] 
@@ -224,7 +202,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
         series: [{
           type: 'funnel',
           left: '15%', top: 100, bottom: 40, width: '70%',
-          label: { position: 'inside', fontSize: 10 }, // 强制内部展示
+          label: { position: 'inside', fontSize: 10 }, 
           data: rows.map((r: any) => ({ name: String(r[x]), value: r[y] }))
         }]
       };
@@ -241,7 +219,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
           progress: { show: true, width: 8 },
           axisLine: { lineStyle: { width: 8 } },
           axisTick: { show: false },
-          splitLine: { length: 10, lineStyle: { width: 2, color: '#999' } }, // 缩短刻度线
+          splitLine: { length: 10, lineStyle: { width: 2, color: '#999' } }, 
           axisLabel: { distance: 15, color: '#999', fontSize: 9 },
           detail: { 
             valueAnimation: true, 
@@ -268,7 +246,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
           calculable: true, 
           orient: 'horizontal', 
           left: 'center', 
-          bottom: 20, // 移到底部，防止遮挡
+          bottom: 20, 
           itemHeight: 120,
           textStyle: { fontSize: 10 }
         },
@@ -344,7 +322,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
         tooltip: { 
           formatter: (params: any) => {
             const data = rows[params.dataIndex];
-            return `${params.name}<br/>开始: ${data.start_date}<br/>结束: ${data.end_date}`;
+            return `${params.name}<br/>Start: ${data.start_date}<br/>End: ${data.end_date}`;
           }
         },
         grid: { left: 120, top: 80, bottom: 60, right: 50, containLabel: true },
@@ -365,6 +343,7 @@ function fallbackGenerateChart(sqlResult: any, type: string) {
 }
 
 export default function RightPanel() {
+  const { t } = useTranslation()
   const { 
     currentChartOption, 
     currentChartType, 
@@ -375,19 +354,36 @@ export default function RightPanel() {
     setFullScreen
   } = useChatStore()
   
-  // 状态：当前选中的 Tab。'auto' 表示尊重 AI 建议
   const [activeType, setActiveType] = useState<string>('auto')
 
-  // 计算最终要展示的内容
+  const CHART_TYPES = [
+    { key: 'auto', label: t('panel.auto'), icon: '🧠' },
+    { key: 'line', label: t('panel.line'), icon: '📈' },
+    { key: 'area', label: t('panel.area'), icon: '🌊' },
+    { key: 'bar', label: t('panel.bar'), icon: '📊' },
+    { key: 'pie', label: t('panel.pie'), icon: '🥧' },
+    { key: 'scatter', label: t('panel.scatter'), icon: '✨' },
+    { key: 'radar', label: t('panel.radar'), icon: '🕸️' },
+    { key: 'funnel', label: t('panel.funnel'), icon: '⏳' },
+    { key: 'gauge', label: t('panel.gauge'), icon: '⏲️' },
+    { key: 'candlestick', label: t('panel.candlestick'), icon: '🕯️' },
+    { key: 'heatmap', label: t('panel.heatmap'), icon: '🔥' },
+    { key: 'treemap', label: t('panel.treemap'), icon: '🌳' },
+    { key: 'sankey', label: t('panel.sankey'), icon: '🔀' },
+    { key: 'boxplot', label: t('panel.boxplot'), icon: '📦' },
+    { key: 'waterfall', label: t('panel.waterfall'), icon: '⛲' },
+    { key: 'map', label: t('panel.map'), icon: '🗺️' },
+    { key: 'gantt', label: t('panel.gantt'), icon: '📅' },
+    { key: 'table', label: t('panel.table'), icon: '📋' }
+  ]
+
   const displayConfig = useMemo(() => {
     if (!currentSqlResult) return null
     
-    // 目标类型：如果用户选了 auto，则用 AI 建议；否则用用户选的
     const targetType = activeType === 'auto' ? (currentChartType || 'table') : activeType
     
     if (targetType === 'table') return { type: 'table' }
     
-    // 如果是 card 模式
     if (targetType === 'card' || (currentSqlResult.rows.length === 1 && currentSqlResult.columns.length === 1)) {
       const col = currentSqlResult.columns[0]
       return {
@@ -397,22 +393,19 @@ export default function RightPanel() {
       }
     }
 
-    // 关键逻辑：如果用户手动切换了类型，且该类型与 AI 建议的类型不同，则必须走 fallback 生成逻辑
-    // 只有在 activeType === 'auto' 且有 currentChartOption 时才使用 AI 的原始配置
     if (activeType === 'auto' && currentChartOption) {
       return { type: 'chart', option: currentChartOption }
     }
 
-    // 否则，基于当前 SQL 结果手动生成对应类型的配置
-    const generatedOption = fallbackGenerateChart(currentSqlResult, targetType)
+    const generatedOption = fallbackGenerateChart(currentSqlResult, targetType, t)
     return { type: 'chart', option: generatedOption }
-  }, [currentSqlResult, currentChartOption, currentChartType, activeType])
+  }, [currentSqlResult, currentChartOption, currentChartType, activeType, t])
 
   const renderInnerContent = () => {
     if (!displayConfig) return (
       <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4">
         <div className="text-4xl opacity-20">📊</div>
-        <p className="text-sm font-medium">暂无分析数据</p>
+        <p className="text-sm font-medium">{t('panel.noData')}</p>
       </div>
     )
 
@@ -424,7 +417,7 @@ export default function RightPanel() {
       case 'chart':
         return displayConfig.option 
           ? <EChartsRenderer option={displayConfig.option} /> 
-          : <div className="p-8 text-center text-gray-400">该数据格式不适合展示为 {activeType}</div>
+          : <div className="p-8 text-center text-gray-400">{t('panel.unsupported')} {activeType}</div>
       default:
         return null
     }
@@ -433,10 +426,9 @@ export default function RightPanel() {
   return (
     <div className="flex-none flex flex-col h-full bg-gradient-to-br from-[#f8f9fa] to-white overflow-hidden">
       <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {/* 顶部控制栏 */}
         <div className="p-3 sm:p-4 border-b border-white/30">
           <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg sm:text-xl font-bold text-gray-800 tracking-tight truncate mr-2">数据透视</h2>
+            <h2 className="text-lg sm:text-xl font-bold text-gray-800 tracking-tight truncate mr-2">{t('panel.dataPivot')}</h2>
             <div className="flex gap-1.5 sm:gap-2 flex-none">
               <button 
                 onClick={() => setFullScreen(!isFullScreen)} 
@@ -445,7 +437,7 @@ export default function RightPanel() {
                     ? 'bg-blue-500 text-white border-blue-200' 
                     : 'bg-white text-gray-600 border-gray-100 hover:bg-gray-50'
                 }`}
-                title={isFullScreen ? "退出全屏" : "全屏展示"}
+                title={isFullScreen ? t('panel.exitFullscreen') : t('panel.fullscreen')}
               >
                 {isFullScreen ? (
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -465,7 +457,6 @@ export default function RightPanel() {
             </div>
           </div>
 
-          {/* 优化的图表类型选择器：6列紧凑布局 */}
           <div className="p-1 bg-gray-100/50 rounded-2xl">
             <div className="grid grid-cols-4 xs:grid-cols-5 sm:grid-cols-6 lg:grid-cols-6 gap-1">
               {CHART_TYPES.map((t) => (
@@ -486,19 +477,17 @@ export default function RightPanel() {
           </div>
         </div>
 
-        {/* SQL 查看器 (默认收起) */}
         {currentSql && (
           <details className="mx-4 mt-4 group">
             <summary className="cursor-pointer list-none flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors">
-              <span className="group-open:rotate-90 transition-transform">▶</span> 执行的 SQL
+              <span className="group-open:rotate-90 transition-transform">▶</span> {t('panel.executedSql')}
             </summary>
-            <pre className="mt-2 p-4 bg-gray-900 rounded-2xl text-[11px] text-emerald-400 font-mono overflow-auto border border-white/10 shadow-inner">
+            <pre className="mt-2 p-4 bg-gray-900 rounded-2xl text-[11px] text-emerald-400 font-mono overflow-auto border border-white/10 shadow-inner select-text">
               {currentSql}
             </pre>
           </details>
         )}
 
-        {/* 主画布 */}
         <div className="p-4 min-h-[400px]">
           <div className="w-full h-full rounded-[2rem] overflow-hidden">
             {renderInnerContent()}

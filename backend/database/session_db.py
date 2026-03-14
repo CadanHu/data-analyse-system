@@ -108,11 +108,13 @@ class SessionDatabase:
     async def create_session(self, user_id: int, title: str = None, database_key: str = 'classic_business') -> str:
         session_id = str(uuid.uuid4())
         
-        # 🚀 核心优化：后端自动处理重名序号
-        if not title or title == "新会话":
-            prefix = "新会话"
+        if not title:
+            # Let the frontend handle the display of "Unnamed Session"
+            pass
+        else:
+             # Keep the logic for handling numbered sessions if a title is provided
+            prefix = title
             async with self.async_session() as session:
-                # 查找当前用户所有以 "新会话" 开头的标题
                 result = await session.execute(
                     select(SessionModel.title).where(
                         SessionModel.user_id == user_id,
@@ -121,10 +123,7 @@ class SessionDatabase:
                 )
                 existing_titles = result.scalars().all()
                 
-                if not existing_titles:
-                    title = prefix
-                else:
-                    # 提取数字后缀并找最大值
+                if existing_titles:
                     import re
                     nums = [0]
                     for t in existing_titles:

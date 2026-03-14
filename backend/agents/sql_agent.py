@@ -9,10 +9,7 @@ from config import API_KEY, API_BASE_URL, CHAT_MODEL, REASONER_MODEL, MAX_RETRY_
 from services.llm_factory import llm_factory
 from services.schema_service import SchemaService
 from services.sql_executor import SQLExecutor
-from utils.prompt_templates import (
-    SQL_GENERATION_PROMPT, SUMMARY_PROMPT, CHART_CONFIG_PROMPT, 
-    INTENT_CLASSIFICATION_PROMPT, CHAT_RESPONSE_PROMPT, PLAN_GENERATION_PROMPT
-)
+from utils.prompt_templates import get_prompt
 
 class SQLAgent:
     async def _chat_completion(
@@ -116,10 +113,10 @@ class SQLAgent:
         if full_content:
             print(f"\n📥 [{provider} 完整回答]:\n{full_content[:500]}...")
         print("-" * 30)
-    async def generate_ai_title(self, question: str, provider: str = None, model_name: str = None) -> str:
+    async def generate_ai_title(self, question: str, provider: str = None, model_name: str = None, language: str = "zh") -> str:
         """根据对话内容生成专业标题 (AI 智能版)"""
-        from utils.prompt_templates import SESSION_TITLE_PROMPT
-        prompt = SESSION_TITLE_PROMPT.format(question=question)
+        prompt_tmpl = get_prompt("SESSION_TITLE", language)
+        prompt = prompt_tmpl.format(question=question)
         messages = [{"role": "user", "content": prompt}]
         try:
             # 使用较快的 chat 模型，低温确保稳定性
@@ -129,24 +126,13 @@ class SQLAgent:
             print(f"⚠️ [Agent] 生成标题失败: {e}")
             return question[:15] + "..."
 
-    async def rewrite_query_for_rag(self, question: str, history: str, provider: str = None, model_name: str = None) -> str:
+    async def rewrite_query_for_rag(self, question: str, history: str, provider: str = None, model_name: str = None, language: str = "zh") -> str:
         """利用 AI 将用户问题重写为更精准的检索词 (解决追问场景)"""
         if not history or len(question) > 30:
             return question # 如果问题足够长或没历史，直接返回
             
-        prompt = f"""请根据以下对话历史，将用户最新的提问重写为一个独立、完整的检索词（包含核心业务关键词）。
-要求：
-1. 不要回答问题，只输出重写后的关键词。
-2. 确保关键词包含用户之前提到的核心业务主体（如特定地区、产品、指标）。
-3. 如果用户的问题已经是完整的业务需求，请保持原样。
-
-【对话历史】
-{history[-500:]}
-
-【用户最新提问】
-{question}
-
-重写后的检索词："""
+        prompt_tmpl = get_prompt("RAG_REWRITE", language)
+        prompt = prompt_tmpl.format(history=history[-500:], question=question)
         
         try:
             # 使用同步 chat 接口快速获取结果
@@ -155,10 +141,12 @@ class SQLAgent:
         except:
             return question
 
-    async def _classify_intent(self, question: str, provider: str = None, model_name: str = None) -> str:
-        prompt = INTENT_CLASSIFICATION_PROMPT.format(question=question)
+    async def _classify_intent(self, question: str, provider: str = None, model_name: str = None, language: str = "zh") -> str:
+        prompt_tmpl = get_prompt("INTENT_CLASSIFICATION", language)
+        prompt = prompt_tmpl.format(question=question)
+        system_msg = "你是一个智能助手，负责根据用户问题判断其意图。" if language == "zh" else "You are an AI assistant classified user intent."
         messages = [
-            {"role": "system", "content": "你是一个智能助手，负责根据用户问题判断其意图。"},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt}
         ]
         response_content = await self._chat_completion(messages, temperature=0.0, provider=provider, model_name=model_name)
@@ -181,9 +169,11 @@ class SQLAgent:
         table_list_query: str = "请使用：SHOW TABLES",
         quote_char: str = '"',
         provider: str = None,
-        model_name: str = None
+        model_name: str = None,
+        language: str = "zh"
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        prompt = SQL_GENERATION_PROMPT.format(
+        prompt_tmpl = get_prompt("SQL_GENERATION", language)
+        prompt = prompt_tmpl.format(
             database_name=database_name,
             database_type_info=database_type_info,
             database_version=database_version,
@@ -195,8 +185,9 @@ class SQLAgent:
             quote_char=quote_char
         )
 
+        system_msg = "你是一个专业的数据分析助手。" if language == "zh" else "You are a professional data analysis assistant."
         messages = [
-            {"role": "system", "content": "你是一个专业的数据分析助手。"},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt}
         ]
 
@@ -220,9 +211,11 @@ class SQLAgent:
         database_type: str = "未知",
         tables: str = "未知",
         provider: str = None,
-        model_name: str = None
+        model_name: str = None,
+        language: str = "zh"
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        prompt = CHAT_RESPONSE_PROMPT.format(
+        prompt_tmpl = get_prompt("CHAT_RESPONSE", language)
+        prompt = prompt_tmpl.format(
             history=history,
             question=question,
             knowledge_context=knowledge_context, # 🚀 注入提示词
@@ -231,8 +224,9 @@ class SQLAgent:
             tables=tables
         )
 
+        system_msg = "你是一个智能数据分析助手。" if language == "zh" else "You are an intelligent data analysis assistant."
         messages = [
-            {"role": "system", "content": "你是一个智能数据分析助手。"},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt}
         ]
 
@@ -267,15 +261,18 @@ class SQLAgent:
         chart_type: str,
         enable_thinking: bool = False,
         provider: str = None,
-        model_name: str = None
+        model_name: str = None,
+        language: str = "zh"
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        prompt = SUMMARY_PROMPT.format(
+        prompt_tmpl = get_prompt("SUMMARY", language)
+        prompt = prompt_tmpl.format(
             sql_result=sql_result,
             chart_type=chart_type
         )
 
+        system_msg = "你是一个专业的数据分析师。" if language == "zh" else "You are a professional data analyst."
         messages = [
-            {"role": "system", "content": "你是一个专业的数据分析师。"},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt}
         ]
 
@@ -295,7 +292,8 @@ class SQLAgent:
         chart_type: str,
         viz_config: Optional[Dict[str, Any]] = None,
         provider: str = None,
-        model_name: str = None
+        model_name: str = None,
+        language: str = "zh"
     ) -> Dict[str, Any]:
         """
         根据 SQL 结果和 AI 建议生成图表配置
@@ -327,7 +325,7 @@ class SQLAgent:
                 "treemap", "sankey", "boxplot", "waterfall", "candlestick"
             ]
             if chart_type in complex_types:
-                ai_config = await self._generate_complex_chart_config(sql_result, chart_type, provider=provider, model_name=model_name)
+                ai_config = await self._generate_complex_chart_config(sql_result, chart_type, provider=provider, model_name=model_name, language=language)
                 if ai_config:
                     return ai_config
 
@@ -393,27 +391,47 @@ class SQLAgent:
             print(f"❌ 图表生成错误: {str(e)}")
             return self._get_default_chart_config(chart_type)
 
-    async def _generate_complex_chart_config(self, sql_result: Dict[str, Any], chart_type: str, provider: str = None, model_name: str = None) -> Optional[Dict[str, Any]]:
+    async def _generate_complex_chart_config(self, sql_result: Dict[str, Any], chart_type: str, provider: str = None, model_name: str = None, language: str = "zh") -> Optional[Dict[str, Any]]:
         """调用 AI 生成复杂图表的 ECharts 配置"""
         from utils.json_utils import json_dumps
         try:
-            prompt = CHART_CONFIG_PROMPT.format(
+            prompt_tmpl = get_prompt("CHART_CONFIG", language)
+            prompt = prompt_tmpl.format(
                 sql_result=json_dumps(sql_result, indent=2),
                 chart_type=chart_type
             )
+            system_msg = "你是一个专业的数据可视化专家，擅长使用 ECharts。" if language == "zh" else "You are a professional data visualization expert, skilled in ECharts."
             messages = [
-                {"role": "system", "content": "你是一个专业的数据可视化专家，擅长使用 ECharts。"},
+                {"role": "system", "content": system_msg},
                 {"role": "user", "content": prompt}
             ]
             
             response = await self._chat_completion(messages, temperature=0.2, provider=provider, model_name=model_name)
-            
-            # 提取 JSON
-            json_match = re.search(r'\{[\s\S]*\}', response)
+
+            # 🌟 增强版 JSON 提取逻辑
+            content = response.strip()
+            # 1. 尝试移除 Markdown 代码块标记
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+
+            # 2. 尝试正则匹配最外层的 { ... }
+            json_match = re.search(r'(\{[\s\S]*\})', content)
             if json_match:
-                config = json.loads(json_match.group(0))
-                return config
+                try:
+                    config = json.loads(json_match.group(1))
+                    return config
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ JSON 解析初次失败，尝试清理末尾: {e}")
+                    # 3. 兜底：如果解析失败，尝试修复常见的截断问题（如多余的逗号）
+                    fixed_content = re.sub(r',\s*\}', '}', json_match.group(1))
+                    try:
+                        return json.loads(fixed_content)
+                    except:
+                        return None
             return None
+
         except Exception as e:
             print(f"❌ AI 复杂图表生成失败: {str(e)}")
             return None
@@ -431,7 +449,8 @@ class SQLAgent:
         knowledge_context: str = "", # 🚀 新增：知识库检索内容
         enable_thinking: bool = False,
         provider: str = None,
-        model_name: str = None
+        model_name: str = None,
+        language: str = "zh"
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """增强的处理逻辑：集成 SQL 引擎与 RAG 知识库"""
         from config import DATABASES
@@ -467,7 +486,7 @@ class SQLAgent:
         yield {"event": "thinking", "data": {"content": "正在理解您的问题..."}}
         yield {"event": "schema_loaded", "data": {"tables": tables}}
 
-        intent = await self._classify_intent(question, provider=provider, model_name=model_name)
+        intent = await self._classify_intent(question, provider=provider, model_name=model_name, language=language)
 
         if intent == "chat":
             full_summary_reasoning = ""
@@ -481,7 +500,8 @@ class SQLAgent:
                 database_type=db_type, 
                 tables=", ".join(tables),
                 provider=provider,
-                model_name=model_name
+                model_name=model_name,
+                language=language
             ):
                 if stream_event["type"] == "reasoning":
                     full_summary_reasoning += stream_event["content"]
@@ -495,8 +515,8 @@ class SQLAgent:
         # HITL 逻辑
         is_executing_after_plan = (intent == "confirmation")
         if intent == "sql_query" and not is_executing_after_plan:
-            # 🚀 改进：方案生成注入 RAG 知识，避免 AI 说“没数据”
-            plan_prompt = PLAN_GENERATION_PROMPT.format(
+            plan_prompt_tmpl = get_prompt("PLAN_GENERATION", language)
+            plan_prompt = plan_prompt_tmpl.format(
                 database_name=database_name, 
                 database_type=db_type, 
                 schema=schema, 
@@ -506,7 +526,8 @@ class SQLAgent:
             )
             full_plan = ""
             full_reasoning = ""
-            async for delta in self._chat_completion_stream([{"role": "system", "content": "你是一个专业的数据分析顾问。"}, {"role": "user", "content": plan_prompt}], temperature=0.3, enable_thinking=enable_thinking, provider=provider, model_name=model_name):
+            system_msg = "你是一个专业的数据分析顾问。" if language == "zh" else "You are a professional data analysis consultant."
+            async for delta in self._chat_completion_stream([{"role": "system", "content": system_msg}, {"role": "user", "content": plan_prompt}], temperature=0.3, enable_thinking=enable_thinking, provider=provider, model_name=model_name):
                 if delta["reasoning_content"]:
                     full_reasoning += delta["reasoning_content"]
                     yield {"event": "model_thinking", "data": {"content": delta["reasoning_content"]}}
@@ -531,7 +552,7 @@ class SQLAgent:
                 full_reasoning = ""
                 sql_response = None
                 # 🚀 关键：注入 SQL 生成过程
-                async for stream_event in self.generate_sql_stream(current_question, schema, history_str, knowledge_context, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char, provider=provider, model_name=model_name):
+                async for stream_event in self.generate_sql_stream(current_question, schema, history_str, knowledge_context, enable_thinking, database_name, database_type_info, db_version, table_list_query, quote_char, provider=provider, model_name=model_name, language=language):
                     if stream_event["type"] == "reasoning":
                         full_reasoning += stream_event["content"]
                         yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
@@ -553,12 +574,12 @@ class SQLAgent:
                 yield {"event": "sql_result", "data": sql_result}
                 
                 # 关键：传递 viz_config
-                chart_config = await self.generate_chart_config(sql_result, chart_type, viz_config, provider=provider, model_name=model_name)
+                chart_config = await self.generate_chart_config(sql_result, chart_type, viz_config, provider=provider, model_name=model_name, language=language)
                 yield {"event": "chart_ready", "data": {"option": chart_config, "chart_type": chart_config.get("chart_type", chart_type)}}
                 
                 formatted_result = SQLExecutor.format_sql_result(sql_result)
                 summary = ""
-                async for stream_event in self.generate_summary_stream(formatted_result, chart_type, enable_thinking, provider=provider, model_name=model_name):
+                async for stream_event in self.generate_summary_stream(formatted_result, chart_type, enable_thinking, provider=provider, model_name=model_name, language=language):
                     if stream_event["type"] == "reasoning":
                         yield {"event": "model_thinking", "data": {"content": stream_event["content"]}}
                     elif stream_event["type"] == "content":

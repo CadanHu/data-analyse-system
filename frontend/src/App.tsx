@@ -23,9 +23,11 @@ import { useChatStore } from './stores/chatStore'
 import { useAuthStore } from './stores/authStore'
 import { SQLResult } from './types/message'
 import { sessionApi } from '@/api'
+import { useTranslation } from './hooks/useTranslation'
 
 export default function App() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [showLogs, setShowLogs] = useState(false)
   const { isAuthenticated, user, setAuth } = useAuthStore()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
@@ -40,12 +42,10 @@ export default function App() {
       const currentOrientation = isPortrait ? 'portrait' : 'landscape'
       setOrientation(currentOrientation)
 
-      // 更加鲁棒的移动端判断
       const isMobileSize = width < 1024 || (height < 600 && width < 1024)
       setIsMobile(isMobileSize)
     }
 
-    
     checkLayout()
     window.addEventListener('resize', checkLayout)
     window.addEventListener('orientationchange', checkLayout)
@@ -57,14 +57,11 @@ export default function App() {
   }, [])
 
   const loadSessions = async (isInitialLoad = false) => {
-    // 这里的 loadSessions 主要供子组件回调使用
     try {
       if (isInitialLoad) setLoading(true)
-      console.log('🔄 [App] 手动触发加载会话列表 (由子组件请求)...')
-      // const data = await sessionApi.getSessions()
-      // setSessions(data)
+      console.log('🔄 [App] Manually triggering session load...')
     } catch (error) {
-      console.error('加载会话列表失败:', error)
+      console.error('Failed to load sessions:', error)
     } finally {
       if (isInitialLoad) setLoading(false)
     }
@@ -77,7 +74,6 @@ export default function App() {
     try {
       const data = await sessionApi.getMessages(sessionId)
       
-      // 异步加载所有分支消息
       sessionApi.getMessages(sessionId, true).then(allData => {
         if (Array.isArray(allData)) {
           const processedAll = allData.map(msg => {
@@ -100,7 +96,7 @@ export default function App() {
           try {
             return { ...msg, data: JSON.parse(msg.data) }
           } catch (e) {
-            console.error('解析消息 data 失败:', e)
+            console.error('Failed to parse message data:', e)
           }
         }
         return msg
@@ -119,7 +115,7 @@ export default function App() {
                 setSqlResult(sqlResult)
                 if (lastMessage.sql) setCurrentSql(lastMessage.sql)
               } catch (e) {
-                console.error('解析图表配置失败:', e)
+                console.error('Failed to parse chart config:', e)
               }
             }
           }
@@ -129,7 +125,7 @@ export default function App() {
           setCurrentSql('')
         }
     } catch (error) {
-      console.error('加载历史消息失败:', error)
+      console.error('Failed to load history messages:', error)
     }
   }
 
@@ -167,14 +163,14 @@ export default function App() {
             data-orientation={orientation}
           >
           <UserSync />
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">              <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
               <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40rem] h-[40rem] bg-gradient-to-br from-[#E0FFFF]/20 via-[#BFFFD9]/15 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '4s' }} />
             </div>
 
             <div className="relative z-10 h-full p-4 md:p-6 data-[mobile=true]:data-[orientation=landscape]:p-0">
               <div className="h-full rounded-3xl data-[mobile=true]:data-[orientation=landscape]:rounded-none overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 data-[mobile=true]:data-[orientation=landscape]:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
-                {/* 全屏覆盖层 */}
                 {isFullScreen && isRightPanelVisible && (
                   <div className="absolute inset-0 z-[200] bg-white">
                     <RightPanel />
@@ -203,7 +199,7 @@ export default function App() {
                               : 'text-gray-500 hover:text-gray-700'
                           }`}
                         >
-                          会话
+                          {t('nav.sessions')}
                         </button>
                         <button
                           onClick={() => setActiveTab('chat')}
@@ -213,7 +209,7 @@ export default function App() {
                               : 'text-gray-500 hover:text-gray-700'
                           }`}
                         >
-                          对话
+                          {t('nav.chat')}
                         </button>
                         <button
                           onClick={() => setActiveTab('charts')}
@@ -223,7 +219,7 @@ export default function App() {
                               : 'text-gray-500 hover:text-gray-700'
                           }`}
                         >
-                          图表
+                          {t('nav.charts')}
                         </button>
                       </div>
                     </div>
@@ -302,12 +298,10 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       
-      {/* 🚀 仅在 showLogs 为真时渲染日志窗，且不再包含全屏遮罩按钮 */}
       {showLogs && (
         <LogViewer onClose={() => setShowLogs(false)} />
       )}
 
-      {/* 📱 移动端调试面板，仅在原生平台可见 */}
       <MobileDebugPanel />
     </ErrorBoundary>
   )

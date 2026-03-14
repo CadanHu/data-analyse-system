@@ -80,6 +80,7 @@ if __name__ == "__main__":
     # PG 增强
     pg_host = os.getenv("POSTGRES_HOST", "localhost")
     pg_user = os.getenv("POSTGRES_USER", "postgres")
-    pg_pass = os.getenv("POSTGRES_PASSWORD", "")
-    sync_postgresql('postgres', pg_user, pg_pass, pg_host, 5432)
-    print("\n✅ 所有 4 个数据库同步增强完成！")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "root")
+    pg_db = os.getenv("POSTGRES_DB", "knowledge_base")
+    sync_postgresql(pg_db, pg_user, pg_pass, pg_host, 5432)
+    print(f"\n✅ 所有 4 个数据库 ({pg_db} 等) 同步增强完成！")

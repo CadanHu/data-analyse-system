@@ -5,6 +5,7 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
 import { databaseApi } from '../api'
 import { useSSE } from '../hooks/useSSE'
+import { useTranslation } from '../hooks/useTranslation'
 
 interface ChatAreaProps {
   selectedSessionId: string | null
@@ -21,6 +22,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   const { currentSession, messages, setMessages, updateSession } = useSessionStore()
   const { isLoading } = useChatStore()
   const { connect } = useSSE()
+  const { t } = useTranslation()
   const listRef = useRef<HTMLDivElement>(null)
   const [databases, setDatabases] = useState<Database[]>([])
   const [currentDb, setCurrentDb] = useState<string | null>(null)
@@ -113,9 +115,9 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
         <div className="flex items-center justify-between gap-4">
           <div className="flex-1 min-w-0 flex flex-col data-[mobile=true]:data-[orientation=landscape]:flex-row data-[mobile=true]:data-[orientation=landscape]:items-center data-[mobile=true]:data-[orientation=landscape]:gap-3">
             <h2 className="text-lg font-bold text-gray-700 truncate data-[mobile=true]:data-[orientation=landscape]:text-xs">
-              {currentSession?.title || '未命名会话'}
+              {currentSession?.title || t('session.unnamed')}
             </h2>
-            <p className="text-xs text-gray-400 mt-1 data-[mobile=true]:data-[orientation=landscape]:mt-0 data-[mobile=true]:data-[orientation=landscape]:text-[9px] truncate">智能数据分析助理</p>
+            <p className="text-xs text-gray-400 mt-1 data-[mobile=true]:data-[orientation=landscape]:mt-0 data-[mobile=true]:data-[orientation=landscape]:text-[9px] truncate">{t('welcome.assistantTitle')}</p>
           </div>
           
           {/* 🚀 仅在已选择会话时显示数据库切换按钮 */}
@@ -130,7 +132,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
                 }`}
               >
                 <span className="font-medium truncate max-w-[70px] data-[mobile=true]:data-[orientation=landscape]:max-w-[100px]">
-                  {databases.find(d => d.key === currentDb)?.name || '⚠️ 请选择数据库'}
+                  {databases.find(d => d.key === currentDb)?.name || t('chat.selectDb')}
                 </span>
                 <svg className="w-3 h-3 data-[mobile=true]:data-[orientation=landscape]:w-2 data-[mobile=true]:data-[orientation=landscape]:h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

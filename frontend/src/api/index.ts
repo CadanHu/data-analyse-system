@@ -2,7 +2,7 @@
 // 此文件不会被提交到 Git
 
 import axios from 'axios'
-import type { Session, Message, User, UserLogin, RegisterCredentials, TokenResponse } from '@/types'
+import type { Session, Message, User, LoginCredentials, RegisterCredentials, TokenResponse } from '@/types'
 import { useAuthStore } from '@/stores/authStore'
 
 import { Capacitor } from '@capacitor/core'
@@ -90,7 +90,7 @@ api.interceptors.response.use(
 // ==================== API 方法 ====================
 
 export const authApi = {
-  login: async (credentials: UserLogin) => {
+  login: async (credentials: LoginCredentials) => {
     console.log('📡 [API] 发送登录请求...')
     const response = await api.post<TokenResponse>('/auth/login', credentials)
     return response.data
@@ -142,7 +142,8 @@ export const chatApi = {
       message,
       parent_id: config?.parent_id,
       enable_thinking: config?.enable_thinking,
-      enable_rag: config?.enable_rag
+      enable_rag: config?.enable_rag,
+      language: config?.language // 🚀 新增：透传语言
     }),
 };
 

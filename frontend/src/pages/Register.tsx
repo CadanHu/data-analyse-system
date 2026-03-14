@@ -20,7 +20,7 @@ export default function Register() {
 
   const handleSendCode = async () => {
     if (!email) {
-      setError('请先输入邮箱地址')
+      setError(t('register.enterEmailFirst'))
       return
     }
     setError('')
@@ -29,7 +29,7 @@ export default function Register() {
       await authApi.sendCode(email)
       setCountdown(60)
       setError('')
-      alert('验证码请求成功！如果没收到邮件，请查看后端控制台输出。')
+      alert(t('register.codeSuccess'))
       const timer = setInterval(() => {
         setCountdown(prev => {
           if (prev <= 1) {
@@ -40,7 +40,7 @@ export default function Register() {
         })
       }, 1000)
     } catch (err: any) {
-      setError(err.response?.data?.detail || '验证码发送失败')
+      setError(err.response?.data?.detail || t('register.sendFailed'))
     } finally {
       setIsSendingCode(false)
     }
@@ -51,28 +51,28 @@ export default function Register() {
     setError('')
 
     if (password !== confirmPassword) {
-      setError('两次输入的密码不一致')
+      setError(t('register.passwordMismatch'))
       return
     }
 
     if (!verificationCode) {
-      setError('请输入验证码')
+      setError(t('register.enterCode'))
       return
     }
 
     setIsLoading(true)
 
     try {
-      console.log('📝 [Register] 发送注册请求:', { 
+      console.log('📝 [Register] Sending registration request:', { 
         username, 
         email, 
         password: password.substring(0, 3) + '***', 
         verification_code: verificationCode 
       })
       await authApi.register({ username, email, password, verification_code: verificationCode })
-      navigate('/login', { state: { message: '注册成功，请登录' } })
+      navigate('/login', { state: { message: t('register.success') } })
     } catch (err: any) {
-      setError(err.response?.data?.detail || '注册失败，请检查填写内容')
+      setError(err.response?.data?.detail || t('register.failed'))
     } finally {
       setIsLoading(false)
     }
@@ -80,7 +80,7 @@ export default function Register() {
 
   return (
     <div className="min-h-screen bg-[#050810] flex items-center justify-center px-6 relative overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      {/* 背景装饰 */}
+      {/* Background Decor */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
         <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#3b82f6]/20 rounded-full blur-[120px] animate-pulse" />
         <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#06d6a0]/20 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '2s' }} />
@@ -103,7 +103,7 @@ export default function Register() {
         <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 md:p-10 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-2 rounded-xl text-sm text-center">
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-2 rounded-xl text-sm text-center select-text">
                 {error}
               </div>
             )}
@@ -142,13 +142,13 @@ export default function Register() {
                   onClick={handleSendCode}
                   className="px-4 bg-white/10 hover:bg-white/20 text-xs font-bold rounded-2xl border border-white/10 transition-all disabled:opacity-50 min-w-[100px]"
                 >
-                  {countdown > 0 ? `${countdown}s` : 'Send Code'}
+                  {countdown > 0 ? `${countdown}s` : t('register.sendCode')}
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">Verification Code</label>
+              <label className="block text-sm font-medium text-gray-400 mb-1.5 ml-1">{t('register.verifCode')}</label>
               <input
                 type="text"
                 name="verification_code"
@@ -158,7 +158,7 @@ export default function Register() {
                 value={verificationCode}
                 onChange={(e) => setVerificationCode(e.target.value)}
                 className="w-full px-5 py-3.5 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-600 focus:outline-none focus:border-[#3b82f6]/50 transition-all"
-                placeholder="6-digit code"
+                placeholder={t('register.codePlaceholder')}
               />
             </div>
 

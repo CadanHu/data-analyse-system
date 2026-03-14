@@ -12,24 +12,21 @@ from databases.database_manager import DatabaseManager
 class SQLExecutor:
     @staticmethod
     def validate_sql(sql: str) -> tuple[bool, Optional[str]]:
-        sql_lower = sql.strip().lower()
+        # 移除前导空白和注释
+        clean_sql = re.sub(r'(--.*|/\*[\s\S]*?\*/)', '', sql).strip()
+        sql_lower = clean_sql.lower()
         
-        # 使用正则表达式确保关键字是独立的单词，避免误伤 created_at 等字段
+        # 使用正则表达式确保关键字是独立的单词
         forbidden_keywords = ['insert', 'update', 'delete', 'drop', 'alter', 'create', 'truncate', 'replace']
         for keyword in forbidden_keywords:
             pattern = rf'\b{keyword}\b'
             if re.search(pattern, sql_lower):
-                return False, f"禁止使用 {keyword.upper()} 操作，只允许 SELECT/SHOW 查询"
+                return False, f"禁止使用 {keyword.upper()} 操作，只允许查询类操作"
         
-        allowed_prefixes = ['select', 'show tables', 'show columns', 'describe', 'desc']
-        allowed = False
-        for prefix in allowed_prefixes:
-            if sql_lower.startswith(prefix):
-                allowed = True
-                break
-        
-        if not allowed:
-            return False, "只允许 SELECT 或 SHOW/DESCRIBE 查询"
+        # 允许的查询前缀
+        allowed_prefixes = ('select', 'show', 'describe', 'desc', 'explain', 'with')
+        if not sql_lower.startswith(allowed_prefixes):
+            return False, "只允许 SELECT, WITH, SHOW, DESC 或 EXPLAIN 查询"
         
         return True, None
 

@@ -12,7 +12,6 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false)
 
   const navigate = useNavigate()
-  const setAuth = useAuthStore(state => state.setAuth)
   const { t } = useTranslation()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -20,64 +19,36 @@ export default function Login() {
     setError('')
     setIsLoading(true)
 
-    console.log('📝 [Login] 开始登录...', { email, password: password.substring(0, 3) + '***' })
+    console.log('📝 [Login] Starting login...', { email, password: password.substring(0, 3) + '***' })
 
     try {
       const response = await authApi.login({ username: email, password })
-      console.log('✅ [Login] 登录响应 (完整内容):', response)
-      console.log('📊 [Login] 响应数据类型:', typeof response)
+      console.log('✅ [Login] Login response:', response)
       
-      // 检查响应是否是字符串（可能是 Capacitor 没自动解析 JSON）
       let data = response;
       if (typeof response === 'string') {
         try {
           data = JSON.parse(response);
-          console.log('✅ [Login] 字符串已手动解析为对象:', data)
         } catch (e) {
-          console.error('❌ [Login] 响应是字符串但解析失败:', response)
+          console.error('❌ [Login] Failed to parse string response:', response)
         }
       }
 
       const access_token = data.access_token || data.data?.access_token
       if (!access_token) {
-        console.error('❌ [Login] 响应中没有 access_token. 结构:', data)
-        setError(`登录响应格式错误 (Type: ${typeof response})`)
+        setError(`${t('login.formatError')} (Type: ${typeof response})`)
         return
       }
       
-      console.log('✅ [Login] 收到 Token:', access_token.substring(0, 50) + '...')
-      
-      // 🔧 关键修复：先将 Token 保存到 store，这样 axios 拦截器就能在 getMe() 时获取到它
-      // 使用 getState() 来确保存储立即更新，不等待 React 渲染周期
-      console.log('💾 [Login] 先保存 Token 到 store...')
       useAuthStore.getState().setToken(access_token)
-      
-      // 获取用户信息
-      console.log('📥 [Login] 获取用户信息...')
       const user = await authApi.getMe()
-      console.log('✅ [Login] 用户详情 (完整 JSON):', JSON.stringify(user, null, 2))
-      
-      // 保存完整的用户信息和 Token
-      console.log('💾 [Login] 保存完整信息到 store...')
       useAuthStore.getState().setAuth(user, access_token)
       
-      // 验证是否保存成功
-      const finalStore = useAuthStore.getState()
-      console.log('🔍 [Login] 验证存储:', { 
-        token: finalStore.token ? finalStore.token.substring(0, 30) + '...' : null,
-        isAuthenticated: finalStore.isAuthenticated,
-        user: finalStore.user?.username
-      })
-      
-      // 🚀 确保状态已保存后再导航
       setTimeout(() => {
-        console.log('🚀 [Login] 导航到应用...')
         navigate('/app')
       }, 100)
     } catch (err: any) {
-      console.error('❌ [Login] 登录失败:', err)
-      console.error('❌ [Login] 错误详情:', err.response?.data)
-      setError(err.response?.data?.detail || '登录失败，请检查邮箱和密码')
+      setError(err.response?.data?.detail || t('login.failed'))
     } finally {
       setIsLoading(false)
     }
@@ -85,10 +56,10 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-[#050810] flex items-center justify-center px-6 relative overflow-hidden" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      {/* 背景装饰 */}
+      {/* Background Decor */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#3b82f6]/20 rounded-full blur-[120px] animate-pulse" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#06d6a0]/20 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '2s' }} />
+        <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#3b82f6]/20 rounded-full blur-[120px] animate-pulse" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#06d6a0]/20 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
       <div className="w-full max-w-md relative z-10">
@@ -108,7 +79,7 @@ export default function Login() {
         <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 md:p-10 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm text-center">
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm text-center select-text">
                 {error}
               </div>
             )}

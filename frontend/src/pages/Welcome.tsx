@@ -1,8 +1,10 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from '../hooks/useTranslation'
 
 function Welcome() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
 
   useEffect(() => {
     // 可以在这里检查用户是否已登录
@@ -19,13 +21,13 @@ function Welcome() {
             DataPulse
           </h1>
           <p className="text-xl text-gray-400 mb-8">
-            智能数据分析助理
+            {t('welcome.assistantTitle')}
           </p>
           <button
             onClick={() => navigate('/dashboard')}
             className="px-8 py-4 bg-gradient-to-r from-accent-blue to-accent-cyan rounded-lg font-medium hover:opacity-90 transition-opacity"
           >
-            进入控制台
+            {t('nav.enterApp')}
           </button>
         </div>
       </div>

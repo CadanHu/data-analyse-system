@@ -43,10 +43,9 @@ export default function SessionList({
     }
   }, [editingSessionId])
 
-  // 🔄 关键修复：组件加载时或用户变化时自动加载会话列表
   useEffect(() => {
     if (user) {
-      console.log('🔄 [SessionList] 检测到用户变化:', {
+      console.log('🔄 [SessionList] User changed:', {
         username: user?.username,
         email: user?.email,
         isAuthenticated: !!user
@@ -55,7 +54,6 @@ export default function SessionList({
     }
   }, [user])
 
-  // 辅助函数：将 Blob 转换为 Base64
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -63,7 +61,7 @@ export default function SessionList({
         const base64String = reader.result as string;
         resolve(base64String.split(',')[1]);
       };
-      reader.onerror = (e) => reject(new Error('文件转换失败: ' + e));
+      reader.onerror = (e) => reject(new Error('File conversion failed: ' + e));
       reader.readAsDataURL(blob);
     });
   };
@@ -78,11 +76,10 @@ export default function SessionList({
       console.log(`[Export] Starting export for ${sessionId} as ${format}...`)
       const blob = await sessionApi.exportSession(sessionId, format)
       const session = sessions.find(s => s.id === sessionId)
-      const title = session?.title || '分析报告'
+      const title = session?.title || t('session.unnamed')
       const fileName = `${title.replace(/[\/\\?%*:|"<>]/g, '-')}.${format}`
 
       if (Capacitor.isNativePlatform()) {
-        // --- 移动端原生处理逻辑 ---
         try {
           const base64Data = await blobToBase64(blob);
           const writeResult = await Filesystem.writeFile({
@@ -92,16 +89,15 @@ export default function SessionList({
             recursive: true
           });
           await Share.share({
-            title: `导出: ${fileName}`,
+            title: `Export: ${fileName}`,
             url: writeResult.uri,
-            dialogTitle: '请选择保存或分享方式',
+            dialogTitle: t('session.shareTitle'),
           });
         } catch (innerError: any) {
           console.error('[Export] Native Error:', innerError);
-          alert(`手机端处理失败: ${innerError.message || '未知错误'}`);
+          alert(`${t('alert.mobileProcessFailed')}: ${innerError.message || 'Unknown error'}`);
         }
       } else {
-        // --- 网页端处理逻辑 ---
         const url = window.URL.createObjectURL(blob)
         if (format === 'pdf' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
           window.open(url, '_blank');
@@ -117,7 +113,7 @@ export default function SessionList({
       }
     } catch (error: any) {
       console.error('[Export] API Error:', error)
-      alert('从服务器获取文件失败: ' + (error.message || '请检查网络'));
+      alert(`${t('alert.fetchFileFailed')}: ${error.message || 'Check network'}`);
     } finally {
       setIsExporting(false)
     }
@@ -125,29 +121,27 @@ export default function SessionList({
 
   const handleCreateSession = async () => {
     try {
-      // 🚀 简化前端逻辑，将命名权交给后端
-      // 后端现在会自动处理 "新会话", "新会话-1" 等逻辑
       const session = await sessionApi.createSession()
       await loadSessions()
       clearMessages()
       setCurrentSession(session)
       onSelectSession(session.id, session)
     } catch (error) {
-      console.error('创建会话失败:', error)
+      console.error('Failed to create session:', error)
     }
   }
 
   const loadSessions = async () => {
     try {
-      console.log('📡 [SessionList] 正在获取会话列表...')
+      console.log('📡 [SessionList] Fetching sessions...')
       const data = await sessionApi.getSessions()
-      console.log('✅ [SessionList] 会话列表响应:', data)
+      console.log('✅ [SessionList] Sessions loaded:', data)
       if (Array.isArray(data)) {
         setSessions(data)
         onSessionsUpdated?.()
       }
     } catch (error) {
-      console.error('❌ [SessionList] 加载会话列表失败:', error)
+      console.error('❌ [SessionList] Failed to load sessions:', error)
     }
   }
 
@@ -165,14 +159,14 @@ export default function SessionList({
         setCurrentSession(null)
       }
     } catch (error) {
-      console.error('删除会话失败:', error)
+      console.error('Failed to delete session:', error)
     }
   }
 
   const handleStartRename = (e: React.MouseEvent, session: Session) => {
     e.stopPropagation()
     setEditingSessionId(session.id)
-    setEditingTitle(session.title || '未命名会话')
+    setEditingTitle(session.title || t('session.unnamed'))
   }
 
   const handleFinishRename = async (sessionId: string) => {
@@ -184,7 +178,7 @@ export default function SessionList({
       await sessionApi.updateSessionTitle(sessionId, editingTitle)
       await loadSessions()
     } catch (error) {
-      console.error('重命名会话失败:', error)
+      console.error('Failed to rename session:', error)
     } finally {
       setEditingSessionId(null)
     }
@@ -206,12 +200,11 @@ export default function SessionList({
 
   return (
     <div className="flex flex-col h-full bg-white/40 backdrop-blur-md">
-      {/* 导出中的覆盖层 */}
       {isExporting && (
         <div className="absolute inset-0 z-[100] bg-white/60 backdrop-blur-sm flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <div className="w-8 h-8 border-4 border-[#BFFFD9] border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-sm font-medium text-gray-600">正在准备文件...</p>
+            <p className="text-sm font-medium text-gray-600">{t('session.preparingFile')}</p>
           </div>
         </div>
       )}
@@ -221,7 +214,7 @@ export default function SessionList({
           <h2 className="text-lg font-semibold text-gray-700 data-[mobile=true]:data-[orientation=landscape]:text-xs">{t('session.listTitle')}</h2>
           <button
             onClick={handleCreateSession}
-            className="px-3 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:from-[#C0EFFF] rounded-xl text-sm font-medium text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)] data-[mobile=true]:data-[orientation=landscape]:py-0.5 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:text-[10px]"
+            className="px-3 py-1.5 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] rounded-xl text-sm font-medium text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] hover:shadow-[0_6px_16px_rgba(191,255,217,0.4)] data-[mobile=true]:data-[orientation=landscape]:py-0.5 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:text-[10px]"
           >
             {t('session.new')}
           </button>
@@ -286,7 +279,7 @@ export default function SessionList({
                           className="text-sm font-medium truncate text-gray-700 data-[mobile=true]:data-[orientation=landscape]:text-xs"
                           onDoubleClick={(e) => handleStartRename(e, session)}
                         >
-                          {session.title || '未命名会话'}
+                          {session.title || t('session.unnamed')}
                         </h3>
                         <p className="text-xs text-gray-400 mt-1 data-[mobile=true]:data-[orientation=landscape]:mt-0 data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
                           {formatDate(session.updated_at, t)}
@@ -296,7 +289,6 @@ export default function SessionList({
                   </div>
                   {!editingSessionId && (
                     <div className="flex gap-1 items-center relative">
-                      {/* 导出按钮 */}
                       <div className="relative">
                         <button
                           onClick={(e) => {
@@ -304,7 +296,7 @@ export default function SessionList({
                             setShowExportMenu(showExportMenu === session.id ? null : session.id);
                           }}
                           className="md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-[#E0FFFF]/40 rounded-lg transition-all data-[mobile=true]:data-[orientation=landscape]:p-0.5"
-                          title="导出对话"
+                          title={t('session.export')}
                         >
                           <svg className="w-4 h-4 text-cyan-600 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -317,19 +309,19 @@ export default function SessionList({
                               onClick={(e) => handleExport(e, session.id, 'txt')}
                               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-[#BFFFD9]/30 transition-colors"
                             >
-                              📄 TXT 文本
+                              {t('session.exportTxt')}
                             </button>
                             <button
                               onClick={(e) => handleExport(e, session.id, 'md')}
                               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-[#BFFFD9]/30 transition-colors border-t border-gray-100/50"
                             >
-                              📝 Markdown
+                              {t('session.exportMd')}
                             </button>
                             <button
                               onClick={(e) => handleExport(e, session.id, 'pdf')}
                               className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-[#BFFFD9]/30 transition-colors border-t border-gray-100/50"
                             >
-                              📕 高清 PDF
+                              {t('session.exportPdf')}
                             </button>
                           </div>
                         )}
@@ -360,12 +352,11 @@ export default function SessionList({
               {(user?.username || 'U').charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-700 truncate data-[mobile=true]:data-[orientation=landscape]:text-[10px]">{user?.username || '正在同步...'}</p>
-              <p className="text-[10px] text-gray-400 truncate data-[mobile=true]:data-[orientation=landscape]:hidden">{user?.email || '请稍候'}</p>
+              <p className="text-sm font-medium text-gray-700 truncate data-[mobile=true]:data-[orientation=landscape]:text-[10px]">{user?.username || t('session.syncing')}</p>
+              <p className="text-[10px] text-gray-400 truncate data-[mobile=true]:data-[orientation=landscape]:hidden">{user?.email || t('session.wait')}</p>
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {/* 🆕 系统日志切换按钮 */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -376,7 +367,7 @@ export default function SessionList({
                   ? 'bg-black text-white shadow-inner' 
                   : 'text-gray-400 hover:text-black hover:bg-gray-100'
               }`}
-              title="查看系统日志"
+              title={t('session.viewLogs')}
             >
               <Terminal className="w-5 h-5 data-[mobile=true]:data-[orientation=landscape]:w-4 data-[mobile=true]:data-[orientation=landscape]:h-4" />
             </button>

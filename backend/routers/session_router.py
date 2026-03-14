@@ -43,8 +43,8 @@ async def create_session(data: Optional[SessionCreate] = None, current_user: dic
     """创建新会话"""
     user_id = current_user["id"]
     db_key = data.database_key if data else "classic_business"
-    session_id = await session_db.create_session(user_id=user_id, title="新会话", database_key=db_key)
-    return {"id": session_id, "title": "新会话", "database_key": db_key}
+    session_id = await session_db.create_session(user_id=user_id, title="", database_key=db_key)
+    return {"id": session_id, "title": "", "database_key": db_key}
 
 @router.get("")
 async def get_sessions(current_user: dict = Depends(get_current_user)):

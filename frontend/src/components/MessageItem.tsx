@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom' // 🚀 引入 Portal
+import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
@@ -28,11 +28,18 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useAuthStore } from '../stores/authStore'
 import { sessionApi, getBaseURL, messageApi } from '@/api'
 import { useSSE } from '../hooks/useSSE'
+import { useTranslation } from '../hooks/useTranslation'
+
+interface MessageItemProps {
+  message: Message
+  onEditSubmit?: (content: string, parentId?: string) => void
+}
 
 // 🆕 深度分析看板预览组件
 const DashboardPreview = ({ report, token }: { report: { title?: string, summary?: string, html?: string }, token: string | null }) => {
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const { t } = useTranslation()
   
   // 🚀 安全处理：防止 summary 为空导致 split 崩溃
   const summaries = (report.summary || '').split('\n').filter(s => s.trim())
@@ -44,12 +51,12 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // 🚀 使用从 Props 传入的正确 Token
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(report)
       })
 
-      if (!response.ok) throw new Error('导出失败')
+      if (!response.ok) throw new Error('Export failed')
 
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
@@ -60,8 +67,8 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
       a.click()
       window.URL.revokeObjectURL(url)
     } catch (err) {
-      console.error('PDF 导出错误:', err)
-      alert('PDF 导出失败，请重试')
+      console.error('PDF export error:', err)
+      alert(t('report.exportPdfFailed'))
     } finally {
       setIsExporting(false)
     }
@@ -72,7 +79,7 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
       <div className="px-4 py-3 bg-gradient-to-r from-blue-500/20 to-purple-500/20 flex items-center justify-between border-b border-white/10">
         <div className="flex items-center gap-2">
           <LayoutDashboard size={18} className="text-blue-400" />
-          <span className="text-sm font-bold text-white tracking-tight">{report.title || '深度分析看板'}</span>
+          <span className="text-sm font-bold text-white tracking-tight">{report.title || t('report.deepInsight')}</span>
         </div>
         <div className="flex items-center gap-2">
           <button 
@@ -81,14 +88,14 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
             className="flex items-center gap-1.5 px-3 py-1 bg-white/5 hover:bg-emerald-500/20 rounded-full text-[11px] text-white/60 hover:text-emerald-400 transition-all border border-white/5 active:scale-95 disabled:opacity-50"
           >
             {isExporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-            {isExporting ? '生成中...' : 'PDF'}
+            {isExporting ? t('report.generating') : 'PDF'}
           </button>
           <button 
             onClick={() => setIsFullScreen(true)}
             className="flex items-center gap-1.5 px-3 py-1 bg-white/10 hover:bg-white/20 rounded-full text-[11px] text-white/80 transition-all border border-white/10 active:scale-95"
           >
             <Maximize2 size={12} />
-            全屏查看
+            {t('report.fullScreen')}
           </button>
         </div>
       </div>
@@ -104,7 +111,6 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
         </div>
       </div>
 
-      {/* 全屏模态窗 - 🚀 使用 Portal 彻底解决层级受限问题 */}
       {isFullScreen && createPortal(
         <div className="fixed inset-0 z-[10001] bg-black flex flex-col animate-in fade-in duration-200">
           <div className="h-12 flex items-center justify-between px-6 bg-white/5 border-b border-white/10">
@@ -119,7 +125,7 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
                 className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-sm transition-all active:scale-95 border border-emerald-500/30 disabled:opacity-50"
               >
                 {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                {isExporting ? '正在生成 PDF 报告...' : '导出离线报告'}
+                {isExporting ? t('report.generating') : t('report.offline')}
               </button>
               <button 
                 onClick={() => setIsFullScreen(false)}
@@ -151,7 +157,6 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const [showPreview, setShowPreview] = useState(false)
   const [isFullTextExpanded, setIsFullTextExpanded] = useState(false)
   
-  // 反馈状态
   const [localFeedback, setLocalFeedback] = useState<number>(message.feedback || 0)
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [feedbackText, setFeedbackText] = useState(message.feedback_text || '')
@@ -161,8 +166,8 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
   const { token } = useAuthStore()
   const { connect } = useSSE()
+  const { t } = useTranslation()
 
-  // 🚀 辅助函数：安全地在新窗口打开高清图 (处理超长 Base64)
   const handleOpenImage = (base64: string) => {
     try {
       const byteCharacters = atob(base64);
@@ -180,7 +185,6 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     }
   }
 
-  // 🚀 手动触发生成深度报告
   const handleManualGenerateReport = async () => {
     if (!currentSession || isGeneratingReport) return
     
@@ -199,58 +203,52 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
         })
       })
 
-      if (!response.ok) throw new Error('生成失败')
+      if (!response.ok) throw new Error('Generation failed')
       const result = await response.json()
       
-      // 🚀 核心修复：更新本地消息数据，彻底清除按钮并让看板持久化显示
       const currentData = parsedData || {}
       const updatedData = {
         ...currentData,
         html_report: result.html_report,
-        can_generate_report: false // 彻底隐藏生成按钮
+        can_generate_report: false
       }
       
       updateMessage(message.id, {
         data: JSON.stringify(updatedData)
       })
-      alert('✨ 深度分析看板已生成成功，内容已永久保存！')
+      alert(t('report.success'))
     } catch (err) {
-      console.error('报告生成错误:', err)
-      alert('看板生成失败，可能由于数据量过大或超时，请重试。')
+      console.error('Report generation error:', err)
+      alert(t('report.failed'))
     } finally {
       setIsGeneratingReport(false)
     }
   }
 
-  // 🚀 重新生成逻辑
   const handleRegenerate = () => {
     if (!currentSession || isLoading) return
     
-    // 1. 找到该消息的父级 (用户提问)
     const parentMessage = allMessages.find(m => m.id === message.parent_id)
     if (!parentMessage) {
-      console.warn('找不到父级消息，无法重新生成')
+      console.warn('Parent message not found, cannot regenerate')
       return
     }
 
-    // 2. 更新本地 UI (回退到父级)
     const parentIndex = allMessages.findIndex(m => m.id === parentMessage.id)
     if (parentIndex !== -1) {
       setMessages(allMessages.slice(0, parentIndex + 1))
     }
 
-    // 3. 重新发起连接 (保持 parent_id 一致)
     connect(
       currentSession.id,
       parentMessage.content,
       { parent_id: parentMessage.parent_id }, 
       { 
-        onError: (err) => alert('重新生成失败: ' + err)
+        onError: (err) => alert(`${t('report.regenerateFailed')}: ${err}`)
       }
     )
   }
 
-  // 👍/👎 反馈逻辑
   const handleFeedback = async (score: number) => {
     if (!currentSession) return
     const newScore = localFeedback === score ? 0 : score
@@ -260,7 +258,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       await messageApi.updateFeedback(currentSession.id, message.id, newScore)
       updateMessage(message.id, { feedback: newScore })
     } catch (err) {
-      console.error('反馈提交失败:', err)
+      console.error('Feedback submission failed:', err)
     }
   }
 
@@ -271,19 +269,18 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       updateMessage(message.id, { feedback: -1, feedback_text: feedbackText })
       setLocalFeedback(-1)
       setShowFeedbackModal(false)
-      alert('感谢您的反馈，我们会尽快优化！')
+      alert(t('feedback.thanks'))
     } catch (err) {
-      alert('提交失败，请稍后重试')
+      alert(t('feedback.failed'))
     }
   }
 
-  // 解析消息中的附加数据
   let parsedData: any = null
   if (message.data) {
     try {
       parsedData = typeof message.data === 'string' ? JSON.parse(message.data) : message.data
     } catch (e) {
-      console.error('解析消息数据失败:', e)
+      console.error('Parsing message data failed:', e)
     }
   }
 
@@ -296,12 +293,8 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     ? parsedData.markdown_full 
     : message.content
 
-  // 🚀 核心优化：不再将图片注入 Markdown 文本流，防止长 Base64 导致渲染卡顿或显示“图片失败”图标
-  // 图片由下方的专属容器（带紫色按钮和缩略图）独立渲染
   const finalDisplayContent = displayContent
 
-  // 计算分支信息
-  // 逻辑：寻找具有相同 parent_id (包括 null) 且 role 相同的消息
   const siblings = allMessages.filter(m => 
     m.parent_id === message.parent_id && 
     m.role === message.role
@@ -310,7 +303,6 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const currentIndex = siblings.findIndex(s => s.id === message.id)
   const totalVersions = siblings.length
 
-  // 切换分支
   const handleSwitchBranch = async (direction: 'prev' | 'next') => {
     if (isLoading) return
     const newIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1
@@ -318,7 +310,6 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     
     const targetMessage = siblings[newIndex]
     
-    // 计算从根到该节点的路径
     const path: string[] = []
     let curr: Message | undefined = targetMessage
     while (curr) {
@@ -326,20 +317,18 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       curr = allMessages.find(m => m.id === curr?.parent_id)
     }
 
-    // 后端同步
     if (currentSession) {
       try {
         await sessionApi.activateBranch(currentSession.id, path)
-        // 重新加载当前分支
         const updatedMessages = await sessionApi.getMessages(currentSession.id)
         setMessages(updatedMessages)
       } catch (e) {
-        console.error('切换分支失败:', e)
+        console.error('Switching branch failed:', e)
       }
     }
   }
 
-  const handleEditSubmit = () => {
+  const handleEditSubmitLocal = () => {
     if (editContent.trim() === message.content) {
       setIsEditing(false)
       return
@@ -350,7 +339,6 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     }
   }
 
-  // 监听思考内容变化，如果是在加载中且有新内容，保持展开
   useEffect(() => {
     if (isLoading && message.thinking && !message.content) {
       setThinkingCollapsed(false)
@@ -358,9 +346,8 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   }, [message.thinking, isLoading, message.content])
 
   const handleShowChart = () => {
-    // 🚀 核心优化：科学家模式下的看板拦截
     if (parsedData?.is_data_science) {
-      alert('💡 当前为“科学家模式”，分析结论与图表已在对话框中直接展示。如需使用“传统可视化看板”，请切换至普通 SQL 模式。')
+      alert(t('alert.scientistModeHint'))
       return
     }
 
@@ -369,7 +356,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       try {
         chartConfig = JSON.parse(message.chart_cfg)
       } catch (e) {
-        console.error('解析图表配置失败:', e)
+        console.error('Parsing chart config failed:', e)
       }
     }
 
@@ -378,7 +365,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       try {
         sqlData = JSON.parse(sqlData)
       } catch (e) {
-        console.error('解析 SQL 结果失败:', e)
+        console.error('Parsing SQL result failed:', e)
       }
     }
     
@@ -402,7 +389,6 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       .replace(/\\\(/g, '$$')
       .replace(/\\\)/g, '$$')
 
-    // 🚀 科学家模式深度清理：移除所有 Markdown 图像语法，防止文本流中出现损坏的占位符
     if (parsedData?.is_data_science) {
       processed = processed.replace(/!\[.*?\]\(.*?\)/g, '')
     }
@@ -416,7 +402,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
       })
-      .catch(err => console.error('复制失败:', err))
+      .catch(err => console.error('Copy failed:', err))
   }
 
   return (
@@ -445,7 +431,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
-                {thinkingCollapsed ? '查看 AI 思考过程' : '收起思考过程'}
+                {thinkingCollapsed ? t('chat.thinkingView') : t('chat.thinkingHide')}
               </button>
               {!thinkingCollapsed && (
                 <div className="mt-3 bg-amber-50 rounded-xl p-4 text-xs text-gray-800 border border-amber-200/60 markdown-body prose prose-sm max-w-none data-[mobile=true]:data-[orientation=landscape]:text-[10px]">
@@ -457,7 +443,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             </div>
           )}
           
-          <div className="prose prose-sm max-w-none text-gray-900 font-medium leading-relaxed overflow-x-auto markdown-body data-[mobile=true]:data-[orientation=landscape]:text-[11px]">
+          <div className="prose prose-sm max-w-none text-gray-900 font-medium leading-relaxed overflow-x-auto markdown-body data-[mobile=true]:data-[orientation=landscape]:text-[11px] select-text">
             {isEditing ? (
               <div className="flex flex-col gap-2 min-w-[260px] max-w-full">
                 <textarea
@@ -472,13 +458,13 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                     onClick={() => setIsEditing(false)}
                     className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700"
                   >
-                    取消
+                    {t('common.cancel')}
                   </button>
                   <button
-                    onClick={handleEditSubmit}
+                    onClick={handleEditSubmitLocal}
                     className="px-4 py-1 text-xs bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
                   >
-                    保存并提交
+                    {t('common.save')}
                   </button>
                 </div>
               </div>
@@ -488,16 +474,13 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   remarkPlugins={[remarkMath]} 
                   rehypePlugins={[rehypeKatex, rehypeRaw]}
                   components={{
-                    // 🚀 核心修复：拦截并禁止渲染损坏的图片节点
                     img({ src, alt, ...props }: any) {
-                      // 如果是科学家模式，且图片是 AI 误生成的占位符，直接隐藏
                       if (parsedData?.is_data_science && (alt?.includes('图表') || !src)) {
                         return null
                       }
                       return <img src={src} alt={alt} {...props} className="max-w-full h-auto rounded-lg shadow-sm my-2" />
                     },
                     code({ node, inline, className, children, ...props }: any) {
-                      // 🚀 更加鲁棒的判断：如果内容不含换行符，且没有明显的语言标识，则视为行内代码
                       const isInline = inline || !String(children).includes('\n')
                       
                       if (isInline) {
@@ -508,11 +491,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                         )
                       }
                       
-                      // 只有真正的多行代码块才显示 Mac 窗口
                       const match = /language-(\w+)/.exec(className || '')
                       const lang = match ? match[1] : 'python'
                       
-                      // 代码块折叠逻辑
                       const [isExpanded, setIsExpanded] = useState(false)
                       const content = String(children).replace(/\n$/, '')
                       const lineCount = content.split('\n').length
@@ -535,7 +516,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                                 onClick={() => setIsExpanded(!isExpanded)}
                                 className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-[9px] text-gray-300 transition-colors border border-white/10"
                               >
-                                {isExpanded ? '收起代码' : `展开代码 (${lineCount}行)`}
+                                {isExpanded ? t('chat.codeCollapse') : `${t('chat.codeExpand')} (${lineCount} lines)`}
                               </button>
                             )}
                           </div>
@@ -544,7 +525,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                               isExpanded ? 'max-h-[2000px]' : 'max-h-[240px]'
                             }`}
                           >
-                            <code className="text-[#e0e0e0] font-mono text-xs leading-relaxed" {...props}>
+                            <code className="text-[#e0e0e0] font-mono text-xs leading-relaxed select-text" {...props}>
                               {children}
                             </code>
                           </pre>
@@ -555,7 +536,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                             >
                               <div className="bg-gray-800/80 px-3 py-1 rounded-full text-[10px] text-gray-400 border border-white/10 flex items-center gap-1 hover:text-white transition-colors">
                                 <ChevronRight size={10} className="rotate-90" />
-                                点击展开全部代码
+                                {t('chat.codeClickExpand')}
                               </div>
                             </div>
                           )}
@@ -581,31 +562,28 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                     onClick={() => setIsFullTextExpanded(!isFullTextExpanded)}
                     className="mt-3 text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1 group transition-all"
                   >
-                    <span>{isFullTextExpanded ? '收起全文' : '查看完整解析结果'}</span>
+                    <span>{isFullTextExpanded ? t('chat.fullTextHide') : t('chat.fullTextView')}</span>
                     <svg className={`w-3.5 h-3.5 transition-transform duration-300 ${isFullTextExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </button>
                 )}
 
-                {/* 🚀 独立绘图展示区：解决 Base64 图片裂开的问题 */}
                 {plotImageBase64 && (
                   <div className="mt-4 space-y-3">
-                    {/* 按钮触发器 */}
                     <button 
                       onClick={() => handleOpenImage(plotImageBase64)}
                       className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-200 hover:shadow-indigo-300 active:scale-95 transition-all group"
                     >
                       <BarChart3 size={14} className="group-hover:rotate-12 transition-transform" />
-                      点击查看 AI 生成的高清分析图表
+                      {t('chat.scientistModeChartBtn')}
                     </button>
 
-                    {/* 预览图 */}
                     <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-xl bg-white p-3 group/plot relative">
                       <div className="text-[10px] text-gray-400 mb-2 font-bold flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           <BarChart3 size={12} className="text-indigo-500" />
-                          <span className="tracking-tight">数据洞察缩略图 (点击放大)</span>
+                          <span className="tracking-tight">{t('chat.dataInsightThumb')}</span>
                         </div>
                       </div>
                       <img 
@@ -650,13 +628,12 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             <SqlBlock sql={message.sql} collapsed={sqlCollapsed} />
           )}
 
-          {/* 🚀 消息反馈与重新生成工具栏 */}
           {!isUser && (
             <div className="mt-3 flex items-center gap-1">
               <button
                 onClick={() => handleFeedback(1)}
                 className={`p-1.5 rounded-lg transition-colors ${localFeedback === 1 ? 'bg-blue-50 text-blue-500' : 'hover:bg-gray-100 text-gray-400'}`}
-                title="赞同"
+                title="Helpful"
               >
                 <ThumbsUp size={14} fill={localFeedback === 1 ? 'currentColor' : 'none'} />
               </button>
@@ -670,7 +647,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   }
                 }}
                 className={`p-1.5 rounded-lg transition-colors ${localFeedback === -1 ? 'bg-red-50 text-red-500' : 'hover:bg-gray-100 text-gray-400'}`}
-                title="不赞同并反馈问题"
+                title="Not Helpful"
               >
                 <ThumbsDown size={14} fill={localFeedback === -1 ? 'currentColor' : 'none'} />
               </button>
@@ -679,34 +656,33 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 onClick={handleRegenerate}
                 disabled={isLoading}
                 className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-30"
-                title="重新生成"
+                title="Regenerate"
               >
                 <RotateCcw size={14} className={isLoading ? 'animate-spin' : ''} />
               </button>
             </div>
           )}
 
-          {/* 反馈对话框 */}
           {showFeedbackModal && (
             <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm animate-in fade-in">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-gray-100">
                 <div className="flex items-center gap-3 mb-4 text-red-500">
                   <AlertCircle size={20} />
-                  <h3 className="font-bold text-gray-800">反馈问题</h3>
+                  <h3 className="font-bold text-gray-800">Feedback</h3>
                 </div>
                 <textarea
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
-                  placeholder="请描述回答中的错误或您的改进建议..."
+                  placeholder="Describe the issue or suggest improvements..."
                   className="w-full h-32 p-3 bg-gray-50 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 resize-none border border-transparent focus:border-red-200"
                 />
                 <div className="mt-4 flex justify-end gap-2">
-                  <button onClick={() => setShowFeedbackModal(false)} className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">取消</button>
+                  <button onClick={() => setShowFeedbackModal(false)} className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">{t('common.cancel')}</button>
                   <button 
                     onClick={handleReportIssue}
                     className="px-4 py-2 bg-red-500 text-white text-sm font-medium rounded-xl hover:bg-red-600 shadow-lg shadow-red-200 transition-all active:scale-95"
                   >
-                    提交反馈
+                    Submit
                   </button>
                 </div>
               </div>
@@ -725,7 +701,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   </svg>
                 </button>
                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
-                  修改问题
+                  {t('chat.editQuestion')}
                 </span>
               </div>
             )}
@@ -745,7 +721,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   </svg>
                 </button>
                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
-                  {sqlCollapsed ? '显示 SQL' : '隐藏 SQL'}
+                  {sqlCollapsed ? t('chat.showSQL') : t('chat.hideSQL')}
                 </span>
               </div>
             )}
@@ -765,7 +741,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   </svg>
                 </button>
                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
-                  {parsedData?.is_data_science ? '当前模式不支持' : '可视看板'}
+                  {parsedData?.is_data_science ? 'N/A' : t('chat.vizBoard')}
                 </span>
               </div>
             )}
@@ -790,7 +766,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 )}
               </button>
               <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
-                {copied ? '已复制' : '复制内容'}
+                {copied ? t('common.copySuccess') : t('chat.copyContent')}
               </span>
             </div>
 
@@ -805,13 +781,12 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   </svg>
                 </button>
                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
-                  对照预览
+                  {t('chat.sideBySideView')}
                 </span>
               </div>
             )}
           </div>
 
-          {/* 🚀 手动触发生成报告按钮 (集成自 DataAnalysis_main) */}
           {parsedData?.can_generate_report && !htmlReport && (
             <div className="mt-4">
               <button
@@ -829,7 +804,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   <Zap size={16} className="text-yellow-500 group-hover:animate-pulse" />
                 )}
                 <span className="text-sm font-bold tracking-tight">
-                  {isGeneratingReport ? '系统正在深度建模分析中 (约需1分钟)...' : '✨ 生成深度洞察看板 (耗时约1分钟)'}
+                  {isGeneratingReport ? t('report.deepAnalyzing') : t('report.genBtn')}
                 </span>
                 
                 {isGeneratingReport && (
@@ -838,20 +813,18 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </button>
               <p className="mt-1.5 text-[10px] text-gray-400 text-center italic">
                 {isGeneratingReport 
-                  ? '提示：正在蒸馏数据并构建 ECharts 看板，请耐心等待...' 
-                  : '提示：深度看板将为您自动总结业务洞察、推断隐藏趋势并生成全屏报表。'}
+                  ? t('report.processingHint') 
+                  : t('report.deepInsightHint')}
               </p>
             </div>
           )}
 
-          {/* 🆕 渲染深度分析报告看板 (集成自 OCR 项目) */}
           {htmlReport && (
             <DashboardPreview report={htmlReport} token={token} />
           )}
         </div>
       </div>
 
-      {/* 对照预览弹窗 */}
       {showPreview && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-6xl h-[90vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col">
@@ -862,7 +835,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
-                <h3 className="font-bold text-gray-800 text-lg">深度解析结果对照</h3>
+                <h3 className="font-bold text-gray-800 text-lg">{t('preview.sideBySide')}</h3>
               </div>
               <button 
                 onClick={() => setShowPreview(false)}
@@ -875,9 +848,8 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             </div>
             
             <div className="flex-1 flex overflow-hidden divide-x divide-gray-200">
-              {/* 左侧：PDF 原文 */}
               <div className="w-1/2 h-full flex flex-col">
-                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">PDF 原文</div>
+                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.original')}</div>
                 <iframe 
                   src={`${pdfUrl}#toolbar=0`} 
                   className="flex-1 w-full border-none"
@@ -885,10 +857,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 />
               </div>
               
-              {/* 右侧：Markdown 解析结果 */}
               <div className="w-1/2 h-full flex flex-col bg-white">
-                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">Markdown 解析结果 (MinerU)</div>
-                <div className="flex-1 overflow-y-auto p-8 markdown-body prose prose-sm max-w-none">
+                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.markdown')}</div>
+                <div className="flex-1 overflow-y-auto p-8 markdown-body prose prose-sm max-w-none select-text">
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex, rehypeRaw]}>
                     {preprocessContent(parsedData?.markdown_full || message.content.split('**解析内容预览:**\n')[1] || message.content)}
                   </ReactMarkdown>
@@ -901,17 +872,17 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 onClick={() => setShowPreview(false)}
                 className="px-6 py-2 rounded-xl bg-white border border-gray-200 text-gray-600 font-medium hover:bg-gray-50 transition-colors"
               >
-                关闭预览
+                {t('common.close')}
               </button>
               <button
                 onClick={() => {
                   const content = parsedData?.markdown_full || message.content.split('**解析内容预览:**\n')[1] || message.content;
                   navigator.clipboard.writeText(content);
-                  alert('解析内容已复制');
+                  alert(t('common.copySuccess'));
                 }}
                 className="px-6 py-2 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 transition-shadow shadow-lg shadow-purple-200"
               >
-                复制解析结果
+                {t('preview.copyResult')}
               </button>
             </div>
           </div>

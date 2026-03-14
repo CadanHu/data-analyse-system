@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react'
 import { useChatStore } from '../stores/chatStore'
+import { useLanguageStore } from '../stores/languageStore'
 import { useSessionStore } from '../stores/sessionStore'
 
 // 简单的 UUID 生成函数
@@ -45,6 +46,7 @@ export function useSSE() {
     setSqlResult,
     isThinkingMode
   } = useChatStore()
+  const { language } = useLanguageStore()
   const { addMessage, updateLastMessage, updateSession, updateMessageId } = useSessionStore()
 
   const connect = useCallback(
@@ -119,7 +121,8 @@ export function useSSE() {
             rag_engine: options?.rag_engine || 'light',
             enable_data_science_agent: options?.enable_data_science_agent || false,
             model_provider: options?.model_provider,
-            model_name: options?.model_name
+            model_name: options?.model_name,
+            language: language // 🚀 传回当前语言
           }),
           signal: controller.signal
         })

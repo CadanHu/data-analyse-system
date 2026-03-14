@@ -4,6 +4,7 @@ export type Language = 'zh' | 'en'
 export type TranslationKey = 
   // Navigation
   | 'nav.features' | 'nav.tutorial' | 'nav.about' | 'nav.enterApp' | 'nav.home'
+  | 'nav.sessions' | 'nav.chat' | 'nav.charts'
   // Welcome Page
   | 'welcome.version' | 'welcome.title1' | 'welcome.title2' | 'welcome.description'
   | 'welcome.startFree' | 'welcome.viewArchitecture' | 'welcome.dashboardTitle'
@@ -21,7 +22,8 @@ export type TranslationKey =
   // Login/Register
   | 'login.welcome' | 'login.subtitle' | 'login.email' | 'login.password'
   | 'login.submit' | 'login.loading' | 'login.noAccount' | 'login.register'
-  | 'login.backToHome' | 'register.title' | 'register.username' | 'register.confirmPassword'
+  | 'login.backToHome' | 'login.failed' | 'login.formatError'
+  | 'register.title' | 'register.username' | 'register.confirmPassword'
   | 'register.submit' | 'register.loading' | 'register.haveAccount' | 'register.login'
   // Session List
   | 'session.listTitle' | 'session.new' | 'session.search' | 'session.notFound'
@@ -34,6 +36,10 @@ export type TranslationKey =
   // Right Panel
   | 'panel.dataPivot' | 'panel.chartType' | 'panel.sqlQuery' | 'panel.viewChart'
   | 'panel.copySQL' | 'panel.fullscreen' | 'panel.exitFullscreen'
+  | 'panel.auto' | 'panel.line' | 'panel.area' | 'panel.bar' | 'panel.pie' | 'panel.scatter' | 'panel.radar'
+  | 'panel.funnel' | 'panel.gauge' | 'panel.candlestick' | 'panel.heatmap' | 'panel.treemap' | 'panel.sankey'
+  | 'panel.boxplot' | 'panel.waterfall' | 'panel.map' | 'panel.gantt' | 'panel.table'
+  | 'panel.noData' | 'panel.unsupported' | 'panel.executedSql' | 'panel.export' | 'panel.filter'
   // Features Categories
   | 'feature.core' | 'feature.ai' | 'feature.data' | 'feature.enhanced' | 'feature.ux'
   // Feature Items
@@ -52,7 +58,42 @@ export type TranslationKey =
   // Common
   | 'common.appName' | 'common.loading' | 'common.error' | 'common.success' | 'common.cancel' | 'common.confirm'
   | 'common.back' | 'common.save' | 'common.delete' | 'common.edit' | 'common.close' | 'common.open'
-  | 'common.yes' | 'common.no' | 'common.startUsing'
+  | 'common.yes' | 'common.no' | 'common.startUsing' | 'common.copySuccess' | 'common.refresh'
+  | 'common.errorTitle' | 'common.errorDesc'
+  // Alerts & Messages
+  | 'alert.analysisFailed' | 'alert.selectSessionFirst' | 'alert.processing' | 'alert.fileTypeNotSupported'
+  | 'alert.sessionIdMissing' | 'alert.filePreprocessingFailed' | 'alert.exception' | 'alert.parseFailed'
+  | 'alert.mobileProcessFailed' | 'alert.fetchFileFailed' | 'alert.scientistModeHint'
+  // Reports & Dashboards
+  | 'report.deepInsight' | 'report.generating' | 'report.fullScreen' | 'report.offline' | 'report.deepAnalyzing'
+  | 'report.genBtn' | 'report.processingHint' | 'report.deepInsightHint'
+  | 'report.exportPdfFailed' | 'report.success' | 'report.failed' | 'report.regenerateFailed'
+  // Feedback
+  | 'feedback.thanks' | 'feedback.failed'
+  // Debug Panel
+  | 'debug.ipFormatError' | 'debug.ipSaved' | 'debug.resetAuto'
+  | 'debug.title' | 'debug.subtitle' | 'debug.guideTitle' | 'debug.guide1' | 'debug.guide2' | 'debug.guide3'
+  | 'debug.currentAddr' | 'debug.platform' | 'debug.detectIp' | 'debug.manualIp' | 'debug.ipPlaceholder'
+  | 'debug.ipHint' | 'debug.testBtn' | 'debug.testing' | 'debug.success' | 'debug.failed' | 'debug.unreachable'
+  | 'debug.resetBtn' | 'debug.resetConfirm'
+  // Register
+  | 'register.codeSuccess' | 'register.enterEmailFirst' | 'register.sendCode' | 'register.verifCode'
+  | 'register.codePlaceholder' | 'register.passwordMismatch' | 'register.enterCode' | 'register.success'
+  | 'register.failed' | 'register.sendFailed'
+  // Chat Message Items
+  | 'chat.thinkingView' | 'chat.thinkingHide' | 'chat.codeExpand' | 'chat.codeCollapse' | 'chat.codeClickExpand'
+  | 'chat.fullTextHide' | 'chat.fullTextView' | 'chat.scientistModeChartBtn' | 'chat.dataInsightThumb'
+  | 'chat.editQuestion' | 'chat.showSQL' | 'chat.hideSQL' | 'chat.vizBoard' | 'chat.copyContent' | 'chat.sideBySideView'
+  // Previews
+  | 'preview.sideBySide' | 'preview.original' | 'preview.markdown' | 'preview.copyResult'
+  // Session List Extra
+  | 'session.export' | 'session.exportTxt' | 'session.exportMd' | 'session.exportPdf'
+  | 'session.syncing' | 'session.wait' | 'session.viewLogs' | 'session.preparingFile'
+  | 'session.shareTitle' | 'session.unnamed'
+  // New welcome screen and assistant titles
+  | 'welcome.assistantTitle' | 'chat.welcomeMessage' | 'chat.featureViz' | 'chat.featureVizDesc'
+  | 'chat.featureThinking' | 'chat.featureThinkingDesc' | 'chat.tryAsking' | 'chat.selectDb'
+  | 'chat.example1' | 'chat.example2' | 'chat.example3' | 'chat.example4'
 
 export interface Translation {
   [key: string]: string
@@ -66,6 +107,9 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'nav.about': '关于',
     'nav.enterApp': '进入应用',
     'nav.home': '首页',
+    'nav.sessions': '会话',
+    'nav.chat': '对话',
+    'nav.charts': '图表',
     
     // Welcome Page
     'welcome.version': 'V1.7.0 · 进阶多维可视化与 AI 自动适配已就绪',
@@ -125,6 +169,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'login.noAccount': '还没有账号？',
     'login.register': '立即注册',
     'login.backToHome': '返回首页',
+    'login.failed': '登录失败，请检查邮箱和密码',
+    'login.formatError': '登录响应格式错误',
     'register.title': '创建账号',
     'register.username': '用户名',
     'register.confirmPassword': '确认密码',
@@ -168,6 +214,29 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'panel.copySQL': '复制 SQL',
     'panel.fullscreen': '全屏',
     'panel.exitFullscreen': '退出全屏',
+    'panel.auto': '智能推荐',
+    'panel.line': '折线图',
+    'panel.area': '面积图',
+    'panel.bar': '柱状/条形',
+    'panel.pie': '饼图/环形',
+    'panel.scatter': '散点/气泡',
+    'panel.radar': '雷达图',
+    'panel.funnel': '漏斗图',
+    'panel.gauge': '仪表盘',
+    'panel.candlestick': '蜡烛图',
+    'panel.heatmap': '热力图',
+    'panel.treemap': '树状图',
+    'panel.sankey': '桑基图',
+    'panel.boxplot': '箱线图',
+    'panel.waterfall': '瀑布图',
+    'panel.map': '地理地图',
+    'panel.gantt': '甘特图',
+    'panel.table': '原始表格',
+    'panel.noData': '暂无分析数据',
+    'panel.unsupported': '该数据格式不适合展示为',
+    'panel.executedSql': '执行的 SQL',
+    'panel.export': '导出',
+    'panel.filter': '过滤数据...',
     
     // Features Categories
     'feature.core': '核心功能',
@@ -190,7 +259,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'feature.schema.title': '动态 Schema 感知',
     'feature.schema.desc': '自动提取并同步最新的数据库元数据，确保 AI 始终掌握最新的数据结构。',
     'feature.file.title': '文件上传与分析',
-    'feature.file.desc': '支持上传业务文档，AI 将结合私有文档内容进行专业口径解读。',
+    'feature.file.desc': '支持上传业务文档， AI 将结合私有文档内容进行专业口径解读。',
     'feature.stream.title': 'Streamable HTTP 协议',
     'feature.stream.desc': '采用流式 HTTP 响应技术，支持 POST 请求下的高性能异步数据传输。',
     'feature.session.title': '会话管理与同步',
@@ -221,6 +290,126 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'common.yes': '是',
     'common.no': '否',
     'common.startUsing': '开始使用',
+    'common.copySuccess': '内容已复制',
+    'common.refresh': '刷新页面',
+    'common.errorTitle': '出错了',
+    'common.errorDesc': '页面加载失败，请刷新重试',
+    
+    // Alerts & Messages
+    'alert.analysisFailed': '分析失败',
+    'alert.selectSessionFirst': '请先选择或创建一个会话',
+    'alert.processing': '正在处理中，请稍候再试',
+    'alert.fileTypeNotSupported': '该文件类型暂不支持深度知识抽取',
+    'alert.sessionIdMissing': '错误：会话 ID 丢失，请刷新页面或重新创建会话',
+    'alert.filePreprocessingFailed': '文件预处理失败',
+    'alert.exception': '处理异常',
+    'alert.parseFailed': '解析失败',
+    'alert.mobileProcessFailed': '手机端处理失败',
+    'alert.fetchFileFailed': '从服务器获取文件失败',
+    'alert.scientistModeHint': '💡 当前为“科学家模式”，分析结论与图表已在对话框中直接展示。如需使用“传统可视化看板”，请切换至普通 SQL 模式。',
+    
+    // Reports & Dashboards
+    'report.deepInsight': '深度分析看板',
+    'report.generating': '生成中...',
+    'report.fullScreen': '全屏查看',
+    'report.offline': '导出离线报告',
+    'report.deepAnalyzing': '系统正在深度建模分析中 (约需1分钟)...',
+    'report.genBtn': '✨ 生成深度洞察看板 (耗时约1分钟)',
+    'report.processingHint': '提示：正在蒸馏数据并构建 ECharts 看板，请耐心等待...',
+    'report.deepInsightHint': '提示：深度看板将为您自动总结业务洞察、推断隐藏趋势并生成全屏报表。',
+    'report.exportPdfFailed': 'PDF 导出失败，请重试',
+    'report.success': '✨ 深度分析看板已生成成功，内容已永久保存！',
+    'report.failed': '看板生成失败，可能由于数据量过大或超时，请重试。',
+    'report.regenerateFailed': '重新生成失败',
+    
+    // Feedback
+    'feedback.thanks': '感谢您的反馈，我们会尽快优化！',
+    'feedback.failed': '提交失败，请稍后重试',
+    
+    // Debug Panel
+    'debug.ipFormatError': '❌ 格式错误：请只填写 IP 地址（例如 192.168.1.5），不要包含 http:// 或端口号！',
+    'debug.ipSaved': '✅ IP 已保存！应用将立即重启以连接新地址。',
+    'debug.resetAuto': '已恢复为“系统自动探测”模式',
+    'debug.title': '移动端调试连接器',
+    'debug.subtitle': '解决手机无法连接电脑后端的问题',
+    'debug.guideTitle': '小白使用指南',
+    'debug.guide1': '为什么用它？ 手机运行应用时，无法直接找到电脑里的后端服务（localhost 在手机上是无效的）。',
+    'debug.guide2': '怎么操作？ 请在下方输入框填入你电脑的真实局域网 IP。',
+    'debug.guide3': '关键点： 手机和电脑必须连接同一个 WiFi！',
+    'debug.currentAddr': '当前连接地址',
+    'debug.platform': '平台',
+    'debug.detectIp': '检测 IP',
+    'debug.manualIp': '手动指定电脑 IP',
+    'debug.ipPlaceholder': '例如: 192.168.1.10',
+    'debug.ipHint': '提示：只需填数字，我们将自动补全 8000 端口。',
+    'debug.testBtn': '一键测试 API 连通性',
+    'debug.testing': '正在连接后端...',
+    'debug.success': '连接成功！',
+    'debug.failed': '连接失败，请检查 IP',
+    'debug.unreachable': '无法触达后端服务',
+    'debug.resetBtn': '恢复默认设置并重载',
+    'debug.resetConfirm': '确定要清除所有缓存吗？',
+    
+    // Register
+    'register.codeSuccess': '验证码请求成功！如果没收到邮件，请查看后端控制台输出。',
+    'register.enterEmailFirst': '请先输入邮箱地址',
+    'register.sendCode': '获取验证码',
+    'register.verifCode': '验证码',
+    'register.codePlaceholder': '6位数字验证码',
+    'register.passwordMismatch': '两次输入的密码不一致',
+    'register.enterCode': '请输入验证码',
+    'register.success': '注册成功，请登录',
+    'register.failed': '注册失败，请检查填写内容',
+    'register.sendFailed': '验证码发送失败',
+
+    // Chat Message Items
+    'chat.thinkingView': '查看 AI 思考过程',
+    'chat.thinkingHide': '收起思考过程',
+    'chat.codeExpand': '展开代码',
+    'chat.codeCollapse': '收起代码',
+    'chat.codeClickExpand': '点击展开全部代码',
+    'chat.fullTextHide': '收起全文',
+    'chat.fullTextView': '查看完整解析结果',
+    'chat.scientistModeChartBtn': '点击查看 AI 生成的高清分析图表',
+    'chat.dataInsightThumb': '数据洞察缩略图 (点击放大)',
+    'chat.editQuestion': '修改问题',
+    'chat.showSQL': '显示 SQL',
+    'chat.hideSQL': '隐藏 SQL',
+    'chat.vizBoard': '可视看板',
+    'chat.copyContent': '复制内容',
+    'chat.sideBySideView': '对照预览',
+    
+    // Previews
+    'preview.sideBySide': '深度解析结果对照',
+    'preview.original': 'PDF 原文',
+    'preview.markdown': 'Markdown 解析结果 (MinerU)',
+    'preview.copyResult': '复制解析结果',
+
+    // Session List Extra
+    'session.export': '导出对话',
+    'session.exportTxt': '📄 TXT 文本',
+    'session.exportMd': '📝 Markdown',
+    'session.exportPdf': '📕 高清 PDF',
+    'session.syncing': '正在同步...',
+    'session.wait': '请稍候',
+    'session.viewLogs': '查看系统日志',
+    'session.preparingFile': '正在准备文件...',
+    'session.shareTitle': '请选择保存或分享方式',
+    'session.unnamed': '未命名会话',
+
+    // New welcome screen and assistant titles
+    'welcome.assistantTitle': '智能数据分析助理',
+    'chat.welcomeMessage': '我已经准备好为您深度分析数据，并自动适配 15+ 种进阶可视化方案。',
+    'chat.featureViz': '进阶可视化',
+    'chat.featureVizDesc': '自动适配雷达图、漏斗图、热力图等，让数据洞察更直观。',
+    'chat.featureThinking': '深度推理模式',
+    'chat.featureThinkingDesc': '实时展示推理思维链，让 AI 的分析逻辑透明可见、专业可靠。',
+    'chat.tryAsking': '您可以试着这样问我：',
+    'chat.selectDb': '⚠️ 请选择数据库',
+    'chat.example1': '分析去年的销售额趋势并生成面积图',
+    'chat.example2': '对比核心产品的多维性能 (雷达图)',
+    'chat.example3': '分析用户从首页到下单的转化漏斗',
+    'chat.example4': '展示各地区销售密度的热力图',
   },
   
   en: {
@@ -230,6 +419,9 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'nav.about': 'About',
     'nav.enterApp': 'Enter App',
     'nav.home': 'Home',
+    'nav.sessions': 'Sessions',
+    'nav.chat': 'Chat',
+    'nav.charts': 'Charts',
     
     // Welcome Page
     'welcome.version': 'V1.7.0 · Advanced Multi-dimensional Visualization & AI Auto-Adaptation Ready',
@@ -289,6 +481,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'login.noAccount': "Don't have an account?",
     'login.register': 'Sign Up',
     'login.backToHome': 'Back to Home',
+    'login.failed': 'Login failed, please check your email and password',
+    'login.formatError': 'Login response format error',
     'register.title': 'Create Account',
     'register.username': 'Username',
     'register.confirmPassword': 'Confirm Password',
@@ -332,6 +526,29 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'panel.copySQL': 'Copy SQL',
     'panel.fullscreen': 'Fullscreen',
     'panel.exitFullscreen': 'Exit Fullscreen',
+    'panel.auto': 'Auto Recommend',
+    'panel.line': 'Line Chart',
+    'panel.area': 'Area Chart',
+    'panel.bar': 'Bar Chart',
+    'panel.pie': 'Pie Chart',
+    'panel.scatter': 'Scatter Chart',
+    'panel.radar': 'Radar Chart',
+    'panel.funnel': 'Funnel Chart',
+    'panel.gauge': 'Gauge Chart',
+    'panel.candlestick': 'Candlestick',
+    'panel.heatmap': 'Heatmap',
+    'panel.treemap': 'Treemap',
+    'panel.sankey': 'Sankey Diagram',
+    'panel.boxplot': 'Box Plot',
+    'panel.waterfall': 'Waterfall Chart',
+    'panel.map': 'Geographic Map',
+    'panel.gantt': 'Gantt Chart',
+    'panel.table': 'Raw Table',
+    'panel.noData': 'No analysis data',
+    'panel.unsupported': 'Data format not suitable for',
+    'panel.executedSql': 'Executed SQL',
+    'panel.export': 'Export',
+    'panel.filter': 'Filter data...',
     
     // Features Categories
     'feature.core': 'Core Features',
@@ -385,6 +602,126 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'common.yes': 'Yes',
     'common.no': 'No',
     'common.startUsing': 'Start Using',
+    'common.copySuccess': 'Content Copied',
+    'common.refresh': 'Refresh Page',
+    'common.errorTitle': 'Oops, something went wrong',
+    'common.errorDesc': 'Page failed to load, please refresh and try again',
+    
+    // Alerts & Messages
+    'alert.analysisFailed': 'Analysis Failed',
+    'alert.selectSessionFirst': 'Please select or create a session first',
+    'alert.processing': 'Processing, please wait...',
+    'alert.fileTypeNotSupported': 'This file type does not support deep knowledge extraction',
+    'alert.sessionIdMissing': 'Error: Session ID missing, please refresh or recreate session',
+    'alert.filePreprocessingFailed': 'File preprocessing failed',
+    'alert.exception': 'Processing exception',
+    'alert.parseFailed': 'Parsing failed',
+    'alert.mobileProcessFailed': 'Mobile processing failed',
+    'alert.fetchFileFailed': 'Failed to fetch file from server',
+    'alert.scientistModeHint': '💡 "Scientist Mode" is active. Analysis and charts are shown directly in chat. Switch to SQL Mode for classic dashboards.',
+    
+    // Reports & Dashboards
+    'report.deepInsight': 'Deep Insights Dashboard',
+    'report.generating': 'Generating...',
+    'report.fullScreen': 'Full Screen',
+    'report.offline': 'Export Offline Report',
+    'report.deepAnalyzing': 'System is deep modeling (approx. 1 min)...',
+    'report.genBtn': '✨ Generate Deep Insights (approx. 1 min)',
+    'report.processingHint': 'Hint: Distilling data and building ECharts dashboard, please wait...',
+    'report.deepInsightHint': 'Hint: Deep dashboard will summarize insights, infer trends, and generate reports.',
+    'report.exportPdfFailed': 'PDF export failed, please try again',
+    'report.success': '✨ Deep analysis dashboard generated and saved successfully!',
+    'report.failed': 'Dashboard generation failed due to size or timeout, please retry.',
+    'report.regenerateFailed': 'Regeneration failed',
+    
+    // Feedback
+    'feedback.thanks': 'Thanks for your feedback! We will optimize as soon as possible.',
+    'feedback.failed': 'Submission failed, please try again later',
+    
+    // Debug Panel
+    'debug.ipFormatError': '❌ Format Error: Please enter IP address only (e.g., 192.168.1.5), without http:// or port!',
+    'debug.ipSaved': '✅ IP saved! App will restart to connect to the new address.',
+    'debug.resetAuto': 'Restored to "System Auto-detect" mode',
+    'debug.title': 'Mobile Debug Connector',
+    'debug.subtitle': 'Resolve connection issues between mobile and desktop',
+    'debug.guideTitle': 'Beginner Guide',
+    'debug.guide1': 'Why use it? Mobile apps cannot find backend services on localhost.',
+    'debug.guide2': 'How to use? Enter your computers local IP address.',
+    'debug.guide3': 'Key point: Mobile and computer must be on the same WiFi!',
+    'debug.currentAddr': 'Current Address',
+    'debug.platform': 'Platform',
+    'debug.detectIp': 'Detected IP',
+    'debug.manualIp': 'Manually Set Computer IP',
+    'debug.ipPlaceholder': 'Example: 192.168.1.10',
+    'debug.ipHint': 'Hint: Enter digits only. We will auto-append port 8000.',
+    'debug.testBtn': 'Test API Connection',
+    'debug.testing': 'Connecting to backend...',
+    'debug.success': 'Connected successfully!',
+    'debug.failed': 'Connection failed, check IP',
+    'debug.unreachable': 'Cannot reach backend service',
+    'debug.resetBtn': 'Reset Defaults and Reload',
+    'debug.resetConfirm': 'Are you sure you want to clear all cache?',
+    
+    // Register
+    'register.codeSuccess': 'Verification code requested! If not received, please check backend logs.',
+    'register.enterEmailFirst': 'Please enter email address first',
+    'register.sendCode': 'Send Code',
+    'register.verifCode': 'Verification Code',
+    'register.codePlaceholder': '6-digit code',
+    'register.passwordMismatch': 'Passwords do not match',
+    'register.enterCode': 'Please enter verification code',
+    'register.success': 'Registration successful, please login',
+    'register.failed': 'Registration failed, please check your input',
+    'register.sendFailed': 'Failed to send verification code',
+
+    // Chat Message Items
+    'chat.thinkingView': 'View AI Thought Process',
+    'chat.thinkingHide': 'Hide Thought Process',
+    'chat.codeExpand': 'Expand Code',
+    'chat.codeCollapse': 'Collapse Code',
+    'chat.codeClickExpand': 'Click to expand all code',
+    'chat.fullTextHide': 'Collapse Full Text',
+    'chat.fullTextView': 'View Full Analysis Result',
+    'chat.scientistModeChartBtn': 'View AI-generated High-Res Chart',
+    'chat.dataInsightThumb': 'Data Insight Thumbnail (Click to enlarge)',
+    'chat.editQuestion': 'Edit Question',
+    'chat.showSQL': 'Show SQL',
+    'chat.hideSQL': 'Hide SQL',
+    'chat.vizBoard': 'Viz Board',
+    'chat.copyContent': 'Copy Content',
+    'chat.sideBySideView': 'Preview',
+    
+    // Previews
+    'preview.sideBySide': 'Analysis Comparison',
+    'preview.original': 'Original PDF',
+    'preview.markdown': 'Markdown Result (MinerU)',
+    'preview.copyResult': 'Copy Result',
+
+    // Session List Extra
+    'session.export': 'Export Chat',
+    'session.exportTxt': '📄 TXT Text',
+    'session.exportMd': '📝 Markdown',
+    'session.exportPdf': '📕 High-Res PDF',
+    'session.syncing': 'Syncing...',
+    'session.wait': 'Please wait',
+    'session.viewLogs': 'View System Logs',
+    'session.preparingFile': 'Preparing file...',
+    'session.shareTitle': 'Choose Save or Share Method',
+    'session.unnamed': 'Unnamed Session',
+
+    // New welcome screen and assistant titles
+    'welcome.assistantTitle': 'Intelligent Data Analysis Assistant',
+    'chat.welcomeMessage': 'I am ready to perform deep data analysis for you, automatically adapting to 15+ advanced visualization schemes.',
+    'chat.featureViz': 'Advanced Visualization',
+    'chat.featureVizDesc': 'Automatically adapt to radar charts, funnel charts, heatmaps, etc., making data insights more intuitive.',
+    'chat.featureThinking': 'Deep Reasoning Mode',
+    'chat.featureThinkingDesc': 'Real-time display of reasoning chain of thought, making AI analysis logic transparent, visible, professional, and reliable.',
+    'chat.tryAsking': 'You can try asking me like this:',
+    'chat.selectDb': '⚠️ Please select a database',
+    'chat.example1': 'Analyze last year\'s sales trends and generate an area chart',
+    'chat.example2': 'Compare multi-dimensional performance of core products (Radar chart)',
+    'chat.example3': 'Analyze user conversion funnel from home page to order',
+    'chat.example4': 'Display heatmap of sales density in various regions',
   },
 }
 
