@@ -7,6 +7,8 @@ interface SessionState {
   sqlResult: SQLResult | null
   sql: string
   isRightPanelVisible: boolean
+  isThinkingMode: boolean
+  isDataScienceMode: boolean
 }
 
 export const useChatStore = create<ChatState & {
@@ -86,7 +88,9 @@ export const useChatStore = create<ChatState & {
             chartType: current.currentChartType,
             sqlResult: current.currentSqlResult,
             sql: current.currentSql,
-            isRightPanelVisible: current.isRightPanelVisible
+            isRightPanelVisible: current.isRightPanelVisible,
+            isThinkingMode: current.isThinkingMode,
+            isDataScienceMode: current.isDataScienceMode
           }
         }
       })
@@ -100,8 +104,9 @@ export const useChatStore = create<ChatState & {
         currentSqlResult: saved.sqlResult,
         currentSql: saved.sql,
         isRightPanelVisible: saved.isRightPanelVisible,
-        currentSessionId: sessionId,
-        isThinkingMode: get().isThinkingMode
+        isThinkingMode: saved.isThinkingMode,
+        isDataScienceMode: saved.isDataScienceMode,
+        currentSessionId: sessionId
       })
     } else {
       set({
@@ -110,8 +115,9 @@ export const useChatStore = create<ChatState & {
         currentSqlResult: null,
         currentSql: '',
         isRightPanelVisible: false,
-        currentSessionId: sessionId,
-        isThinkingMode: get().isThinkingMode
+        isThinkingMode: false,
+        isDataScienceMode: false,
+        currentSessionId: sessionId
       })
     }
   },

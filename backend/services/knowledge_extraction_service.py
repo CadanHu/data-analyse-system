@@ -272,6 +272,59 @@ class KnowledgeExtractionService:
         except:
             pass
 
+    async def analyze_and_generate_report(self, message_id: str, content: str, session_id: str):
+        """🚀 异步后台任务：分析并生成深度报告"""
+        from database.session_db import session_db, MessageModel
+        from sqlalchemy import select
+        from utils.json_utils import json_dumps
+        import json
+        
+        logger.info(f"🧪 [Knowledge] 开始异步深度分析 / Starting async deep analysis: {message_id}")
+        
+        try:
+            # 1. 执行分析逻辑
+            report = await self.generate_visual_report(content, user_query="请基于提供的 SQL 结果和上下文，生成一份极具视觉冲击力的深度数据科学分析报告。")
+            
+            # 2. 更新数据库
+            async with session_db.async_session() as session:
+                result = await session.execute(select(MessageModel).where(MessageModel.id == message_id))
+                msg = result.scalar_one_or_none()
+                if msg:
+                    # 读取旧数据
+                    data_obj = {}
+                    if msg.data:
+                        try:
+                            data_obj = json.loads(msg.data)
+                        except: pass
+                    
+                    # 注入报告数据
+                    data_obj["report"] = report
+                    data_obj["report_status"] = "done"
+                    data_obj["can_generate_report"] = False # 已生成，不再显示按钮
+                    
+                    msg.data = json_dumps(data_obj)
+                    await session.commit()
+                    logger.info(f"✅ [Knowledge] 报告更新至数据库成功 / Report updated to DB: {message_id}")
+        except Exception as e:
+            logger.error(f"❌ [Knowledge] 深度分析失败 / Deep analysis failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            # 发生错误时回滚状态
+            async with session_db.async_session() as session:
+                result = await session.execute(select(MessageModel).where(MessageModel.id == message_id))
+                msg = result.scalar_one_or_none()
+                if msg:
+                    data_obj = {}
+                    if msg.data:
+                        try: data_obj = json.loads(msg.data)
+                        except: pass
+                    data_obj["report_status"] = "error"
+                    data_obj["report_error"] = str(e)
+                    data_obj["can_generate_report"] = True # 允许点击重试
+                    msg.data = json_dumps(data_obj)
+                    await session.commit()
+
     async def extract_and_save(self, text: str, doc_id: str, prompt: Optional[str] = None) -> List[Dict[str, Any]]:
         """保留原接口兼容性，并执行实际的切分分析"""
         logger.info(f"📑 [Knowledge] 正在为文档 {doc_id} 执行知识抽取并同步至数据库")

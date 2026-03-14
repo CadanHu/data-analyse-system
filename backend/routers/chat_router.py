@@ -59,8 +59,15 @@ async def generate_report(
         result = await session.execute(select(MessageModel).where(MessageModel.id == request.message_id))
         msg = result.scalar_one_or_none()
         if msg:
-            msg.report_status = "processing"
-            msg.can_generate_report = False
+            # 🚀 核心修复：不能直接设置不存在的列，必须更新 data JSON
+            data_obj = {}
+            if msg.data:
+                try: data_obj = json.loads(msg.data)
+                except: pass
+            
+            data_obj["report_status"] = "processing"
+            data_obj["can_generate_report"] = False # 防止重复点击
+            msg.data = json_dumps(data_obj)
             await session.commit()
 
     background_tasks.add_task(

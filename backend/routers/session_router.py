@@ -33,6 +33,9 @@ class SessionResponse(BaseModel):
     id: str
     title: Optional[str] = None
     database_key: str = "business"
+    enable_data_science_agent: bool = False
+    enable_thinking: bool = False
+    enable_rag: bool = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
