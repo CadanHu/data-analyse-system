@@ -1,5 +1,17 @@
+import os
+import sys
+
+# 🚀 自动处理路径，确保能找到 backend.config
+base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if base_dir not in sys.path:
+    sys.path.append(base_dir)
+
 import pymysql
-from backend.config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_SESSION_DATABASE
+# 兼容两种导包方式
+try:
+    from backend.config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_SESSION_DATABASE
+except ImportError:
+    from config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_SESSION_DATABASE
 
 def fix_schema():
     print(f"📡 正在连接数据库 {MYSQL_SESSION_DATABASE} 以更新 Schema...")
@@ -31,7 +43,7 @@ def fix_schema():
                 try:
                     cursor.execute(f"ALTER TABLE sessions ADD COLUMN {field} {definition}")
                     print(f"✅ 成功添加字段: {field}")
-                except pymysql.err.InternalError as e:
+                except (pymysql.err.InternalError, pymysql.err.OperationalError) as e:
                     if e.args[0] == 1060: # Column already exists
                         print(f"ℹ️ 字段 {field} 已存在，跳过")
                     else:

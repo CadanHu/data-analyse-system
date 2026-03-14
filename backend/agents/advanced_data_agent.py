@@ -143,7 +143,9 @@ class AdvancedDataAgent:
             yield {"event": "done", "data": {
                 "result": exec_result["data"], 
                 "code": ai_code,
-                "plot_image_base64": exec_result["plot_image"]
+                "plot_image_base64": exec_result["plot_image"],
+                "is_data_science": True,
+                "can_generate_report": True
             }}
         else:
             yield {"event": "done", "data": {}}

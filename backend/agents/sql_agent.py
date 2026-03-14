@@ -593,8 +593,7 @@ class SQLAgent:
                     "chart_config": chart_config, 
                     "summary": summary, 
                     "reasoning": full_reasoning, 
-                    "session_title": sql_response.get("session_title", ""),
-                    "can_generate_report": True # 告诉前端：本条消息支持生成深度报告
+                    "session_title": sql_response.get("session_title", "")
                 }}
                 break
 
