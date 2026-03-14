@@ -148,9 +148,9 @@ class AdvancedDataAgent:
         else:
             yield {"event": "done", "data": {}}
 
-    async def generate_ai_title(self, question: str, language: str = "zh") -> str:
+    async def generate_ai_title(self, question: str, provider: str = None, model_name: str = None, language: str = "zh") -> str:
         """生成极简的会话标题"""
-        llm = llm_factory.get_langchain_model(provider=self.provider, temperature=0)
+        llm = llm_factory.get_langchain_model(provider=provider or self.provider, model_name=model_name or self.model_name, temperature=0)
         prompt_tmpl = get_prompt("SESSION_TITLE", language)
         prompt = prompt_tmpl.format(question=question)
         try:

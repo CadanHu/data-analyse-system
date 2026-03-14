@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sparkles, Loader2, Send, Paperclip, X, Trash2, Globe, Layout, Layers, Wand2 } from 'lucide-react' // 🚀 引入新图标
+import { Sparkles } from 'lucide-react' // 🚀 引入新图标
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
@@ -56,7 +56,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
   const [showEngineSelect, setShowEngineSelect] = useState(false)
   const { connect, disconnect } = useSSE()
-  const { t } = useTranslation()
+  const { t, language } = useTranslation()
 
   const [pendingFile, setPendingFile] = useState<File | null>(null)
 
@@ -95,7 +95,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
         enable_rag: isRAGMode, 
         rag_engine: ragEngine,
         parent_id: parentId,
-        enable_data_science_agent: isDataScienceMode,
+        enable_data_science: isDataScienceMode,
         enable_thinking: isThinkingMode
       },
       { 
@@ -186,7 +186,8 @@ const handleStandardUpload = async (file: File) => {
       id: `sys_${Date.now()}`,
       session_id: sessionId!,
       role: 'assistant',
-      content: `✅ **${t('common.success')}**\nFile: 《${file.name}》\n\n**Preview:**\n> ${response.text_preview}...\n\n`
+      content: `✅ **${t('common.success')}**\nFile: 《${file.name}》\n\n**Preview:**\n> ${response.text_preview}...\n\n`,
+      created_at: new Date().toISOString()
     })
   } catch (error: any) {
       console.error('文件上传失败:', error)
@@ -206,7 +207,7 @@ const handleStandardUpload = async (file: File) => {
       setKnowledgeMode(true)
       setShowEngineSelect(false)
       
-      const statuses = t('language') === 'zh' ? [
+      const statuses = language === 'zh' ? [
         `第 1 步：正在上传文件到 MinerU 云端...`,
         `第 2 步：正在进行 AI 布局 analysis (OCR/公式识别)...`,
         `第 3 步：正在调用 DeepSeek 进行知识建模...`,
@@ -225,7 +226,8 @@ const handleStandardUpload = async (file: File) => {
         id: messageId,
         session_id: sessionId!,
         role: 'user',
-        content: `【${t('chat.proMode')}】File: ${file.name}\nProgress: ${statuses[0]} (Elapsed: 0s)`
+        content: `【${t('chat.proMode')}】File: ${file.name}\nProgress: ${statuses[0]} (Elapsed: 0s)`,
+        created_at: new Date().toISOString()
       })
 
       // 动态更新状态的计时器 (改为每 1 秒更新一次，以显示秒数)
@@ -289,7 +291,10 @@ const handleStandardUpload = async (file: File) => {
         data: JSON.stringify(finalResponseData)
       }
       
-      addMessage(assistantMsg)
+      addMessage({
+        ...assistantMsg,
+        created_at: new Date().toISOString()
+      })
       
       // 持久化到数据库
       try {

@@ -28,7 +28,7 @@ interface SSEHandlers {
 interface ConnectOptions {
   enable_rag?: boolean
   rag_engine?: 'light' | 'pro'
-  enable_data_science_agent?: boolean
+  enable_data_science?: boolean
   enable_thinking?: boolean
   model_provider?: string
   model_name?: string
@@ -119,7 +119,7 @@ export function useSSE() {
             enable_thinking: options?.enable_thinking ?? isThinkingMode,
             enable_rag: options?.enable_rag || false,
             rag_engine: options?.rag_engine || 'light',
-            enable_data_science_agent: options?.enable_data_science_agent || false,
+            enable_data_science: options?.enable_data_science || false,
             model_provider: options?.model_provider,
             model_name: options?.model_name,
             language: language // 🚀 传回当前语言
@@ -279,7 +279,7 @@ export function useSSE() {
                   break
               }
             } catch (e) {
-              console.error('Failed to parse event:', e, trimmedLine)
+              console.error('Failed to parse event:', e, rawLine)
             }
           }
         }
