@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     libharfbuzz0b \
     libpangoft2-1.0-0 \
     libpangocairo-1.0-0 \
+    fonts-wqy-zenhei \
+    fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件

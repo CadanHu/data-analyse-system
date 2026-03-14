@@ -58,12 +58,13 @@ class AdvancedDataAgent:
 
 【核心指令】
 1. **实时方案说明**：首先用中文流利地说明你的分析思路。
-2. **强制绘图**：只要涉及趋势、对比或分布分析，**必须**编写 Matplotlib/Seaborn 绘图代码，并显式调用 `plt.show()`。不要只给出一个配置字典。
+2. **强制绘图 (必须使用英文标签)**：只要涉及趋势、对比或分布分析，**必须**编写 Matplotlib/Seaborn 绘图代码，并显式调用 `plt.show()`。
+   - **注意**：图表标题 (Title)、轴标签 (Axis Labels)、图例 (Legend) **必须使用英文**，以防字体缺失导致方块。
 3. **代码实现**：将分析代码放在唯一的 ```python ... ``` 块中。
    - **语法要求**：严禁使用中文全角引号（如 ‘, ’, “, ”），所有 Python 字符串必须使用标准 ASCII 引号 (' 或 ")。
    - 必须使用 `df_xxx` 变量。
    - 最终数据 -> `result_data`。
-   - 可视化配置 (ECharts) -> `viz_config`。
+   - 可视化配置 (ECharts) -> `viz_config` (标题和标签也必须是英文)。
    - 报告文本 -> `summary_text`。
 3. **禁止事项**：
    - 严禁在 `summary_text` 中包含 `![...](data:...)` 这种图片字符串。
@@ -139,14 +140,17 @@ class AdvancedDataAgent:
                 report_text = re.sub(r'!\[.*?\]\(data:image\/.*?;base64,.*?\)', '', report_text)
                 discovery_tag = "**💡 核心发现：**" if language == "zh" else "**💡 Key Findings:**"
                 yield {"event": "summary", "data": {"content": f"\n\n---\n{discovery_tag}\n{report_text}"}}
-            
-            yield {"event": "done", "data": {
-                "result": exec_result["data"], 
+            payload = {
+                "rows": exec_result["data"], 
                 "code": ai_code,
                 "plot_image_base64": exec_result["plot_image"],
                 "is_data_science": True,
                 "can_generate_report": True
-            }}
+            }
+            # chat_router.py 侦听 execution_result 赋值给 assistant_data_obj
+            yield {"event": "execution_result", "data": payload}
+            # done 结束任务
+            yield {"event": "done", "data": payload}
         else:
             yield {"event": "done", "data": {}}
 

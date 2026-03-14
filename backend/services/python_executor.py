@@ -78,6 +78,11 @@ class PythonExecutor:
             return int(obj)
         elif isinstance(obj, (np.float64, np.float32, np.float16)):
             return float(obj)
+        elif isinstance(obj, pd.DataFrame):
+            # 填补空缺，将 DataFrame 转为前端表格依赖的行数据结构
+            return PythonExecutor._clean_result(obj.reset_index().to_dict(orient='records'))
+        elif isinstance(obj, pd.Series):
+            return PythonExecutor._clean_result(obj.to_dict())
         elif isinstance(obj, np.ndarray):
             return PythonExecutor._clean_result(obj.tolist())
         elif pd.isna(obj) if hasattr(pd, 'isna') else False:
@@ -112,10 +117,12 @@ class PythonExecutor:
             'summary_text': ""
         }
         
-        # 🚀 注入中文字体兼容补丁
-        # 尝试设置多种可能的系统字体，并关闭“找不到字体”时的警告显示豆腐块
-        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial Unicode MS', 'SimHei', 'sans-serif']
+        # 🚀 字体兼容：强制使用 DejaVu Sans (英文) 避免中文显示为方块
+        # 理由：系统环境可能缺失中文字体，导致渲染失败。
+        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Helvetica', 'sans-serif']
         plt.rcParams['axes.unicode_minus'] = False 
+        
+        # 💡 提示：所有生成的图表标题 (Title)、轴标签 (Labels) 和图例 (Legend) 请务必使用英文。
         
         # 注入数据集
         if isinstance(df_input, dict):

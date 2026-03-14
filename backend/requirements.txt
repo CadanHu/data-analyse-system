@@ -32,6 +32,8 @@ databases[postgresql,mysql]
 numpy<2.0.0
 pandas
 openpyxl
+matplotlib
+seaborn
 
 # 工具库
 python-dotenv

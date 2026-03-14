@@ -181,7 +181,7 @@ class KnowledgeExtractionService:
                     messages=[{"role": "user", "content": final_prompt}],
                     response_format={"type": "json_object"},
                     temperature=0.2,
-                    max_tokens=4000
+                    max_tokens=8192
                 )
                 
                 # 累加 Token 消耗
@@ -191,28 +191,45 @@ class KnowledgeExtractionService:
             else:
                 # 其他供应商使用 LangChain
                 llm = llm_factory.get_langchain_model(provider=provider, model_name=model_id, temperature=0.2)
-                response = await llm.ainvoke([{"role": "user", "content": final_prompt + "\n请务必只返回 JSON 格式结果，不要包含 Markdown 代码块标记。"}])
+                response = await llm.ainvoke([{"role": "user", "content": final_prompt + "\\n请务必只返回 JSON 格式结果，不要包含 Markdown 代码块标记。"}])
                 raw_content = response.content
             
-            # 增加安全解析逻辑
+            # 🚀 增强版安全解析逻辑 (提取最外层 JSON)
+            import json
             raw_content = raw_content.strip()
-            if raw_content.startswith("```json"):
-                raw_content = raw_content.split("```json")[1].split("```")[0].strip()
-            elif raw_content.startswith("```"):
-                raw_content = raw_content.split("```")[1].split("```")[0].strip()
-
-            if not raw_content.strip().endswith('}'):
-                raw_content += '"}'
+            try:
+                # 尝试寻找 JSON 边界
+                start_idx = raw_content.find('{')
+                end_idx = raw_content.rfind('}')
+                if start_idx != -1 and end_idx != -1:
+                    json_str = raw_content[start_idx:end_idx+1]
+                else:
+                    json_str = raw_content
                 
-            result = json.loads(raw_content)
+                # 清除 Markdown 代码块标记 (如果还有)
+                json_str = json_str.replace('```json', '').replace('```', '').strip()
+                result = json.loads(json_str)
+            except Exception as parse_err:
+                logger.warning(f"⚠️ [Report] 初次解析 JSON 失败，尝试自修复: {parse_err}")
+                # 最后的兜底：如果 JSON 明显截断 (以字符结尾而不是 })
+                if not raw_content.endswith('}'):
+                    try: 
+                        result = json.loads(raw_content + '"}') 
+                    except:
+                        raise parse_err
+                else:
+                    raise parse_err
             
             # 注入 Token 数据供路由层保存
-            result["_usage"] = {
-                "prompt_tokens": total_prompt_tokens,
-                "completion_tokens": total_completion_tokens
-            }
+            if "_usage" not in result:
+                result["_usage"] = {
+                    "prompt_tokens": total_prompt_tokens,
+                    "completion_tokens": total_completion_tokens
+                }
             
-            # 5. 自动保存分析结果
+            logger.info(f"✅ [Report] 报告生成完毕 (长度: {len(result.get('html', ''))}), Token: {total_prompt_tokens + total_completion_tokens}")
+            
+            # 5. 自动保存分析结果 (异步存档)
             self._save_report_locally(result)
             
             logger.info(f"✅ [Report] 报告产出成功 | 累计消耗: {total_prompt_tokens + total_completion_tokens} Tokens")
@@ -226,7 +243,11 @@ class KnowledgeExtractionService:
         provider = provider or self.provider
         model_id = model_id or self.model_id
         
-        prompt = f"""你是一个资深的专业财务分析师。请对以下文档片段进行深度分析并输出 JSON：
+        logger.info(f"🔍 [Report] 正在分析章节: {chunk.get('metadata', {}).get('header_path', '未知')}")
+        prompt = f"""你是一个资深的专业数据分析师。请对以下文档片段进行深度分析。
+        你需要提取出其中的关键数据指标、所有表格内容，并总结核心发现。
+        输出必须是 JSON 格式，包含: summary, tables (list of {{title, headers, rows}}), key_points.
+        
         内容: {chunk['content']}
         """
         try:
@@ -248,7 +269,7 @@ class KnowledgeExtractionService:
                 }
             else:
                 llm = llm_factory.get_langchain_model(provider=provider, model_name=model_id, temperature=0.1)
-                response = await llm.ainvoke([{"role": "user", "content": prompt + "\n请务必只返回 JSON 格式结果。"}])
+                response = await llm.ainvoke([{"role": "user", "content": prompt + "\\n请务必只返回 JSON 格式结果。"}])
                 content = response.content.strip()
                 if content.startswith("```json"):
                     content = content.split("```json")[1].split("```")[0].strip()
@@ -298,7 +319,7 @@ class KnowledgeExtractionService:
                         except: pass
                     
                     # 注入报告数据
-                    data_obj["report"] = report
+                    data_obj["html_report"] = report
                     data_obj["report_status"] = "done"
                     data_obj["can_generate_report"] = False # 已生成，不再显示按钮
                     

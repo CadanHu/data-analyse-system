@@ -183,6 +183,8 @@ export const messageApi = {
       feedback,
       feedback_text: feedbackText
     }).then(res => res.data),
+  getMessage: (sessionId: string, messageId: string) =>
+    api.get<Message>(`/sessions/${sessionId}/messages/${messageId}`).then(res => res.data),
 };
 
 export default api

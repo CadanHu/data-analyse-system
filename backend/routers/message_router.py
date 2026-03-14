@@ -40,6 +40,31 @@ async def update_message_feedback(
     
     return {"status": "success"}
 
+@router.get("/{message_id}", response_model=Message)
+async def get_message(session_id: str, message_id: str, current_user: dict = Depends(get_current_user)):
+    """获取单条消息详情"""
+    user_id = current_user["id"]
+    # 验证会话所属权
+    session = await session_db.get_session(session_id, user_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    msg_data = await session_db.get_message(session_id, message_id)
+    if not msg_data:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    
+    return Message(
+        id=msg_data['id'],
+        session_id=msg_data['session_id'],
+        role=msg_data['role'],
+        content=msg_data['content'],
+        sql=msg_data.get('sql'),
+        chart_cfg=msg_data.get('chart_cfg'),
+        thinking=msg_data.get('thinking'),
+        data=msg_data.get('data'),
+        created_at=msg_data['created_at']
+    )
+
 @router.get("", response_model=List[Message])
 async def get_messages(session_id: str, current_user: dict = Depends(get_current_user)):
     """

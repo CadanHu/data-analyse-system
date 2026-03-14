@@ -137,7 +137,7 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
           </div>
           <iframe 
             srcDoc={report.html || ''} 
-            className="flex-1 w-full border-none bg-black"
+            className="flex-1 w-full border-none bg-white"
             title="Dashboard"
           />
         </div>,
@@ -209,14 +209,14 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       const currentData = parsedData || {}
       const updatedData = {
         ...currentData,
-        html_report: result.html_report,
+        report_status: 'processing',
         can_generate_report: false
       }
       
       updateMessage(message.id, {
         data: JSON.stringify(updatedData)
       })
-      alert(t('report.success'))
+      alert(t('report.started')) // Changed from report.success to report.started
     } catch (err) {
       console.error('Report generation error:', err)
       alert(t('report.failed'))
@@ -344,6 +344,45 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       setThinkingCollapsed(false)
     }
   }, [message.thinking, isLoading, message.content])
+
+  useEffect(() => {
+    let pollInterval: any = null;
+    
+    // 如果消息状态是 processing，启动轮询
+    if (parsedData?.report_status === 'processing' && currentSession) {
+      console.log(`📡 [Poll] Starting poll for message ${message.id}`);
+      pollInterval = setInterval(async () => {
+        try {
+          const updatedMessage = await messageApi.getMessage(currentSession.id, message.id);
+          if (updatedMessage) {
+            let newData = updatedMessage.data;
+            if (typeof newData === 'string') {
+              try { newData = JSON.parse(newData); } catch (e) { console.error('Parse failed in poll', e); }
+            }
+            
+            console.log(`📡 [Poll] Current status for ${message.id}: ${newData?.report_status}`);
+            
+            if (newData && newData.report_status !== 'processing') {
+              console.log(`✅ [Poll] Analysis finished: ${newData.report_status}`);
+              updateMessage(message.id, {
+                data: (typeof updatedMessage.data === 'string') ? updatedMessage.data : JSON.stringify(updatedMessage.data)
+              });
+              if (pollInterval) clearInterval(pollInterval);
+            }
+          }
+        } catch (e) {
+          console.error('Polling for report failed:', e);
+        }
+      }, 3000);
+    }
+
+    return () => {
+      if (pollInterval) {
+        console.log(`🛑 [Poll] Cleaning up poll for ${message.id}`);
+        clearInterval(pollInterval);
+      }
+    };
+  }, [parsedData?.report_status, currentSession?.id, message.id, updateMessage]);
 
   const handleShowChart = () => {
     if (parsedData?.is_data_science) {
@@ -787,32 +826,32 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             )}
           </div>
 
-          {parsedData?.can_generate_report && !htmlReport && (
+          {(parsedData?.can_generate_report || isGeneratingReport || parsedData?.report_status === 'processing') && !htmlReport && (
             <div className="mt-4">
               <button
                 onClick={handleManualGenerateReport}
-                disabled={isGeneratingReport}
+                disabled={isGeneratingReport || parsedData?.report_status === 'processing'}
                 className={`w-full group relative flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border transition-all duration-300 active:scale-[0.98] ${
-                  isGeneratingReport 
+                  (isGeneratingReport || parsedData?.report_status === 'processing')
                     ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-wait' 
                     : 'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-100 text-blue-600 hover:shadow-lg hover:shadow-blue-500/10 hover:border-blue-200'
                 }`}
               >
-                {isGeneratingReport ? (
+                {(isGeneratingReport || parsedData?.report_status === 'processing') ? (
                   <Loader2 size={16} className="animate-spin text-blue-500" />
                 ) : (
                   <Zap size={16} className="text-yellow-500 group-hover:animate-pulse" />
                 )}
                 <span className="text-sm font-bold tracking-tight">
-                  {isGeneratingReport ? t('report.deepAnalyzing') : t('report.genBtn')}
+                  {(isGeneratingReport || parsedData?.report_status === 'processing') ? t('report.deepAnalyzing') : t('report.genBtn')}
                 </span>
                 
-                {isGeneratingReport && (
+                {(isGeneratingReport || parsedData?.report_status === 'processing') && (
                   <div className="absolute bottom-0 left-0 h-0.5 bg-blue-500 animate-[loading_60s_linear_infinite]" style={{ width: '100%' }} />
                 )}
               </button>
               <p className="mt-1.5 text-[10px] text-gray-400 text-center italic">
-                {isGeneratingReport 
+                {(isGeneratingReport || parsedData?.report_status === 'processing')
                   ? t('report.processingHint') 
                   : t('report.deepInsightHint')}
               </p>

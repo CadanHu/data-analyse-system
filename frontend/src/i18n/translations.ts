@@ -67,7 +67,7 @@ export type TranslationKey =
   // Reports & Dashboards
   | 'report.deepInsight' | 'report.generating' | 'report.fullScreen' | 'report.offline' | 'report.deepAnalyzing'
   | 'report.genBtn' | 'report.processingHint' | 'report.deepInsightHint'
-  | 'report.exportPdfFailed' | 'report.success' | 'report.failed' | 'report.regenerateFailed'
+  | 'report.exportPdfFailed' | 'report.success' | 'report.failed' | 'report.regenerateFailed' | 'report.started'
   // Feedback
   | 'feedback.thanks' | 'feedback.failed'
   // Debug Panel
@@ -319,6 +319,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'report.deepInsightHint': '提示：深度看板将为您自动总结业务洞察、推断隐藏趋势并生成全屏报表。',
     'report.exportPdfFailed': 'PDF 导出失败，请重试',
     'report.success': '✨ 深度分析看板已生成成功，内容已永久保存！',
+    'report.started': '🚀 深度分析任务已启动，请在下方观察进度。',
     'report.failed': '看板生成失败，可能由于数据量过大或超时，请重试。',
     'report.regenerateFailed': '重新生成失败',
     
@@ -631,6 +632,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'report.deepInsightHint': 'Hint: Deep dashboard will summarize insights, infer trends, and generate reports.',
     'report.exportPdfFailed': 'PDF export failed, please try again',
     'report.success': '✨ Deep analysis dashboard generated and saved successfully!',
+    'report.started': '🚀 Deep analysis task started. Please watch the progress below.',
     'report.failed': 'Dashboard generation failed due to size or timeout, please retry.',
     'report.regenerateFailed': 'Regeneration failed',
     

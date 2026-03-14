@@ -42,6 +42,33 @@ def get_sql_agent():
         _sql_agent = SQLAgent()
     return _sql_agent
 
+@router.post("/chat/export/pdf")
+async def export_chat_pdf(
+    request: ExportPDFRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """导出单个分析报告为 PDF"""
+    from utils.logger import logger
+    try:
+        report_data = {
+            "title": request.title,
+            "summary": request.summary,
+            "html": request.html
+        }
+        pdf_path = await pdf_service.generate_report_pdf(report_data)
+        if not pdf_path or not os.path.exists(pdf_path):
+            raise HTTPException(status_code=500, detail="生成 PDF 失败")
+        
+        return FileResponse(
+            path=pdf_path,
+            filename=os.path.basename(pdf_path),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={os.path.basename(pdf_path)}"}
+        )
+    except Exception as e:
+        logger.error(f"❌ [PDF Export Endpoint] 导出失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/chat/generate_report")
 async def generate_report(
     request: GenerateReportRequest, 
@@ -129,12 +156,42 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
 
             # 2. 模式分发执行 AI 逻辑
             if request.enable_data_science_agent:
+                import pandas as pd
+                df_to_analyze = request.external_data
+                if not df_to_analyze:
+                    try:
+                        from database.session_db import MessageModel
+                        from sqlalchemy import select
+                        import json
+                        last_data = []
+                        async with session_db.async_session() as session:
+                            res = await session.execute(
+                                select(MessageModel)
+                                .where(MessageModel.session_id == request.session_id)
+                                .where(MessageModel.role == 'assistant')
+                                .order_by(MessageModel.created_at.desc())
+                                .limit(5)
+                            )
+                            for msg in res.scalars():
+                                if msg.data:
+                                    try:
+                                        parsed = json.loads(msg.data)
+                                        if "rows" in parsed and parsed["rows"]:
+                                            last_data = parsed["rows"]
+                                            break
+                                    except: pass
+                        df_to_analyze = pd.DataFrame(last_data)
+                    except Exception as e:
+                        df_to_analyze = pd.DataFrame()
+                elif isinstance(df_to_analyze, list):
+                    df_to_analyze = pd.DataFrame(df_to_analyze)
+
                 from agents.advanced_data_agent import AdvancedDataAgent
                 agent_instance = AdvancedDataAgent()
                 process_iter = agent_instance.process_analysis_flow(
-                    df_input=request.external_data, 
+                    df_input=df_to_analyze, 
                     question=request.question, 
-                    history=request.history,
+                    history=await memory_manager.get_history(request.session_id),
                     language=request.language
                 )
             else:

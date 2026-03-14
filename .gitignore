@@ -74,4 +74,5 @@ __pycache__/
 # 系统文件
 .DS_Store
 .env
-\n# Generated reports\nbackend/outputs/
+# Generated reports
+backend/outputs/

@@ -299,6 +299,17 @@ class SessionDatabase:
             await session.commit()
         return message_id
 
+    async def get_message(self, session_id: str, message_id: str) -> Optional[Dict[str, Any]]:
+        """获取单条消息详情"""
+        async with self.async_session() as session:
+            query = select(MessageModel).where(
+                MessageModel.id == message_id,
+                MessageModel.session_id == session_id
+            )
+            result = await session.execute(query)
+            m = result.scalar_one_or_none()
+            return self._to_dict(m) if m else None
+
     async def get_messages(self, session_id: str, all_branches: bool = False) -> List[Dict[str, Any]]:
         """获取消息列表。默认仅获取当前活跃分支的消息链。"""
         async with self.async_session() as session:
