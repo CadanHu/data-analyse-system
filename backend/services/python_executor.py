@@ -25,15 +25,55 @@ class PythonExecutor:
     BLOCKED_NODES = {ast.Import, ast.ImportFrom, ast.Call}
 
     @staticmethod
+    def _preprocess_code(code: str) -> str:
+        """
+        Preprocess AI-generated Python code:
+        1. Replace smart/curly quotes with standard ASCII quotes
+        2. Strip JS-style // comments outside of string literals
+        """
+        # Step 1: Smart quote normalization
+        code = (code
+            .replace('\u2018', "'").replace('\u2019', "'")
+            .replace('\u201c', '"').replace('\u201d', '"'))
+        # Also replace literal curly-quote chars that may appear
+        for ch_orig, ch_new in [('\u2018', "'"), ('\u2019', "'"),
+                                  ('\u201c', '"'), ('\u201d', '"')]:
+            code = code.replace(ch_orig, ch_new)
+        
+        # Step 2: Strip // comments outside strings line-by-line
+        cleaned = []
+        for line in code.splitlines():
+            in_single = False
+            in_double = False
+            result = []
+            i = 0
+            while i < len(line):
+                ch = line[i]
+                if ch == "'" and not in_double:
+                    in_single = not in_single
+                    result.append(ch)
+                elif ch == '"' and not in_single:
+                    in_double = not in_double
+                    result.append(ch)
+                elif (ch == '/' and i + 1 < len(line) and line[i+1] == '/'
+                      and not in_single and not in_double):
+                    break  # JS-style comment, truncate line here
+                else:
+                    result.append(ch)
+                i += 1
+            cleaned.append(''.join(result).rstrip())
+        return '\n'.join(cleaned)
+
+    @staticmethod
     def _is_safe(code: str) -> bool:
-        """简单的 AST 安全审计 / Simple AST security audit"""
+        """Simple AST security audit"""
         try:
-            # 🚀 预清洗：替换 AI 可能生成的“智能引号”或特殊不可见字符
-            code = code.replace('‘', "'").replace('’', "'").replace('“', '"').replace('”', '"')
+            # Pre-clean: fix smart quotes and JS comments
+            code = PythonExecutor._preprocess_code(code)
             
             tree = ast.parse(code)
             for node in ast.walk(tree):
-                # 拦截 import
+                # Block forbidden imports
                 if isinstance(node, ast.Import):
                     for name in node.names:
                         base_mod = name.name.split('.')[0]
@@ -46,7 +86,7 @@ class PythonExecutor:
                         if base_mod not in ['pandas', 'numpy', 'matplotlib', 'seaborn', 'sklearn', 'scipy', 'statsmodels', 'json', 'datetime']:
                             return False, f"Import from forbidden (禁止从该模块导入): {node.module}"
                 
-                # 拦截 eval, exec, system 等
+                # Block dangerous built-ins
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                     if node.func.id in ['eval', 'exec', 'open', 'getattr', 'setattr', 'delattr']:
                         return False, f"Function call forbidden (禁止调用函数): {node.func.id}"

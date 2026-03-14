@@ -182,7 +182,8 @@ class SessionDatabase:
             result = await session.execute(select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user_id))
             s = result.scalar_one_or_none()
             if s:
-                s.title = title
+                # 🚀 截断保护：防止 AI 生成超长标题导致 MySQL DataError (1406)
+                s.title = (title or "")[:100]
                 s.updated_at = datetime.utcnow()
                 await session.commit()
                 return True

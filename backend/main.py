@@ -124,6 +124,7 @@ app.include_router(database_router.router)
 app.include_router(observability_router.router)
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 
 
 if __name__ == "__main__":

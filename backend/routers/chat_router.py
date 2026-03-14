@@ -225,11 +225,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 if event_type != "done":
                     yield event
                 else:
-                    # 4. 当 AI 完成后，执行持久化
-                    new_title = await agent_instance.generate_ai_title(request.question, provider=request.model_provider, model_name=request.model_name, language=request.language)
-                    await session_db.update_session_title(request.session_id, user_id, new_title)
-                    
-                    # 组合最终数据负载
+                    # 4. 先保存消息（不含 title），再立即发送 done 事件给前端
                     data_payload = assistant_data_obj
                     if event_data.get("can_generate_report"): 
                         data_payload["can_generate_report"] = True
@@ -238,8 +234,8 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                     await session_db.create_message({
                         "id": assistant_message_id, 
                         "session_id": request.session_id, 
-                        "user_id": user_id, # 确保绑定用户
-                        "parent_id": user_message_id, # Assistant 的父级必然是这条提问
+                        "user_id": user_id,
+                        "parent_id": user_message_id,
                         "role": "assistant", 
                         "content": assistant_content, 
                         "sql": assistant_sql,
@@ -248,15 +244,35 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                         "data": json_dumps(data_payload)
                     })
                     
-                    # 发送最终 done 事件给前端
+                    # 🚀 关键修复：立即发送 done 事件，不等待 title 生成
+                    # title 生成可能耗时 20-30s，在 done 之前等待会导致 Docker 网络层超时后
+                    # 触发 GeneratorExit，整个 SSE 流崩溃
                     yield {
                         "event": "done", 
                         "data": {
                             "message_id": assistant_message_id, 
                             "user_message_id": user_message_id, 
-                            "session_title": new_title
+                            "session_title": (request.question or "New Chat")[:50]  # 先用问题本身占位
                         }
                     }
+                    
+                    # 🚀 Title 生成作为后台任务，完全不阻塞 SSE 流
+                    async def _update_title_bg():
+                        try:
+                            new_title = await agent_instance.generate_ai_title(
+                                request.question,
+                                provider=request.model_provider,
+                                model_name=request.model_name,
+                                language=request.language
+                            )
+                            new_title = (new_title or request.question or "New Chat")[:100]
+                            await session_db.update_session_title(request.session_id, user_id, new_title)
+                            print(f"✅ [Title-BG] 标题已更新: {new_title}")
+                        except Exception as te:
+                            print(f"⚠️ [Title-BG] 标题更新失败 (非致命): {te}")
+                    
+                    import asyncio
+                    asyncio.create_task(_update_title_bg())
 
         except Exception as e:
             traceback.print_exc()

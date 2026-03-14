@@ -1,11 +1,13 @@
-import os
+"""
+PDF 报告生成服务 - Playwright 无头浏览器版
+核心逻辑：先让 Chromium 执行 JS 渲染 ECharts，等图表加载完毕后再打印 PDF
+"""
 import asyncio
 import re
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
-from weasyprint import HTML, CSS
-from concurrent.futures import ThreadPoolExecutor
 from utils.logger import logger
 
 # 强制绝对路径
@@ -14,182 +16,145 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 if not OUTPUT_DIR.exists():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+
 class PDFService:
     """
-    离线 PDF 报告生成服务 (回归稳健排版 + 字体兼容版)
+    离线 PDF 报告生成服务 (Playwright 无头浏览器版)
+    使用 Chromium headless 来执行 JS，确保 ECharts 图表能正确渲染进 PDF
     """
-    
-    def __init__(self):
-        self.executor = ThreadPoolExecutor(max_workers=5)
 
-    def _get_document_styles(self) -> str:
-        """专为 A4 数据报告设计的商务排版 (极强兼容性)"""
-        return """
+    def _inject_print_styles(self, html: str) -> str:
+        """
+        在原始 HTML 的 <head> 里注入打印专用样式，
+        不破坏任何原有样式，只做补丁和分页控制。
+        """
+        print_css = """
+        <style id="datapulse-print-patch">
         @page {
             size: A4;
-            margin: 2cm;
-            @bottom-center {
-                content: "DataPulse 智能分析报告 | 第 " counter(page) " 页";
-                font-size: 9pt;
-                color: #888;
+            margin: 1.2cm;
+        }
+        @media print {
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            body { background: #fff !important; }
+            script, button, .no-print { display: none !important; }
+
+            /* 图表容器：给定固定高度，防止 chromium 打印时缩成 0 */
+            div[id^="chart"] {
+                page-break-inside: avoid;
+                min-height: 380px;
             }
+            .section, section {
+                page-break-inside: avoid;
+            }
+            table {
+                page-break-inside: auto;
+            }
+            tr { page-break-inside: avoid; }
         }
-        * { box-sizing: border-box; }
-        body {
-            /* 🚀 字体补丁：增加更多 Linux/Mac/Win 兼容字体，确保中英文显示正常 */
-            font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Heiti SC", "WenQuanYi Zen Hei", "Noto Sans CJK SC", "Source Han Sans CN", sans-serif;
-            line-height: 1.6;
-            color: #333;
-            background: #fff !important;
-            padding: 0;
-            margin: 0;
-        }
-        /* 🚀 强制线性重置：彻底解决内容乱跳和堆叠 */
-        div, section, article, header, footer {
-            display: block !important;
-            width: 100% !important;
-            position: static !important;
-            float: none !important;
-            margin: 15pt 0 !important;
-            height: auto !important;
-            min-height: 0 !important;
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-            transform: none !important;
-        }
-        .cover {
-            text-align: center;
-            padding: 100pt 0;
-            border-bottom: 3pt solid #1a5f7a;
-            page-break-after: always;
-        }
-        .cover h1 { font-size: 32pt; color: #1a5f7a; }
-        
-        .summary-card {
-            background: #f8f9fa;
-            border-left: 5pt solid #1a5f7a;
-            padding: 20pt;
-            margin: 20pt 0;
-            border-radius: 4pt;
-        }
-        h2 { color: #1a5f7a; font-size: 18pt; border-bottom: 1pt solid #eee; padding-bottom: 5pt; }
-        
-        /* 🚀 表格打印美化 */
-        table {
-            width: 100% !important;
-            border-collapse: collapse !important;
-            margin: 20pt 0 !important;
-            page-break-inside: auto;
-        }
-        tr { page-break-inside: avoid; }
-        th, td {
-            border: 1px solid #ccc !important;
-            padding: 10pt 8pt !important;
-            text-align: left !important;
-            font-size: 10.5pt !important;
-        }
-        th { background: #f2f2f2 !important; font-weight: bold; }
-        
-        /* 隐藏无用 Web 元素 */
-        script, style, button, canvas, .no-print, .echarts-container { 
-            display: none !important; 
-        }
+        </style>
         """
 
-    def _extract_core_content(self, html: str) -> str:
-        """保护性抽取：移除可能破坏 PDF 引擎的 JS，但保留 CSS 样式和文本"""
-        if not html: return ""
-        
-        logger.info(f"📄 [PDF] 原始 HTML 长度: {len(html)}")
-        
-        # 1. 移除 script 标签 (JS 不能在 PDF 中运行)
-        html = re.sub(r'<script.*?>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        
-        # 2. 移除 button 等交互元素
-        html = re.sub(r'<button.*?>.*?</button>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        
-        # 3. 移除 head 标签 (我们会提供统一的头)
-        html = re.sub(r'<head.*?>.*?</head>', '', html, flags=re.DOTALL | re.IGNORECASE)
-        
-        # 4. 移除 html/body 标签
-        html = re.sub(r'<\/?(html|body).*?>', '', html, flags=re.IGNORECASE)
-        
-        # 5. 自动补全某些 PDF 引擎喜欢的属性
-        html = html.replace('<table', '<table border="1" cellpadding="5"')
-        
-        logger.info(f"📄 [PDF] 提取后内容长度: {len(html)}")
-        return html.strip()
+        # 如果有 </head>，在其前面插入；如果没有，加到最前面
+        if "</head>" in html:
+            html = html.replace("</head>", f"{print_css}</head>", 1)
+        else:
+            html = print_css + html
+        return html
 
     async def generate_report_pdf(self, report_data: Dict[str, Any]) -> Optional[str]:
-        loop = asyncio.get_event_loop()
-        try:
-            return await loop.run_in_executor(
-                self.executor, 
-                self._render_pdf_sync, 
-                report_data
-            )
-        except Exception as e:
-            logger.error(f"❌ [PDF] 生成失败: {str(e)}")
+        """
+        使用 Playwright 无头 Chromium 渲染 HTML（包含 JS/ECharts），然后打印 PDF。
+        """
+        title = report_data.get("title", "Analysis Report")
+        html_content = report_data.get("html", "")
+
+        if not html_content:
+            logger.error("❌ [PDF] html 内容为空，无法生成报告")
             return None
 
-    def _render_pdf_sync(self, data: Dict[str, Any]) -> str:
-        title = data.get("title", "数据分析报告")
-        summary_raw = data.get("summary", "无摘要记录")
-        
-        # 🚀 摘要内容转义处理：将 \n 转换为 <li> 列表以增强 PDF 可读性
-        summary_html = ""
-        if summary_raw:
-            items = [s.strip() for s in summary_raw.split('\n') if s.strip()]
-            if items:
-                summary_html = "<ul style='margin:0; padding-left:15pt;'>" + "".join([f"<li style='margin-bottom:5pt;'>{i}</li>" for i in items]) + "</ul>"
-            else:
-                summary_html = summary_raw
-        
-        # 提取并重组
-        body_content = self._extract_core_content(data.get("html", ""))
-        
-        full_html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>{self._get_document_styles()}</style>
-        </head>
-        <body>
-            <div class="cover">
-                <h1>{title}</h1>
-                <p>DataPulse AI 商业报告</p>
-                <div style="margin-top: 80pt; font-size: 10pt; color: #999;">
-                    报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-                </div>
-            </div>
-            
-            <div class="summary-card">
-                <h2 style="border:none; margin:0 0 10pt 0;">📄 核心结论 Core Insights</h2>
-                <div style="font-size: 11pt; color: #444;">{summary_html}</div>
-            </div>
-            
-            <div class="main-content">
-                {body_content}
-            </div>
-        </body>
-        </html>
-        """
-        
+        # 注入打印样式
+        html_with_styles = self._inject_print_styles(html_content)
+
+        # 将 HTML 写入临时文件，让 Playwright 通过 file:// 访问（CDN JS 脚本需要网络）
+        # 先试一试直接用 string content 方式
         filename = f"Analytical_Report_{datetime.now().strftime('%Y%j_%H%M%S_%f')}.pdf"
         output_path = OUTPUT_DIR / filename
-        
+
+        logger.info(f"🚀 [PDF-Playwright] 开始无头渲染: {filename}")
         try:
-            logger.info(f"🚀 [PDF] 开始渲染 PDF，总 HTML 长度: {len(full_html)}")
-            HTML(string=full_html).write_pdf(target=str(output_path))
-            logger.info(f"✅ [PDF] 打印版已就绪: {output_path}")
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+
+                # 设置视口宽度为 A4 等效像素（794px @ 96dpi）
+                await page.set_viewport_size({"width": 1200, "height": 900})
+
+                # 使用 set_content 加载 HTML；同时允许网络加载 CDN（ECharts）
+                await page.set_content(html_with_styles, wait_until="domcontentloaded", timeout=30000)
+
+                # 等待 ECharts 渲染完成：检测所有 canvas 都有宽度，最多等 10s
+                try:
+                    await page.wait_for_function(
+                        """() => {
+                            const canvases = document.querySelectorAll('canvas');
+                            if (canvases.length === 0) return true;  // 没有 canvas，直接通过
+                            return Array.from(canvases).every(c => c.offsetWidth > 0);
+                        }""",
+                        timeout=10000
+                    )
+                    logger.info("✅ [PDF-Playwright] ECharts canvas 检测通过，等待额外渲染帧...")
+                    # 额外等待 1.5 秒确保动画帧绘制完毕
+                    await asyncio.sleep(1.5)
+                except Exception:
+                    logger.warning("⚠️ [PDF-Playwright] canvas 等待超时，直接打印（可能图表未完全渲染）")
+                    await asyncio.sleep(2.0)
+
+                # 打印 PDF
+                await page.pdf(
+                    path=str(output_path),
+                    format="A4",
+                    print_background=True,
+                    margin={
+                        "top": "1.2cm",
+                        "bottom": "1.2cm",
+                        "left": "1.2cm",
+                        "right": "1.2cm"
+                    }
+                )
+                await browser.close()
+
+            logger.info(f"✅ [PDF-Playwright] PDF 生成成功: {output_path} ({output_path.stat().st_size // 1024} KB)")
             return str(output_path)
+
         except Exception as e:
             import traceback
-            logger.error(f"❌ [PDF] WeasyPrint 写入失败: {str(e)}")
+            logger.error(f"❌ [PDF-Playwright] 渲染失败: {str(e)}")
             logger.error(traceback.format_exc())
+            # 降级到 WeasyPrint（仅静态内容）
+            logger.warning("⚠️ [PDF] 降级到 WeasyPrint（无 JS 渲染）...")
+            return await self._fallback_weasyprint(html_with_styles, output_path)
+
+    async def _fallback_weasyprint(self, html: str, output_path: Path) -> Optional[str]:
+        """WeasyPrint 降级方案（图表为占位框）"""
+        try:
+            from weasyprint import HTML
+            import concurrent.futures
+
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                await loop.run_in_executor(
+                    executor,
+                    lambda: HTML(string=html).write_pdf(target=str(output_path))
+                )
+            logger.info(f"✅ [PDF-WeasyPrint] 降级 PDF 已生成: {output_path}")
+            return str(output_path)
+        except Exception as e:
+            logger.error(f"❌ [PDF-WeasyPrint] 降级也失败了: {str(e)}")
             return None
+
 
 # 单例
 pdf_service = PDFService()
