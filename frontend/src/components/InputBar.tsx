@@ -36,13 +36,13 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     if (currentSession && sessionId === currentSession.id) {
       console.log('🔄 [InputBar] 正在从会话恢复模式状态:', currentSession.title);
       setThinkingMode(!!currentSession.enable_thinking)
-      setDataScienceMode(!!currentSession.enable_data_science)
+      setDataScienceMode(!!currentSession.enable_data_science_agent)
       setRAGMode(!!currentSession.enable_rag)
     }
   }, [currentSession?.id, sessionId])
 
   // 🚀 辅助函数：同步模式到后端
-  const syncModes = async (updates: { enable_data_science?: boolean, enable_thinking?: boolean, enable_rag?: boolean }) => {
+  const syncModes = async (updates: { enable_data_science_agent?: boolean, enable_thinking?: boolean, enable_rag?: boolean }) => {
     if (!sessionId) return
     try {
       await sessionApi.updateSessionModes(sessionId, updates)
@@ -95,7 +95,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
         enable_rag: isRAGMode, 
         rag_engine: ragEngine,
         parent_id: parentId,
-        enable_data_science: isDataScienceMode,
+        enable_data_science_agent: isDataScienceMode,
         enable_thinking: isThinkingMode
       },
       { 
@@ -499,7 +499,7 @@ const handleStandardUpload = async (file: File) => {
                 if (!isLoading) {
                   const newVal = !isDataScienceMode
                   setDataScienceMode(newVal)
-                  syncModes({ enable_data_science: newVal })
+                  syncModes({ enable_data_science_agent: newVal })
                 }
               }}
               disabled={isLoading}

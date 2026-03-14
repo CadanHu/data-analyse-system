@@ -37,7 +37,7 @@ class ChatRequest(BaseModel):
     parent_id: Optional[str] = None # 用于分支功能：如果用户修改了中间的消息，则带上父消息 ID
     enable_thinking: bool = False
     enable_rag: bool = False
-    enable_data_science: bool = False # 🚀 已同步：与 router 逻辑一致
+    enable_data_science_agent: bool = False # 🚀 模式原名：支持作为 Agent 被调用
     external_data: Optional[List[Dict[str, Any]]] = None
  # 🚀 新增：支持外部 Agent 自带数据
     model_provider: Optional[str] = None # 可选：deepseek, openai, gemini, claude

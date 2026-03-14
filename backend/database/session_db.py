@@ -25,7 +25,7 @@ class SessionModel(Base):
     status = Column(String(20), default='active')
     
     # 🚀 模式持久化字段
-    enable_data_science = Column(Boolean, default=False)
+    enable_data_science_agent = Column(Boolean, default=False)
     enable_thinking = Column(Boolean, default=False)
     enable_rag = Column(Boolean, default=False)
 
@@ -207,8 +207,8 @@ class SessionDatabase:
             )
             s = result.scalar_one_or_none()
             if s:
-                if 'enable_data_science' in modes:
-                    s.enable_data_science = modes['enable_data_science']
+                if 'enable_data_science_agent' in modes:
+                    s.enable_data_science_agent = modes['enable_data_science_agent']
                 if 'enable_thinking' in modes:
                     s.enable_thinking = modes['enable_thinking']
                 if 'enable_rag' in modes:

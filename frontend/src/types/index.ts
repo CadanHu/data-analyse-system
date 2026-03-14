@@ -2,7 +2,7 @@ export interface Session {
   id: string
   title?: string
   database_key?: string
-  enable_data_science?: boolean
+  enable_data_science_agent?: boolean
   enable_thinking?: boolean
   enable_rag?: boolean
   created_at: string

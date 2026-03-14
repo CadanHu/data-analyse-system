@@ -15,10 +15,17 @@ def fix_schema():
         with conn.cursor() as cursor:
             # 检查字段是否存在，不存在则添加
             fields = {
-                "enable_data_science": "BOOLEAN DEFAULT 0",
+                "enable_data_science_agent": "BOOLEAN DEFAULT 0",
                 "enable_thinking": "BOOLEAN DEFAULT 0",
                 "enable_rag": "BOOLEAN DEFAULT 0"
             }
+            
+            # 特殊逻辑：如果存在旧的 enable_data_science，尝试迁移或重命名
+            try:
+                cursor.execute("ALTER TABLE sessions CHANGE COLUMN enable_data_science enable_data_science_agent BOOLEAN DEFAULT 0")
+                print("🔄 成功将 enable_data_science 重命名为 enable_data_science_agent")
+            except:
+                pass
             
             for field, definition in fields.items():
                 try:

@@ -112,7 +112,7 @@ export const sessionApi = {
     api.delete(`/sessions/${id}`).then(res => res.data),
   updateSessionTitle: (id: string, title: string) =>
     api.patch(`/sessions/${id}`, { title }).then(res => res.data),
-  updateSessionModes: (id: string, modes: { enable_data_science?: boolean, enable_thinking?: boolean, enable_rag?: boolean }) =>
+  updateSessionModes: (id: string, modes: { enable_data_science_agent?: boolean, enable_thinking?: boolean, enable_rag?: boolean }) =>
     api.patch(`/sessions/${id}/modes`, modes).then(res => res.data),
   getMessages: (sessionId: string, all: boolean = false) =>
     api.get<Message[]>(`/sessions/${sessionId}/messages`, { params: { all } }).then(res => res.data),

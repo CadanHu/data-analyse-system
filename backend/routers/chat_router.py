@@ -121,7 +121,7 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
             })
 
             # 2. 模式分发执行 AI 逻辑
-            if request.enable_data_science:
+            if request.enable_data_science_agent:
                 from agents.advanced_data_agent import AdvancedDataAgent
                 agent_instance = AdvancedDataAgent()
                 process_iter = agent_instance.process_analysis_flow(

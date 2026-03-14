@@ -16,7 +16,7 @@ class SessionTitleUpdate(BaseModel):
     title: str
 
 class SessionModesUpdate(BaseModel):
-    enable_data_science: Optional[bool] = None
+    enable_data_science_agent: Optional[bool] = None
     enable_thinking: Optional[bool] = None
     enable_rag: Optional[bool] = None
 
