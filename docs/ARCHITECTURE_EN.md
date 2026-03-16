@@ -3,24 +3,31 @@
 ## 1. System Overview
 DataPulse is an AI-driven intelligent data analysis platform featuring a dual-engine architecture for structured data query (SQL) and unstructured document analysis (RAG).
 
-## 2. Core Architecture: Multi-Engine Logic (v3.0)
+## 2. Core Architecture: Physical Isolation (v4.0)
 
-### 2.1 Smart SQL Engine (Text-to-SQL)
-- **Natural Language Processing**: Translates user intent into high-precision SQL queries using DeepSeek R1 reasoning models.
-- **ORM & Adapter Layer**: Built on **SQLAlchemy 2.0 (Async)**, providing a unified interface for MySQL and PostgreSQL.
-- **Dynamic Schema Service**: Automatically extracts database metadata (tables, columns, samples) to provide context for the AI Agent.
-- **Visualization Adaptation**: Dynamically maps SQL results to 15+ types of ECharts visualizations based on AI recommendations.
+### 2.1 Multi-Mode Dispatcher (Physical Isolation)
+The system employs a strict physical isolation pattern for its core processing logic to ensure stability, maintainability, and specialized handling for different AI tasks.
 
-### 2.2 RAG Knowledge Base Engine
-- **Document Processing**: Integrated with **MinerU** and **PyMuPDF** for high-quality PDF, Markdown, and TXT parsing.
-- **Vector Storage**: Uses **ChromaDB** for efficient embedding storage and semantic retrieval.
-- **Contextual Reasoning**: Enhances AI responses by retrieving relevant context from uploaded business documents.
+- **Scientist Mode (`run_scientist_mode`)**: 
+  - **Focus**: Python-based data science, predictive modeling, and advanced visualization.
+  - **Isolation**: Bypasses reasoning capture to focus on code execution and data transformation.
+  - **Persistence**: Captures and stores Base64 images from Matplotlib/Seaborn.
+- **Thinking Mode (`run_thinking_mode`)**: 
+  - **Focus**: Deep reasoning and complex Text-to-SQL generation.
+  - **Isolation**: Mandatory capture and streaming of the model's internal "thought chain" (Reasoning Content).
+- **RAG Mode (`run_rag_mode`)**: 
+  - **Focus**: Knowledge-base retrieval and document-grounded Q&A.
+  - **Integration**: Combines vector search results (ChromaDB) with user questions for context-aware responses.
+- **Depth Mode (`run_depth_mode`)**: 
+  - **Focus**: Multi-step, high-dimensional data modeling.
+  - **Strategy**: Injects specialized deep analysis instructions into the agent's prompt for exhaustive exploration.
+- **Standard Mode (`run_standard_mode`)**: 
+  - **Focus**: General SQL queries and conversational interactions with minimal overhead.
 
-### 2.3 AI Data Scientist Engine (v3.0)
-- **Python Execution Layer**: Features a secure, **AST-audited sandbox** that runs AI-generated Python code for complex data modeling (e.g., trend prediction, correlation analysis).
-- **Visualization Capturing**: Automatically captures **Matplotlib/Seaborn** plots as Base64 images and integrates them into the chat stream.
-- **Async Report Orchestration**: Utilizes **FastAPI BackgroundTasks** for long-running analytics, ensuring a responsive UI with persistent progress tracking.
-- **Standardized Libraries**: Pre-configured environment including `pandas`, `numpy`, `scipy`, `matplotlib`, `seaborn`, and `scikit-learn`.
+### 2.2 Shared Architectural Helpers
+While processors are isolated, shared non-core utilities ensure consistent user experience:
+- **Session Auto-Title Service**: An asynchronous helper (`_handle_session_auto_title`) that automatically generates professional session titles only when the current title is empty, ensuring clean navigation without blocking the main chat flow.
+- **Streamable Service**: A unified `StreamableHTTPService` for managing Server-Sent Events (SSE) across all modes.
 
 ## 3. Technology Stack
 

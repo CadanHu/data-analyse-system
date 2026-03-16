@@ -43,6 +43,8 @@ passlib[bcrypt]
 python-jose[cryptography]
 fpdf2
 weasyprint
+markdown
+playwright
 
 # 测试
 pytest

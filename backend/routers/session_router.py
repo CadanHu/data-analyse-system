@@ -1,12 +1,18 @@
 from fastapi import APIRouter, HTTPException, Depends, Response, status
+from fastapi.responses import FileResponse
 from typing import List, Optional
-from pydantic import BaseModel
 import io
 import os
-from fpdf import FPDF
+import json
+import uuid
+import markdown
+from datetime import datetime
+from pydantic import BaseModel
 
 from database.session_db import session_db
 from routers.auth_router import get_current_user
+from services.pdf_service import pdf_service
+from utils.json_utils import json_dumps
 
 router = APIRouter(prefix="/sessions", tags=["会话管理"])
 
@@ -29,15 +35,88 @@ class BranchActivationRequest(BaseModel):
 class SessionCreate(BaseModel):
     database_key: Optional[str] = "classic_business"
 
-class SessionResponse(BaseModel):
-    id: str
-    title: Optional[str] = None
-    database_key: str = "business"
-    enable_data_science_agent: bool = False
-    enable_thinking: bool = False
-    enable_rag: bool = False
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+# --- 辅助函数：构建全会话 HTML ---
+
+def build_session_html(session_title: str, messages: List[dict]) -> str:
+    """构建精美的会话 HTML 模板"""
+    
+    # 基础样式
+    style = """
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; padding: 40px; }
+        .header { text-align: center; border-bottom: 2px solid #06d6a0; padding-bottom: 20px; margin-bottom: 40px; }
+        .header h1 { color: #050810; margin: 0; font-size: 28px; }
+        .header .meta { color: #666; font-size: 14px; margin-top: 10px; }
+        
+        .message { margin-bottom: 35px; padding: 20px; border-radius: 12px; border: 1px solid #eee; }
+        .user-msg { background-color: #f0fdf5; border-left: 5px solid #06d6a0; }
+        .assistant-msg { background-color: #f8fafc; border-left: 5px solid #3b82f6; }
+        
+        .role { font-weight: bold; margin-bottom: 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+        .user-msg .role { color: #059669; }
+        .assistant-msg .role { color: #2563eb; }
+        
+        .content { font-size: 15px; word-wrap: break-word; }
+        .content img { max-width: 100%; border-radius: 8px; margin-top: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        
+        .thinking { background: #fffbeb; border: 1px solid #fde68a; padding: 15px; border-radius: 8px; font-size: 13px; color: #92400e; font-style: italic; margin-bottom: 15px; }
+        .sql-box { background: #0f172a; color: #f8fafc; padding: 15px; border-radius: 8px; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 13px; margin: 15px 0; overflow-x: auto; }
+        
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 14px; }
+        th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; }
+        th { background-color: #f1f5f9; }
+        
+        footer { text-align: center; margin-top: 60px; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+    </style>
+    """
+    
+    body_content = f"""
+    <div class="header">
+        <h1>{session_title}</h1>
+        <div class="meta">数据脉动 (DataPulse) 智能分析报告 · 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+    </div>
+    """
+    
+    for msg in messages:
+        role_class = "user-msg" if msg['role'] == "user" else "assistant-msg"
+        role_name = "👤 用户提问" if msg['role'] == "user" else "🤖 AI 分析结论"
+        
+        msg_html = f'<div class="message {role_class}">'
+        msg_html += f'<div class="role">{role_name}</div>'
+        
+        # 1. 思考过程 (如果存在)
+        if msg.get('thinking'):
+            msg_html += f'<div class="thinking"><b>🤔 思考过程:</b><br>{msg["thinking"]}</div>'
+        
+        # 2. Markdown 正文渲染
+        # 注意：这里需要处理科学模式下 Base64 图片的情况
+        content_md = msg['content']
+        content_html = markdown.markdown(content_md, extensions=['tables', 'fenced_code'])
+        msg_html += f'<div class="content">{content_html}</div>'
+        
+        # 3. SQL 代码块
+        if msg.get('sql'):
+            msg_html += f'<div class="sql-box"><b>SQL Query:</b><br><pre>{msg["sql"]}</pre></div>'
+            
+        # 4. 科学家模式图表 (Base64)
+        if msg.get('data'):
+            try:
+                data_obj = json.loads(msg['data'])
+                if data_obj.get('plot_image_base64'):
+                    img_data = data_obj['plot_image_base64']
+                    if not img_data.startswith('data:'):
+                        img_data = f"data:image/png;base64,{img_data}"
+                    msg_html += f'<div class="content"><img src="{img_data}" alt="Analysis Chart"></div>'
+            except:
+                pass
+                
+        msg_html += '</div>'
+        body_content += msg_html
+        
+    body_content += f"<footer>© {datetime.now().year} DataPulse - 您的智能数据科学家助理</footer>"
+    
+    return f"<!DOCTYPE html><html><head><meta charset='utf-8'>{style}</head><body>{body_content}</body></html>"
+
 
 # --- API 路由 ---
 
@@ -109,7 +188,6 @@ async def get_messages(session_id: str, all: bool = False, current_user: dict = 
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在或无权限")
     
-    # 注意：session_db.get_messages 需要支持 all 参数
     return await session_db.get_messages(session_id, all_branches=all)
 
 @router.post("/{session_id}/activate_branch")
@@ -131,7 +209,7 @@ async def export_session(
     format: str = "txt", 
     current_user: dict = Depends(get_current_user)
 ):
-    """导出整个会话对话内容"""
+    """导出整个会话对话内容 (V4.0 Playwright 增强版)"""
     user_id = current_user["id"]
     session = await session_db.get_session(session_id, user_id)
     if not session:
@@ -141,10 +219,10 @@ async def export_session(
     if not messages:
         raise HTTPException(status_code=404, detail="会话中没有消息")
     
-    session_title = session.get("title", "未命名会话")
+    session_title = session.get("title") or "未命名分析会话"
     
     if format == "txt":
-        content = f"会话标题: {session_title}\n导出时间: {session.get('updated_at')}\n" + "="*30 + "\n\n"
+        content = f"会话标题: {session_title}\n导出时间: {datetime.now().isoformat()}\n" + "="*30 + "\n\n"
         for msg in messages:
             role = "用户" if msg['role'] == "user" else "助手"
             content += f"[{role}]: {msg['content']}\n"
@@ -158,7 +236,7 @@ async def export_session(
         )
         
     elif format == "md":
-        content = f"# {session_title}\n\n*导出时间: {session.get('updated_at')}*\n\n---\n\n"
+        content = f"# {session_title}\n\n*导出时间: {datetime.now().isoformat()}*\n\n---\n\n"
         for msg in messages:
             role = "### 👤 用户" if msg['role'] == "user" else "### 🤖 助手"
             content += f"{role}\n\n{msg['content']}\n\n"
@@ -174,81 +252,27 @@ async def export_session(
         )
         
     elif format == "pdf":
-        pdf = FPDF()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
-        
-        # 使用绝对路径加载中文字体
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        base_dir = os.path.dirname(current_dir)
-        font_path = os.path.join(base_dir, "static", "fonts", "ZCOOLXiaoWei-Regular.ttf")
-        
-        font_family = 'ZCOOL'
+        from utils.logger import logger
         try:
-            if not os.path.exists(font_path):
-                alt_path = "backend/static/fonts/ZCOOLXiaoWei-Regular.ttf"
-                if os.path.exists(alt_path):
-                    font_path = alt_path
-                else:
-                    raise FileNotFoundError(f"字体文件不存在于 {font_path}")
+            # 1. 构建 HTML
+            html_content = build_session_html(session_title, messages)
             
-            pdf.add_font(font_family, '', font_path)
-            pdf.set_font(font_family, '', 10)
-        except Exception as e:
-            print(f"❌ 字体加载失败: {str(e)}")
-            font_family = 'Helvetica'
-        
-        # 1. 页眉设计
-        pdf.set_fill_color(6, 214, 160) # 翡翠绿
-        pdf.rect(0, 0, 210, 40, 'F')
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font(font_family, '', 20)
-        pdf.set_y(10)
-        pdf.cell(0, 10, "数据脉动 | 智能分析报告", ln=True, align="C")
-        pdf.set_font(font_family, '', 12)
-        pdf.cell(0, 10, f"主题: {session_title}", ln=True, align="C")
-        pdf.set_font(font_family, '', 9)
-        pdf.cell(0, 5, f"导出时间: {session.get('updated_at')}", ln=True, align="C")
-        pdf.ln(20)
-        
-        # 2. 对话流
-        for msg in messages:
-            is_user = msg['role'] == "user"
-            pdf.set_font(font_family, '', 11)
-            pdf.set_text_color(100, 100, 100)
-            role_text = "用户提问" if is_user else "AI 分析结论"
-            pdf.cell(0, 8, f" {role_text}", ln=True)
+            # 2. 调用 Playwright 渲染引擎
+            pdf_path = await pdf_service.generate_report_pdf({
+                "title": session_title,
+                "html": html_content
+            })
             
-            pdf.set_font(font_family, '', 10)
-            pdf.set_text_color(31, 41, 55)
-            clean_content = msg['content'].replace('📊', '').replace('💡', '').replace('🔍', '').replace('🚀', '')
-            
-            if is_user:
-                pdf.set_fill_color(240, 249, 245)
-            else:
-                pdf.set_fill_color(245, 248, 255)
-            
-            pdf.set_x(15)
-            pdf.multi_cell(180, 7, clean_content, border=0, fill=True)
-            
-            if msg.get('sql'):
-                pdf.ln(2)
-                pdf.set_fill_color(249, 250, 251)
-                pdf.set_text_color(59, 130, 246)
-                pdf.set_font(font_family, '', 9) 
-                sql_text = f" [执行 SQL]:\n {msg['sql']}"
-                pdf.set_x(15)
-                pdf.multi_cell(180, 5, sql_text, border=1, fill=True)
-                pdf.set_font(font_family, '', 10)
-                pdf.set_text_color(0, 0, 0)
+            if not pdf_path or not os.path.exists(pdf_path):
+                raise Exception("Playwright 渲染 PDF 失败")
                 
-            pdf.ln(10)
-            
-        pdf_output = bytes(pdf.output())
-        return Response(
-            content=pdf_output,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=analysis_report_{session_id}.pdf"}
-        )
+            return FileResponse(
+                path=pdf_path,
+                filename=f"DataPulse_Session_{session_id}.pdf",
+                media_type="application/pdf"
+            )
+        except Exception as e:
+            logger.error(f"❌ [PDF-Export] 会话导出失败: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"PDF 导出失败: {str(e)}")
     
     raise HTTPException(status_code=400, detail="不支持的导出格式")

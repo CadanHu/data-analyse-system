@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
+import remarkGfm from 'remark-gfm'
 import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import 'katex/dist/katex.min.css'
@@ -474,7 +475,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </button>
               {!thinkingCollapsed && (
                 <div className="mt-3 bg-amber-50 rounded-xl p-4 text-xs text-gray-800 border border-amber-200/60 markdown-body prose prose-sm max-w-none data-[mobile=true]:data-[orientation=landscape]:text-[10px]">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
                     {preprocessContent(message.thinking)}
                   </ReactMarkdown>
                 </div>
@@ -510,7 +511,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             ) : (
               <>
                 <ReactMarkdown 
-                  remarkPlugins={[remarkMath]} 
+                  remarkPlugins={[remarkMath, remarkGfm]} 
                   rehypePlugins={[rehypeKatex, rehypeRaw]}
                   components={{
                     img({ src, alt, ...props }: any) {
@@ -899,7 +900,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               <div className="w-1/2 h-full flex flex-col bg-white">
                 <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.markdown')}</div>
                 <div className="flex-1 overflow-y-auto p-8 markdown-body prose prose-sm max-w-none select-text">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex, rehypeRaw]}>
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex, rehypeRaw]}>
                     {preprocessContent(parsedData?.markdown_full || message.content.split('**解析内容预览:**\n')[1] || message.content)}
                   </ReactMarkdown>
                 </div>

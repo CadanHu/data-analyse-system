@@ -1,5 +1,5 @@
 """
-聊天路由 - 流式 HTTP 响应 (v3.0 异步任务版)
+聊天路由 - 流式 HTTP 响应 (v4.0 物理隔离版)
 """
 import uuid
 import json
@@ -12,10 +12,11 @@ from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse, FileResponse
+from sqlalchemy import select
 
 # 项目内导入
 from models.message import ChatRequest
-from database.session_db import SessionDB, session_db
+from database.session_db import SessionDB, session_db, SessionModel
 from routers.auth_router import get_current_user
 from agents.sql_agent import SQLAgent
 from agents.memory_manager import get_memory_manager
@@ -41,6 +42,478 @@ def get_sql_agent():
     if _sql_agent is None:
         _sql_agent = SQLAgent()
     return _sql_agent
+
+# ==================== 0. 辅助函数 (Helpers) ====================
+
+async def _handle_session_auto_title(session_id: str, user_id: int, question: str, agent_instance, language: str):
+    """
+    [Shared Helper] 异步生成并更新会话标题
+    逻辑：仅当会话标题为空或为默认占位符时，触发 AI 生成新标题。
+    """
+    try:
+        async with session_db.async_session() as session:
+            # 1. 检查当前标题
+            result = await session.execute(
+                select(SessionModel.title).where(SessionModel.id == session_id)
+            )
+            current_title = result.scalar_one_or_none()
+            
+            # 2. 如果标题为空，则由 AI 生成新标题
+            if not current_title or current_title.strip() == "":
+                new_title = await agent_instance.generate_ai_title(question, language=language)
+                if new_title:
+                    await session_db.update_session_title(session_id, user_id, new_title)
+                    print(f"✅ [Auto-Rename] 会话 {session_id[:8]} 已自动重命名: {new_title}")
+    except Exception as e:
+        print(f"⚠️ [Auto-Rename] 自动生成标题失败: {e}")
+
+# ==================== 1. 物理隔离处理器 (Processors) ====================
+
+async def run_scientist_mode(request: ChatRequest, current_user: dict):
+    """
+    科学家模式处理器 (Scientist Processor)
+    规格：执行 Python 数据科学分析，严禁采集思考过程 (Thinking Isolation)
+    """
+    user_id = current_user["id"]
+    memory_manager = get_memory_manager()
+    user_message_id = str(uuid.uuid4())
+    assistant_message_id = str(uuid.uuid4())
+    
+    async def event_generator():
+        yield {"event": "thinking", "data": {"content": "Starting Scientist Engine (正在启动科学家引擎)..."}}
+        
+        assistant_content = ""
+        assistant_sql = "" # 存放代码
+        assistant_chart_cfg = ""
+        assistant_data_obj = {}
+        # 🌟 核心隔离：科学家模式强制不采集 reasoning
+        assistant_reasoning = "" 
+
+        try:
+            # 保存用户消息
+            await session_db.create_message({
+                "id": user_message_id, 
+                "session_id": request.session_id, 
+                "user_id": user_id,
+                "role": "user", 
+                "content": request.question,
+                "parent_id": request.parent_id
+            })
+
+            # 准备数据
+            import pandas as pd
+            df_to_analyze = request.external_data
+            if not df_to_analyze:
+                try:
+                    from database.session_db import MessageModel
+                    from sqlalchemy import select
+                    last_data = []
+                    async with session_db.async_session() as session:
+                        res = await session.execute(
+                            select(MessageModel)
+                            .where(MessageModel.session_id == request.session_id)
+                            .where(MessageModel.role == 'assistant')
+                            .order_by(MessageModel.created_at.desc())
+                            .limit(5)
+                        )
+                        for msg in res.scalars():
+                            if msg.data:
+                                try:
+                                    parsed = json.loads(msg.data)
+                                    if "rows" in parsed and parsed["rows"]:
+                                        last_data = parsed["rows"]
+                                        break
+                                except: pass
+                    df_to_analyze = pd.DataFrame(last_data)
+                except: df_to_analyze = pd.DataFrame()
+            elif isinstance(df_to_analyze, list):
+                df_to_analyze = pd.DataFrame(df_to_analyze)
+
+            from agents.advanced_data_agent import AdvancedDataAgent
+            agent_instance = AdvancedDataAgent()
+            
+            # 执行流
+            async for event in agent_instance.process_analysis_flow(
+                df_input=df_to_analyze, 
+                question=request.question, 
+                history=await memory_manager.get_history(request.session_id),
+                language=request.language
+            ):
+                event_type = event["event"]
+                event_data = event.get("data", {})
+
+                if event_type == "summary": assistant_content += event_data.get("content", "")
+                elif event_type == "chart_ready": assistant_chart_cfg = json_dumps(event_data.get("option", {}))
+                elif event_type == "execution_result": 
+                    assistant_data_obj = event_data
+                    assistant_sql = event_data.get("code", "")
+                
+                # 转发事件 (过滤掉 model_thinking，虽然 Agent 此时不应产出)
+                if event_type not in ["done", "model_thinking"]:
+                    yield event
+                elif event_type == "done":
+                    # 保存 Assistant 消息
+                    data_payload = assistant_data_obj
+                    if event_data.get("can_generate_report"): data_payload["can_generate_report"] = True
+                    
+                    await session_db.create_message({
+                        "id": assistant_message_id, 
+                        "session_id": request.session_id, 
+                        "user_id": user_id,
+                        "parent_id": user_message_id,
+                        "role": "assistant", 
+                        "content": assistant_content, 
+                        "sql": assistant_sql,
+                        "chart_cfg": assistant_chart_cfg, 
+                        "reasoning": "", # 强制为空
+                        "data": json_dumps(data_payload)
+                    })
+                    
+                    yield {
+                        "event": "done", 
+                        "data": {
+                            "message_id": assistant_message_id, 
+                            "user_message_id": user_message_id, 
+                            "session_title": (request.question or "New Analysis")[:50]
+                        }
+                    }
+                    
+                    # 异步更新标题
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+
+        except Exception as e:
+            traceback.print_exc()
+            yield {"event": "error", "data": {"content": f"Scientist Mode Error: {str(e)}"}}
+
+    return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
+
+
+async def run_thinking_mode(request: ChatRequest, current_user: dict):
+    """
+    思考模式处理器 (Thinking Processor)
+    规格：深度推理 SQL 生成，必须完整捕获并存储思维链 (Reasoning Capture)
+    """
+    user_id = current_user["id"]
+    memory_manager = get_memory_manager()
+    user_message_id = str(uuid.uuid4())
+    assistant_message_id = str(uuid.uuid4())
+    agent_instance = get_sql_agent()
+
+    async def event_generator():
+        yield {"event": "thinking", "data": {"content": "Engaging Deep Reasoning (正在开启深度推理)..."}}
+        
+        assistant_content = ""
+        assistant_sql = ""
+        assistant_chart_cfg = ""
+        assistant_reasoning = ""
+        assistant_data_obj = {}
+
+        try:
+            await session_db.create_message({
+                "id": user_message_id, 
+                "session_id": request.session_id, 
+                "user_id": user_id,
+                "role": "user", 
+                "content": request.question,
+                "parent_id": request.parent_id
+            })
+
+            history_str = await memory_manager.get_history_text(request.session_id)
+            
+            async for event in agent_instance.process_question_with_history(
+                request.question, history_str, 
+                enable_thinking=True, # 强制开启
+                provider=request.model_provider,
+                model_name=request.model_name,
+                language=request.language
+            ):
+                event_type = event["event"]
+                event_data = event.get("data", {})
+
+                if event_type == "model_thinking": assistant_reasoning += event_data.get("content", "")
+                elif event_type == "summary": assistant_content += event_data.get("content", "")
+                elif event_type == "sql_generated": assistant_sql = event_data.get("sql", "")
+                elif event_type == "sql_result": assistant_data_obj = event_data
+                elif event_type == "chart_ready": assistant_chart_cfg = json_dumps(event_data.get("option", {}))
+
+                if event_type != "done":
+                    yield event
+                else:
+                    await session_db.create_message({
+                        "id": assistant_message_id, 
+                        "session_id": request.session_id, 
+                        "user_id": user_id,
+                        "parent_id": user_message_id,
+                        "role": "assistant", 
+                        "content": assistant_content, 
+                        "sql": assistant_sql,
+                        "chart_cfg": assistant_chart_cfg, 
+                        "reasoning": assistant_reasoning,
+                        "data": json_dumps(assistant_data_obj)
+                    })
+                    yield {
+                        "event": "done", 
+                        "data": {
+                            "message_id": assistant_message_id, 
+                            "user_message_id": user_message_id,
+                            "session_title": (request.question or "Deep Analysis")[:50]
+                        }
+                    }
+                    
+                    # 异步更新标题
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+        except Exception as e:
+            traceback.print_exc()
+            yield {"event": "error", "data": {"content": f"Thinking Mode Error: {str(e)}"}}
+
+    return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
+
+
+async def run_rag_mode(request: ChatRequest, current_user: dict):
+    """
+    RAG 模式处理器 (RAG Processor)
+    规格：结合向量数据库检索结果进行回答
+    """
+    user_id = current_user["id"]
+    memory_manager = get_memory_manager()
+    user_message_id = str(uuid.uuid4())
+    assistant_message_id = str(uuid.uuid4())
+    agent_instance = get_sql_agent()
+
+    async def event_generator():
+        yield {"event": "thinking", "data": {"content": "Retrieving Context (正在检索相关知识)..."}}
+        
+        # 1. 执行 RAG 检索
+        rag_context = ""
+        try:
+            from services.vector_store import VectorStore
+            vs = VectorStore()
+            history_str = await memory_manager.get_history_text(request.session_id)
+            search_query = await agent_instance.rewrite_query_for_rag(request.question, history_str, language=request.language)
+            search_results = await vs.search(search_query, top_k=8, session_id=request.session_id)
+            if search_results:
+                rag_context = "\n".join([f"- {r['content']}" for r in search_results])
+                yield {"event": "thinking", "data": {"content": f"Found {len(search_results)} related snippets (已检索到 {len(search_results)} 条相关背景)."}}
+        except Exception as re:
+            print(f"⚠️ [RAG] Retrieval failed: {re}")
+
+        assistant_content = ""
+        assistant_reasoning = ""
+
+        try:
+            await session_db.create_message({
+                "id": user_message_id, 
+                "session_id": request.session_id, 
+                "user_id": user_id,
+                "role": "user", 
+                "content": request.question,
+                "parent_id": request.parent_id
+            })
+
+            history_str = await memory_manager.get_history_text(request.session_id)
+            
+            async for event in agent_instance.process_question_with_history(
+                request.question, history_str, 
+                knowledge_context=rag_context, # 注入 RAG 背景
+                enable_thinking=request.enable_thinking,
+                language=request.language
+            ):
+                event_type = event["event"]
+                event_data = event.get("data", {})
+
+                if event_type == "model_thinking": assistant_reasoning += event_data.get("content", "")
+                elif event_type == "summary": assistant_content += event_data.get("content", "")
+
+                if event_type != "done":
+                    yield event
+                else:
+                    await session_db.create_message({
+                        "id": assistant_message_id, 
+                        "session_id": request.session_id, 
+                        "user_id": user_id,
+                        "parent_id": user_message_id,
+                        "role": "assistant", 
+                        "content": assistant_content, 
+                        "reasoning": assistant_reasoning,
+                        "data": json_dumps(event_data)
+                    })
+                    yield {
+                        "event": "done", 
+                        "data": {
+                            "message_id": assistant_message_id, 
+                            "user_message_id": user_message_id,
+                            "session_title": (request.question or "Knowledge Base")[:50]
+                        }
+                    }
+                    
+                    # 异步更新标题
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+        except Exception as e:
+            traceback.print_exc()
+            yield {"event": "error", "data": {"content": f"RAG Mode Error: {str(e)}"}}
+
+    return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
+
+
+async def run_depth_mode(request: ChatRequest, current_user: dict):
+    """
+    深度模式处理器 (Depth Processor)
+    规格：针对复杂任务进行多步分析 (当前通过强化 Prompt 的 SQLAgent 实现，后续可接入 LangGraph)
+    """
+    user_id = current_user["id"]
+    memory_manager = get_memory_manager()
+    user_message_id = str(uuid.uuid4())
+    assistant_message_id = str(uuid.uuid4())
+    agent_instance = get_sql_agent()
+
+    async def event_generator():
+        yield {"event": "thinking", "data": {"content": "Initializing Deep Analysis (正在初始化深度分析逻辑)..."}}
+        
+        assistant_content = ""
+        assistant_sql = ""
+        assistant_reasoning = ""
+        assistant_data_obj = {}
+
+        try:
+            await session_db.create_message({
+                "id": user_message_id, 
+                "session_id": request.session_id, 
+                "user_id": user_id,
+                "role": "user", 
+                "content": request.question,
+                "parent_id": request.parent_id
+            })
+
+            history_str = await memory_manager.get_history_text(request.session_id)
+            
+            # 深度模式：强制使用推理模型并注入深度分析指令
+            async for event in agent_instance.process_question_with_history(
+                f"【深度分析指令】请针对该问题进行多维度建模。用户问题：{request.question}", 
+                history_str, 
+                enable_thinking=True, 
+                language=request.language
+            ):
+                event_type = event["event"]
+                event_data = event.get("data", {})
+
+                if event_type == "model_thinking": assistant_reasoning += event_data.get("content", "")
+                elif event_type == "summary": assistant_content += event_data.get("content", "")
+                elif event_type == "sql_generated": assistant_sql = event_data.get("sql", "")
+                elif event_type == "sql_result": assistant_data_obj = event_data
+
+                if event_type != "done":
+                    yield event
+                else:
+                    await session_db.create_message({
+                        "id": assistant_message_id, 
+                        "session_id": request.session_id, 
+                        "user_id": user_id,
+                        "parent_id": user_message_id,
+                        "role": "assistant", 
+                        "content": assistant_content, 
+                        "sql": assistant_sql,
+                        "reasoning": assistant_reasoning,
+                        "data": json_dumps(assistant_data_obj)
+                    })
+                    yield {
+                        "event": "done", 
+                        "data": {
+                            "message_id": assistant_message_id, 
+                            "user_message_id": user_message_id,
+                            "session_title": (request.question or "Depth Analysis")[:50]
+                        }
+                    }
+                    
+                    # 异步更新标题
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+        except Exception as e:
+            traceback.print_exc()
+            yield {"event": "error", "data": {"content": f"Depth Mode Error: {str(e)}"}}
+
+    return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
+
+async def run_standard_mode(request: ChatRequest, current_user: dict):
+    """
+    标准模式处理器 (Standard Processor)
+    规格：普通 SQL 查询与简单对话
+    """
+    user_id = current_user["id"]
+    memory_manager = get_memory_manager()
+    user_message_id = str(uuid.uuid4())
+    assistant_message_id = str(uuid.uuid4())
+    agent_instance = get_sql_agent()
+
+    async def event_generator():
+        yield {"event": "thinking", "data": {"content": "Starting (正在启动)..."}}
+        
+        assistant_content = ""
+        assistant_sql = ""
+        assistant_chart_cfg = ""
+        assistant_reasoning = ""
+        assistant_data_obj = {}
+
+        try:
+            await session_db.create_message({
+                "id": user_message_id, 
+                "session_id": request.session_id, 
+                "user_id": user_id,
+                "role": "user", 
+                "content": request.question,
+                "parent_id": request.parent_id
+            })
+
+            history_str = await memory_manager.get_history_text(request.session_id)
+            
+            async for event in agent_instance.process_question_with_history(
+                request.question, history_str, 
+                enable_thinking=request.enable_thinking,
+                provider=request.model_provider,
+                model_name=request.model_name,
+                language=request.language
+            ):
+                event_type = event["event"]
+                event_data = event.get("data", {})
+
+                if event_type == "model_thinking": assistant_reasoning += event_data.get("content", "")
+                elif event_type == "summary": assistant_content += event_data.get("content", "")
+                elif event_type == "sql_generated": assistant_sql = event_data.get("sql", "")
+                elif event_type == "sql_result": assistant_data_obj = event_data
+                elif event_type == "chart_ready": assistant_chart_cfg = json_dumps(event_data.get("option", {}))
+
+                if event_type != "done":
+                    yield event
+                else:
+                    await session_db.create_message({
+                        "id": assistant_message_id, 
+                        "session_id": request.session_id, 
+                        "user_id": user_id,
+                        "parent_id": user_message_id,
+                        "role": "assistant", 
+                        "content": assistant_content, 
+                        "sql": assistant_sql,
+                        "chart_cfg": assistant_chart_cfg, 
+                        "reasoning": assistant_reasoning,
+                        "data": json_dumps(assistant_data_obj)
+                    })
+                    yield {
+                        "event": "done", 
+                        "data": {
+                            "message_id": assistant_message_id, 
+                            "user_message_id": user_message_id,
+                            "session_title": (request.question or "New Chat")[:50]
+                        }
+                    }
+                    
+                    # 异步更新标题
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+        except Exception as e:
+            traceback.print_exc()
+            yield {"event": "error", "data": {"content": f"Standard Mode Error: {str(e)}"}}
+
+    return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
+
+
+# ==================== 2. 路由主入口 (Router) ====================
 
 @router.post("/chat/export/pdf")
 async def export_chat_pdf(
@@ -75,25 +548,24 @@ async def generate_report(
     background_tasks: BackgroundTasks, 
     current_user: dict = Depends(get_current_user)
 ):
-    """手动触发生成深度看板报告 / Manually trigger deep dashboard report generation"""
+    """手动触发生成深度看板报告"""
     from services.knowledge_extraction_service import knowledge_extraction_service
     from database.session_db import MessageModel
     from sqlalchemy import select
     
-    print(f"🚀 [Report] 异步分析请求已接收 / Async report request received (ID: {request.message_id})")
+    print(f"🚀 [Report] 异步分析请求已接收 (ID: {request.message_id})")
 
     async with session_db.async_session() as session:
         result = await session.execute(select(MessageModel).where(MessageModel.id == request.message_id))
         msg = result.scalar_one_or_none()
         if msg:
-            # 🚀 核心修复：不能直接设置不存在的列，必须更新 data JSON
             data_obj = {}
             if msg.data:
                 try: data_obj = json.loads(msg.data)
                 except: pass
             
             data_obj["report_status"] = "processing"
-            data_obj["can_generate_report"] = False # 防止重复点击
+            data_obj["can_generate_report"] = False 
             msg.data = json_dumps(data_obj)
             await session.commit()
 
@@ -104,182 +576,21 @@ async def generate_report(
         request.session_id
     )
     
-    return {"status": "processing", "message": "Report generation task started (报告生成任务已启动)"}
+    return {"status": "processing", "message": "Report generation task started"}
 
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_current_user)):
-    user_id = current_user["id"]
-    memory_manager = get_memory_manager()
-    
-    # 🌟 核心修复点 1: 在生成器外部生成固定 ID，防止重试或循环导致 ID 漂移
-    user_message_id = str(uuid.uuid4())
-    assistant_message_id = str(uuid.uuid4())
-    
-    # 🌟 核心修复点 2: 严格确定 parent_id 逻辑
-    # 如果用户是从历史分支提问，使用指定的 parent_id；否则不指定。
-    effective_parent_id = request.parent_id
-
-    # RAG 检索上下文 (可选)
-    rag_context = ""
-    if request.enable_rag:
-        try:
-            from services.vector_store import VectorStore
-            vs = VectorStore()
-            agent = get_sql_agent()
-            history_str = await memory_manager.get_history_text(request.session_id)
-            search_query = await agent.rewrite_query_for_rag(request.question, history_str, provider=request.model_provider, language=request.language)
-            search_results = await vs.search(search_query, top_k=8, session_id=request.session_id)
-            if search_results:
-                rag_context = "\n".join([f"- {r['content']}" for r in search_results])
-        except: pass
-
-    async def event_generator():
-        # 初始状态
-        yield {"event": "thinking", "data": {"content": "Starting AI Engine (正在启动 AI 引擎)..."}}
-
-        assistant_sql = ""
-        assistant_chart_cfg = ""
-        assistant_content = ""
-        assistant_reasoning = ""
-        assistant_data_obj = {}
-
-        try:
-            # 1. 保存用户消息到数据库
-            await session_db.create_message({
-                "id": user_message_id, 
-                "session_id": request.session_id, 
-                "user_id": user_id,
-                "role": "user", 
-                "content": request.question,
-                "parent_id": effective_parent_id
-            })
-
-            # 2. 模式分发执行 AI 逻辑
-            if request.enable_data_science_agent:
-                import pandas as pd
-                df_to_analyze = request.external_data
-                if not df_to_analyze:
-                    try:
-                        from database.session_db import MessageModel
-                        from sqlalchemy import select
-                        import json
-                        last_data = []
-                        async with session_db.async_session() as session:
-                            res = await session.execute(
-                                select(MessageModel)
-                                .where(MessageModel.session_id == request.session_id)
-                                .where(MessageModel.role == 'assistant')
-                                .order_by(MessageModel.created_at.desc())
-                                .limit(5)
-                            )
-                            for msg in res.scalars():
-                                if msg.data:
-                                    try:
-                                        parsed = json.loads(msg.data)
-                                        if "rows" in parsed and parsed["rows"]:
-                                            last_data = parsed["rows"]
-                                            break
-                                    except: pass
-                        df_to_analyze = pd.DataFrame(last_data)
-                    except Exception as e:
-                        df_to_analyze = pd.DataFrame()
-                elif isinstance(df_to_analyze, list):
-                    df_to_analyze = pd.DataFrame(df_to_analyze)
-
-                from agents.advanced_data_agent import AdvancedDataAgent
-                agent_instance = AdvancedDataAgent()
-                process_iter = agent_instance.process_analysis_flow(
-                    df_input=df_to_analyze, 
-                    question=request.question, 
-                    history=await memory_manager.get_history(request.session_id),
-                    language=request.language
-                )
-            else:
-                agent_instance = get_sql_agent()
-                history_str = await memory_manager.get_history_text(request.session_id)
-                process_iter = agent_instance.process_question_with_history(
-                    request.question, history_str, 
-                    knowledge_context=rag_context, 
-                    enable_thinking=request.enable_thinking, 
-                    provider=request.model_provider,
-                    model_name=request.model_name,
-                    language=request.language
-                )
-
-            # 3. 循环吐出 AI 事件
-            async for event in process_iter:
-                event_type = event["event"]
-                event_data = event.get("data", {})
-
-                # 累积状态
-                if event_type == "model_thinking": assistant_reasoning += event_data.get("content", "")
-                elif event_type == "sql_generated": assistant_sql = event_data.get("sql", "")
-                elif event_type == "sql_result": assistant_data_obj = event_data
-                elif event_type == "chart_ready": assistant_chart_cfg = json_dumps(event_data.get("option", {}))
-                elif event_type == "summary": assistant_content += event_data.get("content", "")
-                elif event_type == "summary_ready": assistant_content += event_data.get("content", "")
-                elif event_type == "code_generated": assistant_sql = event_data.get("code", "")
-                elif event_type == "execution_result": assistant_data_obj = event_data
-
-                # 🌟 必须 Yield 转发给前端，否则页面不会更新
-                if event_type != "done":
-                    yield event
-                else:
-                    # 4. 先保存消息（不含 title），再立即发送 done 事件给前端
-                    data_payload = assistant_data_obj
-                    if event_data.get("can_generate_report"): 
-                        data_payload["can_generate_report"] = True
-                    
-                    # 保存 Assistant 消息
-                    await session_db.create_message({
-                        "id": assistant_message_id, 
-                        "session_id": request.session_id, 
-                        "user_id": user_id,
-                        "parent_id": user_message_id,
-                        "role": "assistant", 
-                        "content": assistant_content, 
-                        "sql": assistant_sql,
-                        "chart_cfg": assistant_chart_cfg, 
-                        "reasoning": assistant_reasoning,
-                        "data": json_dumps(data_payload)
-                    })
-                    
-                    # 🚀 关键修复：立即发送 done 事件，不等待 title 生成
-                    # title 生成可能耗时 20-30s，在 done 之前等待会导致 Docker 网络层超时后
-                    # 触发 GeneratorExit，整个 SSE 流崩溃
-                    yield {
-                        "event": "done", 
-                        "data": {
-                            "message_id": assistant_message_id, 
-                            "user_message_id": user_message_id, 
-                            "session_title": (request.question or "New Chat")[:50]  # 先用问题本身占位
-                        }
-                    }
-                    
-                    # 🚀 Title 生成作为后台任务，完全不阻塞 SSE 流
-                    async def _update_title_bg():
-                        try:
-                            new_title = await agent_instance.generate_ai_title(
-                                request.question,
-                                provider=request.model_provider,
-                                model_name=request.model_name,
-                                language=request.language
-                            )
-                            new_title = (new_title or request.question or "New Chat")[:100]
-                            await session_db.update_session_title(request.session_id, user_id, new_title)
-                            print(f"✅ [Title-BG] 标题已更新: {new_title}")
-                        except Exception as te:
-                            print(f"⚠️ [Title-BG] 标题更新失败 (非致命): {te}")
-                    
-                    import asyncio
-                    asyncio.create_task(_update_title_bg())
-
-        except Exception as e:
-            traceback.print_exc()
-            yield {"event": "error", "data": {"content": f"System Internal Error (系统内部错误): {str(e)}"}}
-
-    return StreamingResponse(
-        StreamableHTTPService.generate_stream(event_generator()), 
-        media_type="text/event-stream",
-        headers=StreamableHTTPService.get_response_headers()
-    )
+    """
+    多模式分发入口 (Multi-mode Dispatcher)
+    """
+    # 🌟 核心分发逻辑
+    if request.enable_data_science_agent:
+        return await run_scientist_mode(request, current_user)
+    elif request.enable_depth:
+        return await run_depth_mode(request, current_user)
+    elif request.enable_rag:
+        return await run_rag_mode(request, current_user)
+    elif request.enable_thinking:
+        return await run_thinking_mode(request, current_user)
+    else:
+        return await run_standard_mode(request, current_user)

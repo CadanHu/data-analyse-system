@@ -29,12 +29,6 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   const [showDbSelector, setShowDbSelector] = useState(false)
 
   useEffect(() => {
-    if (listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight
-    }
-  }, [messages, isLoading])
-
-  useEffect(() => {
     loadDatabases()
   }, [])
 

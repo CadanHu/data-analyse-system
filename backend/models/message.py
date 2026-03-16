@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
     enable_thinking: bool = False
     enable_rag: bool = False
     enable_data_science_agent: bool = False # 🚀 模式原名：支持作为 Agent 被调用
+    enable_depth: bool = False # 🚀 新增：深度分析模式
     external_data: Optional[List[Dict[str, Any]]] = None
  # 🚀 新增：支持外部 Agent 自带数据
     model_provider: Optional[str] = None # 可选：deepseek, openai, gemini, claude

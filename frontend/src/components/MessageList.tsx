@@ -27,6 +27,7 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
   }
 
   useEffect(() => {
+    // 🚀 核心修复：仅当用户处于底部时才自动滚动，防止强制跳回底部
     if (scrollRef.current && isAutoScrollEnabled.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }

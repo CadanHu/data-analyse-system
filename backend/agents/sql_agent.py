@@ -512,7 +512,7 @@ class SQLAgent:
             yield {"event": "done", "data": {"summary": summary_content, "reasoning": full_summary_reasoning}}
             return
 
-        # HITL 逻辑
+        # HITL 逻辑：分支 1 - 生成方案
         is_executing_after_plan = (intent == "confirmation")
         if intent == "sql_query" and not is_executing_after_plan:
             plan_prompt_tmpl = get_prompt("PLAN_GENERATION", language)
@@ -522,7 +522,7 @@ class SQLAgent:
                 schema=schema, 
                 history=history_str, 
                 question=question,
-                knowledge_context=knowledge_context # 🚀 这里漏掉了注入 RAG 内容
+                knowledge_context=knowledge_context
             )
             full_plan = ""
             full_reasoning = ""
@@ -537,11 +537,29 @@ class SQLAgent:
             yield {"event": "done", "data": {"summary": full_plan, "reasoning": full_reasoning}}
             return
 
+        # HITL 逻辑：分支 2 - 执行方案 (当用户说“可以”时)
         execution_question = question
-        last_error = ""
         if is_executing_after_plan:
-            execution_question = f"根据你刚才提出的分析方案，请立即生成最终的 SELECT SQL 语句并执行查询。严禁使用 DROP/CREATE 等操作。当前指令：{question}"
+            # 🚀 增强逻辑：从历史中提取“分析方案”
+            plan_context = ""
+            if history_str:
+                # 寻找包含“方案”或“思路”的消息片段
+                msgs = history_str.split("\n\n")
+                for msg in reversed(msgs):
+                    if "方案" in msg or "思路" in msg or "关联逻辑" in msg:
+                        plan_context = msg[:2000] 
+                        break
+            
+            if plan_context:
+                execution_question = (
+                    f"用户已确认执行你刚才提出的分析方案。\n"
+                    f"【确认执行的方案内容】\n{plan_context}\n"
+                    f"请立即根据上述方案生成最终的 SELECT SQL 语句并执行查询。严禁生成闲聊。用户指令：{question}"
+                )
+            else:
+                execution_question = f"根据你刚才提出的分析方案，请立即生成最终的 SELECT SQL 语句并执行查询。严禁使用 DROP/CREATE 等操作。当前指令：{question}"
 
+        last_error = ""
         for attempt in range(MAX_RETRY_COUNT + 1):
             try:
                 # 如果是重试，将错误信息加入上下文

@@ -4,7 +4,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
-import { uploadApi, messageApi, sessionApi } from '@/api'
+import { uploadApi, messageApi, sessionApi, databaseApi } from '@/api'
 
 interface InputBarProps {
   sessionId: string | null
@@ -61,12 +61,37 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [pendingFile, setPendingFile] = useState<File | null>(null)
 
   useEffect(() => {
-    if (pendingMessage && sessionId && !isLoading) {
-      setTimeout(() => {
-        handleSubmit(pendingMessage)
-        setPendingMessage(null)
-      }, 50)
+    const processPending = async () => {
+      if (pendingMessage && !isLoading) {
+        // 🚀 核心修复：如果没选会话，先创建一个
+        if (!sessionId) {
+          console.log('🚀 [InputBar] No session, creating one for pending message...')
+          try {
+            const session = await sessionApi.createSession()
+            // 更新 Store
+            const { sessions, setSessions, setCurrentSession, clearMessages } = useSessionStore.getState()
+            setSessions([session, ...sessions])
+            clearMessages()
+            setCurrentSession(session)
+            // 注意：这里不需要手动 handleSubmit，因为 sessionId 改变后，
+            // 下一次 useEffect (依赖 [pendingMessage, sessionId]) 会触发它
+            if (onMessageSent) onMessageSent()
+          } catch (e) {
+            console.error('Failed to create session for pending message:', e)
+            setPendingMessage(null)
+          }
+          return
+        }
+
+        // 如果已有 sessionId，直接发送
+        console.log('🚀 [InputBar] Session exists, sending pending message...')
+        setTimeout(() => {
+          handleSubmit(pendingMessage)
+          setPendingMessage(null)
+        }, 100)
+      }
     }
+    processPending()
   }, [pendingMessage, sessionId, isLoading])
 
   useEffect(() => {
@@ -83,6 +108,29 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     if (!textToSubmit.trim() || !sessionId || isLoading) return
 
     const question = textToSubmit.trim()
+    
+    // 🚀 核心修复：如果还没选库（比如刚通过 pending 自动创建的会话），自动帮他选第一个
+    if (!currentDb) {
+      console.log('🎯 [InputBar] No DB selected, trying auto-select first one...')
+      try {
+        const { databases } = await databaseApi.getDatabases()
+        if (databases && databases.length > 0) {
+          const firstDb = databases[0].key
+          await databaseApi.switchDatabase(firstDb, sessionId)
+          updateSession(sessionId, { database_key: firstDb })
+          // 重新进入 handleSubmit（递归调用一次，此时 currentDb 还没刷新，但后端已经切换成功）
+          // 或者通过 connect 注入 db 逻辑
+        } else {
+          alert(t('chat.selectDb'))
+          return
+        }
+      } catch (e) {
+        console.error('Auto select DB failed:', e)
+        alert(t('chat.selectDb'))
+        return
+      }
+    }
+
     setInput('')
 
     const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null
