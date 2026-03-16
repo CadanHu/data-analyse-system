@@ -5,6 +5,7 @@ import MessageSkeleton from './MessageSkeleton'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useTranslation } from '../hooks/useTranslation'
+import { Key } from 'lucide-react'
 
 class MessageErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   constructor(props: { children: ReactNode }) {
@@ -37,7 +38,7 @@ interface MessageListProps {
 }
 
 export default function MessageList({ onEditMessage }: MessageListProps) {
-  const { isLoading, thinkingContent, setPendingMessage } = useChatStore()
+  const { isLoading, thinkingContent, setPendingMessage, setShowModelKeyModal } = useChatStore()
   const { messages: storeMessages } = useSessionStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const isAutoScrollEnabled = useRef(true)
@@ -63,6 +64,15 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
         <div className="max-w-2xl w-full text-center space-y-6">
+          {/* 模型 & API Key 配置入口 */}
+          <button
+            onClick={() => setShowModelKeyModal(true)}
+            className="mx-auto flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-emerald-50 to-cyan-50 border border-emerald-200/60 rounded-2xl text-sm text-emerald-700 font-medium hover:from-emerald-100 hover:to-cyan-100 hover:border-emerald-300 transition-all shadow-sm hover:shadow-md active:scale-95"
+          >
+            <Key size={16} className="text-emerald-500" />
+            模型 &amp; API Key 配置
+          </button>
+
           <div className="space-y-4">
             <p className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">{t('chat.tryAsking')}</p>
             <div className="flex flex-wrap justify-center gap-3">

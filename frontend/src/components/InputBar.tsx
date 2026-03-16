@@ -1,10 +1,26 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sparkles } from 'lucide-react' // 🚀 引入新图标
+import { Sparkles, KeyRound } from 'lucide-react'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
 import { uploadApi, messageApi, sessionApi, databaseApi } from '@/api'
+import ModelKeyModal from './ModelKeyModal'
+
+// 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
+const THINKING_SUPPORTED_MODELS = new Set([
+  'deepseek-reasoner',
+  // OpenAI o-series
+  'o3', 'o3-mini', 'o4-mini',
+  // Google
+  'gemini-3.1-pro-preview',
+  // Anthropic
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-opus-4-5',
+  'claude-sonnet-4-5',
+  'claude-3-7-sonnet-20250219',
+])
 
 interface InputBarProps {
   sessionId: string | null
@@ -16,20 +32,27 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [input, setInput] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { 
-    isLoading, 
-    isThinkingMode, 
-    setThinkingMode, 
-    isDataScienceMode, 
-    setDataScienceMode, 
-    pendingMessage, 
-    setPendingMessage, 
-    setIsLoading, 
-    isMobile, 
-    orientation 
+  const {
+    isLoading,
+    isThinkingMode,
+    setThinkingMode,
+    isDataScienceMode,
+    setDataScienceMode,
+    pendingMessage,
+    setPendingMessage,
+    setIsLoading,
+    isMobile,
+    orientation,
+    showModelKeyModal,
+    setShowModelKeyModal,
   } = useChatStore()
   const { messages, addMessage, currentSession, updateSession } = useSessionStore()
   const [isRAGMode, setRAGMode] = useState(false)
+  const [currentModelProvider, setCurrentModelProvider] = useState<string | null>(null)
+  const [currentModelNameLocal, setCurrentModelNameLocal] = useState<string | null>(null)
+
+  // 思考模式是否被当前模型支持
+  const thinkingSupported = !currentModelNameLocal || THINKING_SUPPORTED_MODELS.has(currentModelNameLocal)
 
   // 🚀 核心逻辑：从会话中恢复模式状态
   useEffect(() => {
@@ -38,6 +61,8 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       setThinkingMode(!!currentSession.enable_thinking)
       setDataScienceMode(!!currentSession.enable_data_science_agent)
       setRAGMode(!!currentSession.enable_rag)
+      setCurrentModelProvider(currentSession.model_provider || null)
+      setCurrentModelNameLocal(currentSession.model_name || null)
     }
   }, [currentSession?.id, sessionId])
 
@@ -139,12 +164,14 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     connect(
       sessionId,
       question,
-      { 
-        enable_rag: isRAGMode, 
+      {
+        enable_rag: isRAGMode,
         rag_engine: ragEngine,
         parent_id: parentId,
         enable_data_science_agent: isDataScienceMode,
-        enable_thinking: isThinkingMode
+        enable_thinking: isThinkingMode,
+        model_provider: currentModelProvider || undefined,
+        model_name: currentModelNameLocal || undefined,
       },
       { 
         onMessageSent,
@@ -408,8 +435,37 @@ const handleStandardUpload = async (file: File) => {
 
   const isMobilePortrait = isMobile && orientation === 'portrait'
 
+  const handleModelChange = (provider: string, modelName: string) => {
+    setCurrentModelProvider(provider)
+    setCurrentModelNameLocal(modelName)
+    // 如果切换到不支持思考的模型，自动关闭思考模式
+    if (!THINKING_SUPPORTED_MODELS.has(modelName) && isThinkingMode) {
+      setThinkingMode(false)
+      syncModes({ enable_thinking: false })
+    }
+  }
+
   return (
     <div className="relative data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1">
+      {/* 思考模式不支持警告 */}
+      {isThinkingMode && !thinkingSupported && (
+        <div className="absolute bottom-full left-0 right-0 mb-2 mx-1 px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-700 flex items-center gap-2 shadow-sm z-10">
+          <span>⚠️</span>
+          <span>当前模型 <strong>{currentModelNameLocal}</strong> 不支持思考模式，请切换到 DeepSeek R1 或 Claude 3 系列。</span>
+        </div>
+      )}
+
+      {/* Model Key Modal */}
+      {showModelKeyModal && (
+        <ModelKeyModal
+          sessionId={sessionId}
+          currentProvider={currentModelProvider}
+          currentModelName={currentModelNameLocal}
+          onClose={() => setShowModelKeyModal(false)}
+          onModelChange={handleModelChange}
+        />
+      )}
+
       {showEngineSelect && (
         <div className="absolute bottom-full left-0 mb-2 p-3 bg-white/90 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl z-50 w-64 data-[mobile=true]:data-[orientation=landscape]:w-80 data-[mobile=true]:data-[orientation=landscape]:grid data-[mobile=true]:data-[orientation=landscape]:grid-cols-2 data-[mobile=true]:data-[orientation=landscape]:gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <h3 className="text-sm font-bold text-gray-800 mb-2 data-[mobile=true]:data-[orientation=landscape]:col-span-2">{t('chat.pdfModeTitle')}</h3>
@@ -450,6 +506,19 @@ const handleStandardUpload = async (file: File) => {
             <svg className="w-5 h-5 data-[mobile=true]:data-[orientation=landscape]:w-4 data-[mobile=true]:data-[orientation=landscape]:h-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
+          </button>
+
+          {/* 🔑 模型 & API Key 配置按钮 */}
+          <button
+            onClick={() => setShowModelKeyModal(true)}
+            className={`flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl transition-all border ${
+              currentModelProvider
+                ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                : 'bg-gray-100/50 border-gray-200/50 text-gray-400'
+            }`}
+            title={currentModelProvider ? `模型: ${currentModelNameLocal || currentModelProvider}` : '配置 API Key & 模型'}
+          >
+            <KeyRound size={16} />
           </button>
 
           {/* 🚀 高精度 OCR 模式开关 */}
@@ -541,6 +610,11 @@ const handleStandardUpload = async (file: File) => {
                 e.preventDefault()
                 e.stopPropagation()
                 if (!isLoading) {
+                  if (!isThinkingMode && !thinkingSupported) {
+                    // 提示用户当前模型不支持思考模式
+                    alert(`当前模型 ${currentModelNameLocal} 不支持思考模式。\n请先在「Key」按钮中切换到 DeepSeek R1 或 Claude 3 系列模型。`)
+                    return
+                  }
                   const newVal = !isThinkingMode
                   setThinkingMode(newVal)
                   syncModes({ enable_thinking: newVal })
@@ -550,13 +624,23 @@ const handleStandardUpload = async (file: File) => {
               className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
                 isLoading ? 'opacity-50 cursor-not-allowed' : ''
               } ${
-                isThinkingMode
+                isThinkingMode && thinkingSupported
                   ? 'bg-[#FFD700] text-gray-800 font-medium'
+                  : isThinkingMode && !thinkingSupported
+                  ? 'bg-red-100 text-red-600 border border-red-300'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
-              title={isThinkingMode ? t('chat.thinkingMode') + ' ON' : t('chat.thinkingMode') + ' OFF'}
+              title={
+                !thinkingSupported
+                  ? `${currentModelNameLocal} 不支持思考模式`
+                  : isThinkingMode
+                  ? t('chat.thinkingMode') + ' ON'
+                  : t('chat.thinkingMode') + ' OFF'
+              }
             >
-              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.thinkingMode')}</span>
+              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
+                {!thinkingSupported && currentModelNameLocal ? '⚠️ ' : ''}{t('chat.thinkingMode')}
+              </span>
             </button>
             <button
               onClick={(e) => {

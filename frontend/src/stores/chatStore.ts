@@ -31,6 +31,8 @@ export const useChatStore = create<ChatState & {
   setOrientation: (orientation: 'portrait' | 'landscape') => void
   pendingMessage: string | null
   setPendingMessage: (message: string | null) => void
+  showModelKeyModal: boolean
+  setShowModelKeyModal: (show: boolean) => void
 }>((set, get) => ({
   messages: [],
   isLoading: false,
@@ -49,8 +51,10 @@ export const useChatStore = create<ChatState & {
   isMobile: false,
   orientation: 'portrait',
   pendingMessage: null,
+  showModelKeyModal: false,
 
   setPendingMessage: (message: string | null) => set({ pendingMessage: message }),
+  setShowModelKeyModal: (show: boolean) => set({ showModelKeyModal: show }),
   setFullScreen: (enabled: boolean) => set({ isFullScreen: enabled }),
   setIsMobile: (isMobile: boolean) => set({ isMobile }),
   setOrientation: (orientation: 'portrait' | 'landscape') => set({ orientation }),
