@@ -95,7 +95,14 @@ export default function SessionList({
           });
         } catch (innerError: any) {
           console.error('[Export] Native Error:', innerError);
-          alert(`${t('alert.mobileProcessFailed')}: ${innerError.message || 'Unknown error'}`);
+          const errCode = innerError?.code || ''
+          const errMsg = innerError?.message || JSON.stringify(innerError) || 'Unknown error'
+          // UNIMPLEMENTED means the native plugin pod is missing — prompt rebuild
+          if (errCode === 'UNIMPLEMENTED') {
+            alert(`${t('alert.mobileProcessFailed')}: Native plugin not linked. Please rebuild the iOS app after running "pod install".`)
+          } else {
+            alert(`${t('alert.mobileProcessFailed')}: ${errMsg}`)
+          }
         }
       } else {
         const url = window.URL.createObjectURL(blob)

@@ -406,12 +406,14 @@ const handleStandardUpload = async (file: File) => {
     setPendingFile(null)
   }
 
+  const isMobilePortrait = isMobile && orientation === 'portrait'
+
   return (
     <div className="relative data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1">
       {showEngineSelect && (
         <div className="absolute bottom-full left-0 mb-2 p-3 bg-white/90 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl z-50 w-64 data-[mobile=true]:data-[orientation=landscape]:w-80 data-[mobile=true]:data-[orientation=landscape]:grid data-[mobile=true]:data-[orientation=landscape]:grid-cols-2 data-[mobile=true]:data-[orientation=landscape]:gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <h3 className="text-sm font-bold text-gray-800 mb-2 data-[mobile=true]:data-[orientation=landscape]:col-span-2">{t('chat.pdfModeTitle')}</h3>
-          
+
           <button
             onClick={() => selectEngine('light')}
             className="w-full text-left p-2 rounded-xl hover:bg-green-50 transition-colors border border-transparent hover:border-green-200"
@@ -439,7 +441,7 @@ const handleStandardUpload = async (file: File) => {
       )}
 
       <div className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] data-[mobile=true]:data-[orientation=landscape]:rounded-xl">
-        <div className="flex items-start gap-2 px-4 pt-4 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pt-2">
+        <div className="flex items-center gap-2 px-4 pt-4 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pt-2">
           <button
             onClick={handleFileUpload}
             className="flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
@@ -459,15 +461,15 @@ const handleStandardUpload = async (file: File) => {
               }
             }}
             className={`flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl transition-all border ${
-              useHighPrecision 
-                ? 'bg-purple-500/10 border-purple-500/40 text-purple-600 shadow-[0_0_15px_rgba(168,85,247,0.2)]' 
+              useHighPrecision
+                ? 'bg-purple-500/10 border-purple-500/40 text-purple-600 shadow-[0_0_15px_rgba(168,85,247,0.2)]'
                 : 'bg-gray-100/50 border-gray-200/50 text-gray-400 grayscale'
             }`}
             title={useHighPrecision ? "✨ High Precision OCR ON" : "Enable High Precision OCR"}
           >
             <Sparkles size={18} className={useHighPrecision ? 'animate-pulse' : ''} />
           </button>
-          
+
           <input
             ref={fileInputRef}
             type="file"
@@ -481,11 +483,11 @@ const handleStandardUpload = async (file: File) => {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              !sessionId 
-                ? t('chat.noSession') 
-                : !currentDb 
-                  ? '⚠️ Please select a database in the top right' 
-                  : isKnowledgeMode 
+              !sessionId
+                ? t('chat.noSession')
+                : !currentDb
+                  ? '⚠️ Please select a database in the top right'
+                  : isKnowledgeMode
                     ? t('feature.file.title')
                     : t('chat.placeholder')
             }
@@ -493,13 +495,29 @@ const handleStandardUpload = async (file: File) => {
             className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed data-[mobile=true]:data-[orientation=landscape]:text-xs data-[mobile=true]:data-[orientation=landscape]:leading-tight"
             rows={1}
           />
+
+          {/* 手机竖屏：发送按钮移到输入框右侧 */}
+          {isMobilePortrait && (
+            <button
+              onClick={() => handleSubmit()}
+              disabled={!input.trim() || !sessionId || isLoading || !currentDb}
+              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed shadow-sm transition-all"
+              title={t('chat.send')}
+            >
+              <svg className="w-4 h-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          )}
         </div>
-        <div className="flex items-center justify-between px-4 pb-3 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1 data-[mobile=true]:data-[orientation=landscape]:mt-1">
-          <div className="text-xs text-gray-400 data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
-            {isLoading ? t('common.loading') : 'Enter to ' + t('chat.send')}
-          </div>
-          
-          <div className="flex items-center gap-1.5 ml-auto mr-3">
+        <div className="flex items-center px-4 pb-3 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pb-1 data-[mobile=true]:data-[orientation=landscape]:mt-1">
+          {!isMobilePortrait && (
+            <div className="text-xs text-gray-400 data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
+              {isLoading ? t('common.loading') : 'Enter to ' + t('chat.send')}
+            </div>
+          )}
+
+          <div className={`flex items-center gap-1.5 ${isMobilePortrait ? 'flex-1 justify-around' : 'ml-auto mr-3'}`}>
             <button
               onClick={() => {
                 if (isLoading) return
@@ -587,29 +605,44 @@ const handleStandardUpload = async (file: File) => {
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            {isLoading && (
+          {/* 手机竖屏：停止按钮（仅加载时显示） */}
+          {isMobilePortrait ? (
+            isLoading && (
               <button
                 onClick={disconnect}
-                className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all active:scale-95 border border-red-100"
+                className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all active:scale-95 border border-red-100"
               >
-                <svg className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">Stop</span>
+                <span className="text-xs font-medium">Stop</span>
               </button>
-            )}
-            <button
-              onClick={() => handleSubmit()}
-              disabled={!input.trim() || !sessionId || isLoading || !currentDb}
-              className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
-            >
-              <svg className="w-4.5 h-4.5 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-              <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">{t('chat.send')}</span>
-            </button>
-          </div>
+            )
+          ) : (
+            <div className="flex items-center gap-2">
+              {isLoading && (
+                <button
+                  onClick={disconnect}
+                  className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all active:scale-95 border border-red-100"
+                >
+                  <svg className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">Stop</span>
+                </button>
+              )}
+              <button
+                onClick={() => handleSubmit()}
+                disabled={!input.trim() || !sessionId || isLoading || !currentDb}
+                className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
+              >
+                <svg className="w-4.5 h-4.5 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">{t('chat.send')}</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -384,6 +384,10 @@ export default function RightPanel() {
     
     if (targetType === 'table') return { type: 'table' }
     
+    if (!Array.isArray(currentSqlResult.rows) || !Array.isArray(currentSqlResult.columns)) {
+      return null
+    }
+
     if (targetType === 'card' || (currentSqlResult.rows.length === 1 && currentSqlResult.columns.length === 1)) {
       const col = currentSqlResult.columns[0]
       return {

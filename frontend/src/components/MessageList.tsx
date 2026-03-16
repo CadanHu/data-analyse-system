@@ -14,8 +14,11 @@ class MessageErrorBoundary extends Component<{ children: ReactNode }, { hasError
   static getDerivedStateFromError() {
     return { hasError: true }
   }
-  componentDidCatch(error: any) {
+  componentDidCatch(error: any, info: any) {
     console.error('[MessageErrorBoundary] Message render failed:', error)
+    console.error('[MessageErrorBoundary] Error type:', typeof error, '| constructor:', error?.constructor?.name)
+    console.error('[MessageErrorBoundary] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error || {})))
+    console.error('[MessageErrorBoundary] Component stack:', info?.componentStack)
   }
   render() {
     if (this.state.hasError) {
@@ -59,44 +62,7 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
   if (storeMessages.length === 0 && !isLoading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
-        <div className="max-w-2xl w-full text-center space-y-10">
-          <div className="space-y-4">
-            <div className="w-20 h-20 mx-auto bg-gradient-to-br from-[#BFFFD9] to-[#E0FFFF] rounded-3xl flex items-center justify-center shadow-lg shadow-[#BFFFD9]/30">
-              <svg className="w-10 h-10 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-            <h2 className="text-3xl font-black text-gray-800 tracking-tight">DataPulse {t('welcome.assistantTitle')} v1.7.0</h2>
-            <p className="text-gray-500 font-medium">{t('chat.welcomeMessage')}</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-            <div className="p-5 bg-white/60 backdrop-blur-md rounded-2xl border border-white/50 shadow-sm hover:shadow-md transition-all cursor-default">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-xl">📊</span>
-                <h3 className="font-bold text-gray-700">{t('chat.featureViz')}</h3>
-              </div>
-              <p className="text-xs text-gray-500 leading-relaxed mb-4">{t('chat.featureVizDesc')}</p>
-              <div className="flex flex-wrap gap-2">
-                <span className="px-2.5 py-1 bg-gray-100 rounded-lg text-[10px] text-gray-400 font-bold uppercase">Radar</span>
-                <span className="px-2.5 py-1 bg-gray-100 rounded-lg text-[10px] text-gray-400 font-bold uppercase">Heatmap</span>
-                <span className="px-2.5 py-1 bg-gray-100 rounded-lg text-[10px] text-gray-400 font-bold uppercase">Sankey</span>
-              </div>
-            </div>
-
-            <div className="p-5 bg-white/60 backdrop-blur-md rounded-2xl border border-white/50 shadow-sm hover:shadow-md transition-all cursor-default">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-xl">🧠</span>
-                <h3 className="font-bold text-gray-700">{t('chat.featureThinking')}</h3>
-              </div>
-              <p className="text-xs text-gray-500 leading-relaxed mb-4">{t('chat.featureThinkingDesc')}</p>
-              <div className="flex flex-wrap gap-2">
-                <span className="px-2.5 py-1 bg-gray-100 rounded-lg text-[10px] text-gray-400 font-bold uppercase">DeepSeek R1</span>
-                <span className="px-2.5 py-1 bg-gray-100 rounded-lg text-[10px] text-gray-400 font-bold uppercase">Chain of Thought</span>
-              </div>
-            </div>
-          </div>
-
+        <div className="max-w-2xl w-full text-center space-y-6">
           <div className="space-y-4">
             <p className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">{t('chat.tryAsking')}</p>
             <div className="flex flex-wrap justify-center gap-3">
@@ -104,9 +70,15 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
                 t('chat.example1'),
                 t('chat.example2'),
                 t('chat.example3'),
-                t('chat.example4')
+                t('chat.example4'),
+                t('chat.example5'),
+                t('chat.example6'),
+                t('chat.example7'),
+                t('chat.example8'),
+                t('chat.example9'),
+                t('chat.example10'),
               ].map((query, i) => (
-                <button 
+                <button
                   key={i}
                   onClick={() => setPendingMessage(query)}
                   className="px-5 py-2.5 bg-white/80 rounded-xl text-xs text-gray-600 border border-white hover:border-[#BFFFD9] hover:bg-white transition-all shadow-sm active:scale-95"

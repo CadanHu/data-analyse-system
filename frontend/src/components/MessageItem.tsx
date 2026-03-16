@@ -6,6 +6,15 @@ import remarkGfm from 'remark-gfm'
 import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import 'katex/dist/katex.min.css'
+import { Capacitor } from '@capacitor/core'
+import { Filesystem, Directory } from '@capacitor/filesystem'
+import { Share } from '@capacitor/share'
+
+// Platform isolation: rehypeRaw uses hast-util-from-html-isomorphic which
+// can cause {} errors in Capacitor WKWebView. Disable on native platforms.
+const isNativePlatform = Capacitor.isNativePlatform()
+const rehypePluginsWeb = [rehypeKatex, rehypeRaw]
+const rehypePluginsNative = [rehypeKatex]
 import { 
   Terminal, 
   BarChart3, 
@@ -60,13 +69,37 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
       if (!response.ok) throw new Error('Export failed')
 
       const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `DataPulse_${report.title || 'Report'}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
+      const fileName = `DataPulse_${report.title || 'Report'}.pdf`
+
+      if (isNativePlatform) {
+        // iOS/Android: blob URLs are blocked in WKWebView — write to cache then share
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve((reader.result as string).split(',')[1])
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        })
+        const writeResult = await Filesystem.writeFile({
+          path: fileName,
+          data: base64,
+          directory: Directory.Cache,
+          recursive: true
+        })
+        await Share.share({
+          title: fileName,
+          url: writeResult.uri,
+          dialogTitle: t('session.shareTitle'),
+        })
+      } else {
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+      }
     } catch (err) {
       console.error('PDF export error:', err)
       alert(t('report.exportPdfFailed'))
@@ -114,30 +147,32 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
 
       {isFullScreen && createPortal(
         <div className="fixed inset-0 z-[10001] bg-black flex flex-col animate-in fade-in duration-200">
-          <div className="h-12 flex items-center justify-between px-6 bg-white/5 border-b border-white/10">
-            <div className="flex items-center gap-3">
-              <BarChart3 size={20} className="text-blue-400" />
-              <h3 className="text-white font-bold">{report.title}</h3>
+          <div className="flex items-center justify-between px-4 bg-white/5 border-b border-white/10"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)', paddingBottom: '0.5rem' }}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <BarChart3 size={16} className="text-blue-400 shrink-0" />
+              <h3 className="text-white font-bold text-sm truncate">{report.title}</h3>
             </div>
-            <div className="flex items-center gap-4">
-              <button 
+            <div className="flex items-center gap-2 shrink-0 ml-2">
+              <button
                 onClick={handleExportPDF}
                 disabled={isExporting}
-                className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-sm transition-all active:scale-95 border border-emerald-500/30 disabled:opacity-50"
+                className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-xs whitespace-nowrap transition-all active:scale-95 border border-emerald-500/30 disabled:opacity-50"
               >
-                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                {isExporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
                 {isExporting ? t('report.generating') : t('report.offline')}
               </button>
-              <button 
+              <button
                 onClick={() => setIsFullScreen(false)}
-                className="p-2 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-white/10 rounded-full text-white/60 hover:text-white transition-colors"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
           </div>
-          <iframe 
-            srcDoc={report.html || ''} 
+          <iframe
+            srcDoc={report.html || ''}
             className="flex-1 w-full border-none bg-white"
             title="Dashboard"
           />
@@ -162,6 +197,8 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [feedbackText, setFeedbackText] = useState(message.feedback_text || '')
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+  // Native: in-app image viewer (window.open is blocked in Capacitor WKWebView)
+  const [imageModal, setImageModal] = useState<string | null>(null)
 
   const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
   const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
@@ -170,6 +207,11 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const { t } = useTranslation()
 
   const handleOpenImage = (base64: string) => {
+    // On native (iOS/Android), window.open is blocked — show in-app modal instead
+    if (isNativePlatform) {
+      setImageModal(base64)
+      return
+    }
     try {
       const byteCharacters = atob(base64);
       const byteNumbers = new Array(byteCharacters.length);
@@ -510,9 +552,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </div>
             ) : (
               <>
-                <ReactMarkdown 
-                  remarkPlugins={[remarkMath, remarkGfm]} 
-                  rehypePlugins={[rehypeKatex, rehypeRaw]}
+                <ReactMarkdown
+                  remarkPlugins={[remarkMath, remarkGfm]}
+                  rehypePlugins={isNativePlatform ? rehypePluginsNative : rehypePluginsWeb}
                   components={{
                     img({ src, alt, ...props }: any) {
                       if (parsedData?.is_data_science && (alt?.includes('图表') || !src)) {
@@ -899,7 +941,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               <div className="w-1/2 h-full flex flex-col bg-white">
                 <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.markdown')}</div>
                 <div className="flex-1 overflow-y-auto p-8 markdown-body prose prose-sm max-w-none select-text">
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex, rehypeRaw]}>
+                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={isNativePlatform ? rehypePluginsNative : rehypePluginsWeb}>
                     {preprocessContent(parsedData?.markdown_full || message.content.split('**解析内容预览:**\n')[1] || message.content)}
                   </ReactMarkdown>
                 </div>
@@ -926,6 +968,36 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             </div>
           </div>
         </div>
+      )}
+
+      {/* Native image viewer modal — replaces window.open on iOS/Android */}
+      {imageModal && createPortal(
+        <div
+          className="fixed inset-0 z-[10002] bg-black flex flex-col animate-in fade-in duration-200"
+          onClick={() => setImageModal(null)}
+        >
+          <div
+            className="flex items-center justify-end px-4 shrink-0"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)', paddingBottom: '0.5rem' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setImageModal(null)}
+              className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors active:scale-95"
+            >
+              <X size={22} />
+            </button>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4 overflow-auto">
+            <img
+              src={`data:image/png;base64,${imageModal}`}
+              alt="Data Insight"
+              className="max-w-full max-h-full object-contain rounded-lg"
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   )

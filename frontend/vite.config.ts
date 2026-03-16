@@ -22,16 +22,36 @@ const currentIP = allIPs[0] || 'localhost';
 console.log(`📡 [Vite] 探测到局域网 IP 列表: ${allIPs.join(', ')}`);
 console.log(`📡 [Vite] 默认选择首个 IP: ${currentIP}`);
 
+// Patch iOS-incompatible regex in mdast-util-gfm-autolink-literal.
+// iOS Safari < 16.4 does not support lookbehind assertions (?<=...) or
+// unicode property escapes \p{P}/\p{S} inside RegExp.
+// Remove the lookbehind at build time — capture groups are unchanged
+// so findEmail(_, atext, label, match) still receives the correct groups.
+function patchGfmAutolinkForIOS() {
+  return {
+    name: 'patch-gfm-autolink-ios',
+    transform(code: string, id: string) {
+      if (!id.includes('mdast-util-gfm-autolink-literal')) return null
+      // Original: /(?<=^|\s|\p{P}|\p{S})([-.\w+]+)@([-\w]+(?:\.[-\w]+)+)/gu
+      // Patched:  /([-.\\w+]+)@([-\w]+(?:\.[-\w]+)+)/g  (removes lookbehind)
+      const original = '/(?<=^|\\s|\\p{P}|\\p{S})([-.\\w+]+)@([-\\w]+(?:\\.[-\\w]+)+)/gu'
+      const patched  = '/([-.\\w+]+)@([-\\w]+(?:\\.[-\\w]+)+)/g'
+      if (!code.includes(original)) return null
+      return code.replace(original, patched)
+    }
+  }
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   // 加载现有的环境变量
   const env = loadEnv(mode, process.cwd(), '');
-  
+
   // 如果 .env 文件中没有硬编码 VITE_API_BASE_URL，则自动注入探测到的 IP
   const apiBaseUrl = env.VITE_API_BASE_URL || `http://${currentIP}:8000/api`;
 
   return {
-    plugins: [react()],
+    plugins: [react(), patchGfmAutolinkForIOS()],
     define: {
       // 注入到 window 对象上，这是最安全、兼容性最好的全局注入方案
       'window.__DEV_API_URL__': JSON.stringify(apiBaseUrl)

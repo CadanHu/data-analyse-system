@@ -94,6 +94,7 @@ export type TranslationKey =
   | 'welcome.assistantTitle' | 'chat.welcomeMessage' | 'chat.featureViz' | 'chat.featureVizDesc'
   | 'chat.featureThinking' | 'chat.featureThinkingDesc' | 'chat.tryAsking' | 'chat.selectDb'
   | 'chat.example1' | 'chat.example2' | 'chat.example3' | 'chat.example4'
+  | 'chat.example5' | 'chat.example6' | 'chat.example7' | 'chat.example8' | 'chat.example9' | 'chat.example10'
   // Data Scientist Guide
   | 'guide.scientist.title' | 'guide.scientist.sandbox' | 'guide.scientist.sandboxDesc'
   | 'guide.scientist.charts' | 'guide.scientist.chartsDesc' | 'guide.scientist.reports'
@@ -426,6 +427,12 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.example2': '对比核心产品的多维性能 (雷达图)',
     'chat.example3': '分析用户从首页到下单的转化漏斗',
     'chat.example4': '展示各地区销售密度的热力图',
+    'chat.example5': '按季度汇总各产品线利润率并生成瀑布图',
+    'chat.example6': '找出销售额最高的前10名客户及其购买频次',
+    'chat.example7': '分析库存周转率与缺货率的相关性',
+    'chat.example8': '展示过去12个月的客户留存率趋势',
+    'chat.example9': '对比不同城市的人均消费金额（地理地图）',
+    'chat.example10': '预测下季度各品类的销售额增长趋势',
     // Data Scientist Guide
     'guide.scientist.title': '科学家模式 (Data Scientist Mode)',
     'guide.scientist.sandbox': '安全沙箱',
@@ -776,6 +783,12 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.example2': 'Compare multi-dimensional performance of core products (Radar chart)',
     'chat.example3': 'Analyze user conversion funnel from home page to order',
     'chat.example4': 'Display heatmap of sales density in various regions',
+    'chat.example5': 'Summarize profit margins by product line per quarter (waterfall chart)',
+    'chat.example6': 'Find top 10 customers by revenue and their purchase frequency',
+    'chat.example7': 'Analyze correlation between inventory turnover and stockout rate',
+    'chat.example8': 'Show customer retention rate trends over the past 12 months',
+    'chat.example9': 'Compare per-capita spending across cities (geographic map)',
+    'chat.example10': 'Forecast next quarter\'s sales growth trend by category',
     // Data Scientist Guide
     'guide.scientist.title': 'Data Scientist Mode',
     'guide.scientist.sandbox': 'Secure Sandboxing',

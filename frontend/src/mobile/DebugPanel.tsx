@@ -4,6 +4,7 @@ import { getMobileBaseURL } from './api'
 import axios from 'axios'
 import { X, Wifi, AlertCircle, HelpCircle, Save, RefreshCw, Trash2 } from 'lucide-react'
 import { useTranslation } from '../hooks/useTranslation'
+import { useChatStore } from '../stores/chatStore'
 
 export default function MobileDebugPanel() {
   const [show, setShow] = useState(false)
@@ -11,6 +12,7 @@ export default function MobileDebugPanel() {
   const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'fail'>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const { t } = useTranslation()
+  const { isMobile, orientation } = useChatStore()
 
   if (!Capacitor.isNativePlatform()) return null;
 
@@ -49,8 +51,8 @@ export default function MobileDebugPanel() {
 
   return (
     <>
-      {!show && (
-        <button 
+      {!show && !(isMobile && orientation === 'portrait') && (
+        <button
           onClick={() => setShow(true)}
           className="fixed bottom-24 right-4 z-[9999] w-12 h-12 bg-gray-900 border-2 border-green-500/50 rounded-full flex flex-col items-center justify-center text-green-500 shadow-lg active:scale-95 transition-all"
         >

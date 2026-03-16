@@ -110,10 +110,14 @@ export default function App() {
             if (lastMessage.chart_cfg && lastMessage.data) {
               try {
                 const chartOption = JSON.parse(lastMessage.chart_cfg)
-                const sqlResult = lastMessage.data as unknown as SQLResult
-                setChartOption(chartOption, 'bar')
-                setSqlResult(sqlResult)
-                if (lastMessage.sql) setCurrentSql(lastMessage.sql)
+                const rawData = lastMessage.data
+                // Only set sqlResult if data has the expected SQLResult structure (rows + columns arrays)
+                if (rawData && Array.isArray(rawData.rows) && Array.isArray(rawData.columns)) {
+                  const sqlResult = rawData as unknown as SQLResult
+                  setChartOption(chartOption, 'bar')
+                  setSqlResult(sqlResult)
+                  if (lastMessage.sql) setCurrentSql(lastMessage.sql)
+                }
               } catch (e) {
                 console.error('Failed to parse chart config:', e)
               }
