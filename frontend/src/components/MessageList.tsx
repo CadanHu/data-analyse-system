@@ -1,10 +1,33 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, Component, ReactNode } from 'react'
 import MessageItem from './MessageItem'
 import ThinkingIndicator from './ThinkingIndicator'
 import MessageSkeleton from './MessageSkeleton'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useTranslation } from '../hooks/useTranslation'
+
+class MessageErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+  componentDidCatch(error: any) {
+    console.error('[MessageErrorBoundary] Message render failed:', error)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="px-4 py-2 rounded-xl bg-red-50 border border-red-100 text-xs text-red-400">
+          ⚠️ 此消息渲染失败，请刷新重试
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 interface MessageListProps {
   onEditMessage?: (content: string, parentId?: string) => void
@@ -105,11 +128,12 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
       className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
     >
       {Array.isArray(storeMessages) && storeMessages.map((message) => (
-        <MessageItem 
-          key={message.id} 
-          message={message} 
-          onEditSubmit={onEditMessage}
-        />
+        <MessageErrorBoundary key={message.id}>
+          <MessageItem
+            message={message}
+            onEditSubmit={onEditMessage}
+          />
+        </MessageErrorBoundary>
       ))}
       {isLoading && storeMessages.length === 0 && (
         <MessageSkeleton />

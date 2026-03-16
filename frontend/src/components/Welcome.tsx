@@ -111,7 +111,7 @@ export default function Welcome() {
       </nav>
 
       {/* 主视觉区 */}
-      <main className="relative z-10 min-h-screen flex items-center justify-center px-6 pt-20">
+      <main className="relative z-10 min-h-screen flex items-center justify-center px-6" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 5rem)' }}>
         <div className="max-w-5xl mx-auto text-center">
           <a
             href="https://github.com/CadanHu/data-analyse-system"

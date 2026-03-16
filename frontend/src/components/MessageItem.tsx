@@ -521,8 +521,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                       return <img src={src} alt={alt} {...props} className="max-w-full h-auto rounded-lg shadow-sm my-2" />
                     },
                     code({ node, inline, className, children, ...props }: any) {
+                      const [isExpanded, setIsExpanded] = useState(false)
                       const isInline = inline || !String(children).includes('\n')
-                      
+
                       if (isInline) {
                         return (
                           <code className="bg-gray-200/80 text-pink-600 px-1.5 py-0.5 rounded font-bold text-[0.9em]" {...props}>
@@ -530,11 +531,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                           </code>
                         )
                       }
-                      
+
                       const match = /language-(\w+)/.exec(className || '')
                       const lang = match ? match[1] : 'python'
-                      
-                      const [isExpanded, setIsExpanded] = useState(false)
                       const content = String(children).replace(/\n$/, '')
                       const lineCount = content.split('\n').length
                       const shouldShowToggle = lineCount > 10
