@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from '../hooks/useTranslation'
 import LanguageSwitcher from './LanguageSwitcher'
+import StandardModeGuide from './StandardModeGuide'
+import DataScientistGuide from './DataScientistGuide'
+import DeepModeGuide from './DeepModeGuide'
 
 export default function Welcome() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -110,10 +113,15 @@ export default function Welcome() {
       {/* 主视觉区 */}
       <main className="relative z-10 min-h-screen flex items-center justify-center px-6 pt-20">
         <div className="max-w-5xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-[#06d6a0] font-mono mb-10 opacity-0 animate-[fadeInUp_0.8s_ease-out_forwards]">
-            <span className="w-2 h-2 rounded-full bg-[#06d6a0] animate-pulse" />
-            {t('welcome.version')}
-          </div>
+          <a
+            href="https://github.com/CadanHu/data-analyse-system"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 text-xs text-[#06d6a0] font-mono mb-10 opacity-0 animate-[fadeInUp_0.8s_ease-out_forwards] hover:bg-white/10 hover:border-[#06d6a0]/40 transition-all cursor-pointer"
+          >
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+            GitHub · CadanHu/data-analyse-system
+          </a>
 
           <h1 className="text-5xl md:text-6xl font-black leading-[1.1] mb-8 tracking-tighter opacity-0 animate-[fadeInUp_0.8s_ease-out_0.1s_forwards]">
             {t('welcome.title1')}<span className="text-3xl md:text-4xl text-transparent bg-clip-text bg-gradient-to-r from-[#3b82f6] via-[#06d6a0] to-[#3b82f6] bg-[length:200%_auto] animate-gradient-flow">{t('welcome.title2')}</span>
@@ -130,8 +138,14 @@ export default function Welcome() {
               <div className="absolute inset-0 bg-gradient-to-r from-[#3b82f6] to-[#06d6a0] transition-transform group-hover:scale-110" />
               <span className="relative z-10">{t('welcome.startFree')}</span>
             </button>
-            <button onClick={() => navigate('/learn-more')} className="w-full sm:w-auto px-10 py-5 text-base font-bold text-gray-300 border border-white/10 rounded-2xl hover:bg-white/5 hover:border-white/20 transition-all flex items-center justify-center gap-2 group active:scale-95">
-              {t('welcome.viewArchitecture')}
+            <button 
+              onClick={() => {
+                const element = document.getElementById('guides')
+                element?.scrollIntoView({ behavior: 'smooth' })
+              }} 
+              className="w-full sm:w-auto px-10 py-5 text-base font-bold text-gray-300 border border-white/10 rounded-2xl hover:bg-white/5 hover:border-white/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
+            >
+              了解更多
               <svg className="w-4.5 h-4.5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
             </button>
           </div>
@@ -311,13 +325,38 @@ export default function Welcome() {
         </div>
       </section>
 
+      {/* 模式指南区域 */}
+      <section id="guides" className="relative z-10 py-32 px-6 bg-[#050810]/50 border-t border-white/5 backdrop-blur-3xl">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-black mb-4 text-white">模式指南 (Mode Guide)</h2>
+            <p className="text-gray-400 max-w-xl mx-auto">针对不同业务场景，提供三种独立的分析入口，满足从基础查询到深度研究的所有需求。</p>
+          </div>
+          
+          <div className="space-y-20">
+            <StandardModeGuide />
+            <DataScientistGuide />
+            <DeepModeGuide />
+          </div>
+        </div>
+      </section>
+
       <footer className="relative z-10 py-24 px-6 text-center border-t border-white/5 bg-[#050810]">
         <p className="text-gray-600 text-[10px] font-black tracking-[0.5em] uppercase mb-4">
           DataPulse AI · Intelligence Driven · Privacy First
         </p>
-        <p className="text-gray-500 text-xs font-light">
-          © 2026 DataPulse AI · Core Engine v1.7.0
+        <p className="text-gray-500 text-xs font-light mb-3">
+          © 2026 DataPulse AI. All rights reserved.
         </p>
+        <a
+          href="https://github.com/CadanHu/data-analyse-system"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-gray-600 hover:text-gray-400 transition-colors text-xs"
+        >
+          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+          Open Source on GitHub
+        </a>
       </footer>
 
       {/* 添加关键动画的 Style 标签 */}

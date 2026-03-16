@@ -94,6 +94,21 @@ export type TranslationKey =
   | 'welcome.assistantTitle' | 'chat.welcomeMessage' | 'chat.featureViz' | 'chat.featureVizDesc'
   | 'chat.featureThinking' | 'chat.featureThinkingDesc' | 'chat.tryAsking' | 'chat.selectDb'
   | 'chat.example1' | 'chat.example2' | 'chat.example3' | 'chat.example4'
+  // Data Scientist Guide
+  | 'guide.scientist.title' | 'guide.scientist.sandbox' | 'guide.scientist.sandboxDesc'
+  | 'guide.scientist.charts' | 'guide.scientist.chartsDesc' | 'guide.scientist.reports'
+  | 'guide.scientist.reportsDesc' | 'guide.scientist.quickStart' | 'guide.scientist.step1'
+  | 'guide.scientist.step2' | 'guide.scientist.step3' | 'guide.scientist.more'
+  // Standard Mode Guide
+  | 'guide.standard.title' | 'guide.standard.sql' | 'guide.standard.sqlDesc'
+  | 'guide.standard.viz' | 'guide.standard.vizDesc' | 'guide.standard.multiDb'
+  | 'guide.standard.multiDbDesc' | 'guide.standard.quickStart' | 'guide.standard.step1'
+  | 'guide.standard.step2' | 'guide.standard.step3'
+  // Deep Mode Guide
+  | 'guide.deep.title' | 'guide.deep.mineru' | 'guide.deep.mineruDesc'
+  | 'guide.deep.rag' | 'guide.deep.ragDesc' | 'guide.deep.ocr'
+  | 'guide.deep.ocrDesc' | 'guide.deep.quickStart' | 'guide.deep.step1'
+  | 'guide.deep.step2' | 'guide.deep.step3'
 
 export interface Translation {
   [key: string]: string
@@ -115,7 +130,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'welcome.version': 'V1.7.0 · 进阶多维可视化与 AI 自动适配已就绪',
     'welcome.title1': '对话即',
     'welcome.title2': '洞察',
-    'welcome.description': '基于 DeepSeek R1 深度思考能力，通过自然语言轻松驾驭 MySQL 与 PostgreSQL。15+ 种进阶图表、AI 自动适配展示方案、RAG 知识库增强，让数据决策从未如此简单。',
+    'welcome.description': '采用 v4.0 物理隔离架构，融合 DeepSeek R1 深度推理与 Python 科学计算沙箱。三大分析模式——标准 SQL 对话、数据科学家代码执行、RAG 深度文档解析——覆盖从业务查询到深度研究的全场景需求，15+ 种交互图表让洞察一目了然。',
     'welcome.startFree': '开始免费使用',
     'welcome.viewArchitecture': '查看技术架构',
     'welcome.dashboardTitle': 'DATAPULSE 智能分析中心',
@@ -411,6 +426,43 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.example2': '对比核心产品的多维性能 (雷达图)',
     'chat.example3': '分析用户从首页到下单的转化漏斗',
     'chat.example4': '展示各地区销售密度的热力图',
+    // Data Scientist Guide
+    'guide.scientist.title': '科学家模式 (Data Scientist Mode)',
+    'guide.scientist.sandbox': '安全沙箱',
+    'guide.scientist.sandboxDesc': 'AI 生成的代码在独立的 PythonExecutor 安全沙箱中执行，确保系统安全的同时提供强大的计算能力。',
+    'guide.scientist.charts': '动态图表',
+    'guide.scientist.chartsDesc': '自动捕获 Matplotlib 生成的图像并实时渲染 ECharts 交互式图表，让数据洞察一目了然。',
+    'guide.scientist.reports': '异步报告',
+    'guide.scientist.reportsDesc': '针对复杂的数据处理任务，系统采用 BackgroundTasks 异步生成深度报告，无需长时间等待。',
+    'guide.scientist.quickStart': '快速开始',
+    'guide.scientist.step1': '在侧边栏或对话设置中开启 “科学家模式” 开关。',
+    'guide.scientist.step2': '直接描述您的分析需求，例如：“分析去年第四季度的销售额增长趋势，并绘制柱状图”。',
+    'guide.scientist.step3': 'AI 将自动编写 Python 代码，从数据库提取数据，并在对话框中展示分析结果和图表。',
+    'guide.scientist.more': '了解更多',
+    // Standard Mode Guide
+    'guide.standard.title': '标准模式 (Standard Mode)',
+    'guide.standard.sql': '智能 SQL 生成',
+    'guide.standard.sqlDesc': '基于 DeepSeek-V3 引擎，将自然语言精准转化为 SQL 语句，无需编写任何代码即可查询数据库。',
+    'guide.standard.viz': '多维可视化',
+    'guide.standard.vizDesc': '自动分析查询结果并适配最佳图表方案（折线图、柱状图、饼图等），直观展示数据趋势。',
+    'guide.standard.multiDb': '多数据库支持',
+    'guide.standard.multiDbDesc': '完美兼容 MySQL, PostgreSQL 和 SQLite，支持多源数据统一分析与跨表关联查询。',
+    'guide.standard.quickStart': '快速开始',
+    'guide.standard.step1': '选择需要分析的目标数据库。',
+    'guide.standard.step2': '在输入框中输入您的问题，如：“查询上个月销售额排名前五的城市”。',
+    'guide.standard.step3': '查看自动生成的 SQL、数据表格及可视化分析图表。',
+    // Deep Mode Guide
+    'guide.deep.title': '深度解析模式 (Deep Mode / RAG)',
+    'guide.deep.mineru': 'MinerU 深度提取',
+    'guide.deep.mineruDesc': '集成 MinerU 高精度解析引擎，能够完美还原复杂 PDF 中的表格、公式和布局，实现结构化知识提取。',
+    'guide.deep.rag': 'RAG 知识增强',
+    'guide.deep.ragDesc': '基于上传的文档构建本地知识库，AI 在回答时会优先检索文档内容，确保分析结果符合业务背景。',
+    'guide.deep.ocr': '智能 OCR 识别',
+    'guide.deep.ocrDesc': '支持图片和扫描件的文字识别，即使是手写或低清晰度的文档也能精准转化为可分析的文本数据。',
+    'guide.deep.quickStart': '快速开始',
+    'guide.deep.step1': '点击对话框旁边的 “+” 号按钮上传您的 PDF 或图片文件。',
+    'guide.deep.step2': '在弹出的选项中选择 “深度模式 (Deep)” 或开启 “RAG 模式”。',
+    'guide.deep.step3': '等待系统完成解析后，您可以就文档内容进行深度提问和数据分析。',
   },
   
   en: {
@@ -428,7 +480,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'welcome.version': 'V1.7.0 · Advanced Multi-dimensional Visualization & AI Auto-Adaptation Ready',
     'welcome.title1': 'Conversation is',
     'welcome.title2': 'Insight',
-    'welcome.description': 'Powered by DeepSeek R1 deep thinking capabilities, easily master MySQL and PostgreSQL through natural language. 15+ advanced charts, AI automatic display adaptation, RAG knowledge base enhancement - data decision making has never been simpler.',
+    'welcome.description': 'Built on v4.0 physical-isolation architecture, combining DeepSeek R1 deep reasoning with a secure Python sandbox. Three analysis modes — Standard SQL Chat, Data Scientist Code Execution, and RAG Deep Document Parsing — cover everything from business queries to in-depth research, with 15+ interactive charts for instant insight.',
     'welcome.startFree': 'Start Free',
     'welcome.viewArchitecture': 'View Architecture',
     'welcome.dashboardTitle': 'DATAPULSE INTELLIGENT ANALYTICS HUB',
@@ -724,6 +776,43 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.example2': 'Compare multi-dimensional performance of core products (Radar chart)',
     'chat.example3': 'Analyze user conversion funnel from home page to order',
     'chat.example4': 'Display heatmap of sales density in various regions',
+    // Data Scientist Guide
+    'guide.scientist.title': 'Data Scientist Mode',
+    'guide.scientist.sandbox': 'Secure Sandboxing',
+    'guide.scientist.sandboxDesc': 'AI-generated code is executed in an isolated PythonExecutor sandbox, ensuring system security while providing powerful computing capabilities.',
+    'guide.scientist.charts': 'Dynamic Charts',
+    'guide.scientist.chartsDesc': 'Automatically capture Matplotlib-generated images and render interactive ECharts in real-time for instant insights.',
+    'guide.scientist.reports': 'Async Reporting',
+    'guide.scientist.reportsDesc': 'For complex data processing, the system uses BackgroundTasks to generate deep reports asynchronously without long waits.',
+    'guide.scientist.quickStart': 'Quick Start',
+    'guide.scientist.step1': 'Enable the "Data Scientist Mode" switch in the sidebar or session settings.',
+    'guide.scientist.step2': 'Describe your needs, e.g., "Analyze Q4 sales growth trends and draw a bar chart."',
+    'guide.scientist.step3': 'AI will write Python code, extract data, and display results and charts in the chat.',
+    'guide.scientist.more': 'Learn More',
+    // Standard Mode Guide
+    'guide.standard.title': 'Standard Mode',
+    'guide.standard.sql': 'Smart SQL Generation',
+    'guide.standard.sqlDesc': 'Powered by DeepSeek-V3, accurately converts natural language into SQL queries, no coding required.',
+    'guide.standard.viz': 'Multi-dim Visualization',
+    'guide.standard.vizDesc': 'Automatically adapts best chart schemes (Line, Bar, Pie, etc.) based on results to show trends.',
+    'guide.standard.multiDb': 'Multi-DB Support',
+    'guide.standard.multiDbDesc': 'Fully compatible with MySQL, PostgreSQL, and SQLite for unified analysis and cross-table queries.',
+    'guide.standard.quickStart': 'Quick Start',
+    'guide.standard.step1': 'Select the target database for analysis.',
+    'guide.standard.step2': 'Enter your question, e.g., "Show top 5 cities by sales last month."',
+    'guide.standard.step3': 'View generated SQL, data tables, and interactive visualizations.',
+    // Deep Mode Guide
+    'guide.deep.title': 'Deep Analysis Mode (Deep Mode / RAG)',
+    'guide.deep.mineru': 'MinerU Extraction',
+    'guide.deep.mineruDesc': 'Integrated MinerU high-precision engine, perfectly restoring tables and formulas from complex PDFs for structured knowledge extraction.',
+    'guide.deep.rag': 'RAG Knowledge',
+    'guide.deep.ragDesc': 'Build a local knowledge base from uploaded docs. AI prioritizes document content for answers to ensure business context.',
+    'guide.deep.ocr': 'Intelligent OCR',
+    'guide.deep.ocrDesc': 'Support image and scan recognition, accurately converting handwritten or low-res docs into analyzable text data.',
+    'guide.deep.quickStart': 'Quick Start',
+    'guide.deep.step1': 'Click the "+" button next to the input bar to upload your PDF or image.',
+    'guide.deep.step2': 'Select "Deep Mode" or enable "RAG Mode" from the popup options.',
+    'guide.deep.step3': 'Once parsing is complete, you can ask deep questions and perform data analysis on the document.',
   },
 }
 
