@@ -43,7 +43,7 @@ export default function About() {
               </span>
             </h1>
             <p className="text-xl text-gray-400 leading-relaxed max-w-2xl mx-auto">
-              DeepSeek R1 Powered Full-Scenario Intelligent Data Analytics Engine
+              AI-Powered Full-Scenario Intelligent Data Analytics Engine
             </p>
           </div>
 

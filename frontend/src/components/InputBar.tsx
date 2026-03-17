@@ -460,7 +460,7 @@ const handleStandardUpload = async (file: File) => {
       {isThinkingMode && !thinkingSupported && (
         <div className="absolute bottom-full left-0 right-0 mb-2 mx-1 px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-700 flex items-center gap-2 shadow-sm z-10">
           <span>⚠️</span>
-          <span>当前模型 <strong>{currentModelNameLocal}</strong> 不支持思考模式，请切换到 DeepSeek R1 或 Claude 3 系列。</span>
+          <span>当前模型 <strong>{currentModelNameLocal}</strong> 不支持思考模式，请切换到支持推理的模型。</span>
         </div>
       )}
 
@@ -621,7 +621,7 @@ const handleStandardUpload = async (file: File) => {
                 if (!isLoading) {
                   if (!isThinkingMode && !thinkingSupported) {
                     // 提示用户当前模型不支持思考模式
-                    alert(`当前模型 ${currentModelNameLocal} 不支持思考模式。\n请先在「Key」按钮中切换到 DeepSeek R1 或 Claude 3 系列模型。`)
+                    alert(`当前模型 ${currentModelNameLocal} 不支持思考模式。\n请先在「Key」按钮中切换到支持推理的模型。`)
                     return
                   }
                   const newVal = !isThinkingMode
