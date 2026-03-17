@@ -7,12 +7,13 @@ from langchain_anthropic import ChatAnthropic
 from openai import AsyncOpenAI
 
 from config import (
-    API_KEY, API_BASE_URL, CHAT_MODEL, 
+    API_KEY, API_BASE_URL, CHAT_MODEL,
     OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL,
     GEMINI_API_KEY, GEMINI_MODEL,
     CLAUDE_API_KEY, CLAUDE_MODEL,
     ModelProvider, DEFAULT_PROVIDER
 )
+from services.user_context import get_user_api_key, get_user_base_url
 
 class LLMFactory:
     """
@@ -34,61 +35,99 @@ class LLMFactory:
         获取 LangChain 兼容的 LLM 实例
         """
         provider = provider or DEFAULT_PROVIDER
+
+        # 🔑 优先使用用户在当前请求中设置的 API Key (通过 ContextVar 传入)
+        user_api_key = get_user_api_key(provider)
+        user_base_url = get_user_base_url(provider)
+
+        # 如果用户提供了自定义 Key，不走缓存，每次新建实例
+        if user_api_key:
+            return cls._build_langchain_model(
+                provider, model_name, temperature, streaming,
+                api_key=user_api_key, base_url=user_base_url
+            )
+
         instance_key = f"lc_{provider}_{model_name}_{temperature}_{streaming}"
-        
+
         if instance_key not in cls._instances:
-            print(f"📡 [LLMFactory] 正在初始化 {provider} 模型 (model={model_name})...")
-            try:
-                if provider == ModelProvider.DEEPSEEK:
-                    cls._instances[instance_key] = ChatOpenAI(
-                        model=model_name or CHAT_MODEL,
-                        openai_api_key=API_KEY,
-                        openai_api_base=API_BASE_URL,
-                        temperature=temperature,
-                        streaming=streaming
-                    )
-                elif provider == ModelProvider.OPENAI:
-                    cls._instances[instance_key] = ChatOpenAI(
-                        model=model_name or OPENAI_MODEL,
-                        openai_api_key=OPENAI_API_KEY,
-                        openai_api_base=OPENAI_BASE_URL,
-                        temperature=temperature,
-                        streaming=streaming
-                    )
-                elif provider == ModelProvider.GEMINI:
-                    cls._instances[instance_key] = ChatGoogleGenerativeAI(
-                        model=model_name or GEMINI_MODEL,
-                        google_api_key=GEMINI_API_KEY,
-                        temperature=temperature,
-                        streaming=streaming
-                    )
-                elif provider == ModelProvider.CLAUDE:
-                    cls._instances[instance_key] = ChatAnthropic(
-                        model=model_name or CLAUDE_MODEL,
-                        anthropic_api_key=CLAUDE_API_KEY,
-                        temperature=temperature,
-                        streaming=streaming
-                    )
-                else:
-                    raise ValueError(f"不支持的供应商: {provider}")
-                
-                print(f"✅ [LLMFactory] {provider} 实例创建成功")
-            except Exception as e:
-                print(f"❌ [LLMFactory] 初始化 {provider} 失败: {str(e)}")
-                traceback.print_exc()
-                # 容错：回退到 DeepSeek
-                if provider != ModelProvider.DEEPSEEK:
-                    return cls.get_langchain_model(ModelProvider.DEEPSEEK, temperature=temperature, streaming=streaming)
-                raise e
-        
+            cls._instances[instance_key] = cls._build_langchain_model(
+                provider, model_name, temperature, streaming
+            )
+
         return cls._instances[instance_key]
+
+    @classmethod
+    def _build_langchain_model(
+        cls,
+        provider: str,
+        model_name: str = None,
+        temperature: float = 0.1,
+        streaming: bool = False,
+        api_key: str = None,
+        base_url: str = None,
+    ) -> Any:
+        """实际构建 LangChain 模型实例 (内部方法)"""
+        print(f"📡 [LLMFactory] 正在初始化 {provider} 模型 (model={model_name}, custom_key={bool(api_key)})...")
+        try:
+            if provider == ModelProvider.DEEPSEEK:
+                return ChatOpenAI(
+                    model=model_name or CHAT_MODEL,
+                    openai_api_key=api_key or API_KEY,
+                    openai_api_base=base_url or API_BASE_URL,
+                    temperature=temperature,
+                    streaming=streaming
+                )
+            elif provider == ModelProvider.OPENAI:
+                return ChatOpenAI(
+                    model=model_name or OPENAI_MODEL,
+                    openai_api_key=api_key or OPENAI_API_KEY,
+                    openai_api_base=base_url or OPENAI_BASE_URL,
+                    temperature=temperature,
+                    streaming=streaming
+                )
+            elif provider == ModelProvider.GEMINI:
+                return ChatGoogleGenerativeAI(
+                    model=model_name or GEMINI_MODEL,
+                    google_api_key=api_key or GEMINI_API_KEY,
+                    temperature=temperature,
+                    streaming=streaming
+                )
+            elif provider == ModelProvider.CLAUDE:
+                return ChatAnthropic(
+                    model=model_name or CLAUDE_MODEL,
+                    anthropic_api_key=api_key or CLAUDE_API_KEY,
+                    temperature=temperature,
+                    streaming=streaming
+                )
+            else:
+                raise ValueError(f"不支持的供应商: {provider}")
+        except Exception as e:
+            print(f"❌ [LLMFactory] 初始化 {provider} 失败: {str(e)}")
+            traceback.print_exc()
+            # 容错：回退到 DeepSeek
+            if provider != ModelProvider.DEEPSEEK:
+                return cls.get_langchain_model(ModelProvider.DEEPSEEK, temperature=temperature, streaming=streaming)
+            raise e
 
     @classmethod
     def get_openai_client(cls, provider: str = None) -> AsyncOpenAI:
         """
         获取 AsyncOpenAI 兼容的原生客户端
+        优先使用用户自定义 API Key (通过 ContextVar 传入)
         """
         provider = provider or DEFAULT_PROVIDER
+        user_api_key = get_user_api_key(provider)
+        user_base_url = get_user_base_url(provider)
+
+        # 用户自定义 Key：不走缓存
+        if user_api_key:
+            if provider == ModelProvider.DEEPSEEK:
+                return AsyncOpenAI(api_key=user_api_key, base_url=user_base_url or API_BASE_URL)
+            elif provider == ModelProvider.OPENAI:
+                return AsyncOpenAI(api_key=user_api_key, base_url=user_base_url or OPENAI_BASE_URL)
+            else:
+                raise ValueError(f"供应商 {provider} 不支持原生 OpenAI 客户端调用")
+
         if provider not in cls._openai_clients:
             if provider == ModelProvider.DEEPSEEK:
                 cls._openai_clients[provider] = AsyncOpenAI(
@@ -101,10 +140,8 @@ class LLMFactory:
                     base_url=OPENAI_BASE_URL
                 )
             else:
-                # 其他供应商暂时不支持直接使用 OpenAI 客户端
-                # 如果需要支持，可以根据其 API 协议进行封装
                 raise ValueError(f"供应商 {provider} 不支持原生 OpenAI 客户端调用")
-        
+
         return cls._openai_clients[provider]
 
     @classmethod

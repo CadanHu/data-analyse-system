@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, text, Index, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, text, Index, Boolean, UniqueConstraint
 from sqlalchemy.future import select
 from sqlalchemy import delete as sqlalchemy_delete
 
@@ -29,10 +29,32 @@ class SessionModel(Base):
     enable_thinking = Column(Boolean, default=False)
     enable_rag = Column(Boolean, default=False)
 
+    # 🔑 用户选择的模型供应商 & 模型名称
+    model_provider = Column(String(32), nullable=True)
+    model_name = Column(String(128), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     __table_args__ = (Index('idx_user', 'user_id'),)
+
+class UserApiKeyModel(Base):
+    """用户自定义 API Key 存储表 (每个供应商一条记录)"""
+    __tablename__ = 'user_api_keys'
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    provider = Column(String(32), nullable=False)   # deepseek / openai / gemini / claude
+    api_key = Column(String(512), nullable=False)   # 用户的 API Key
+    base_url = Column(String(255), nullable=True)   # 自定义 Base URL (可选)
+    model_name = Column(String(128), nullable=True) # 该供应商的默认模型名称 (可选)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'provider', name='uq_user_provider'),
+        Index('idx_user_api_keys', 'user_id'),
+    )
+
 
 class MessageModel(Base):
     __tablename__ = 'messages'
@@ -86,11 +108,31 @@ class SessionDatabase:
             conn.close()
 
     async def init_db(self):
-        """初始化表结构"""
+        """初始化表结构 (含自动迁移)"""
         await self._ensure_db_exists()
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        await self._migrate_db()
         print(f"✅ 会话数据库初始化完成: {MYSQL_SESSION_DATABASE}")
+
+    async def _migrate_db(self):
+        """自动迁移：为已存在的表补充新列 (幂等，重复执行安全)"""
+        migrations = [
+            "ALTER TABLE sessions ADD COLUMN model_provider VARCHAR(32) NULL",
+            "ALTER TABLE sessions ADD COLUMN model_name VARCHAR(128) NULL",
+        ]
+        async with self.engine.begin() as conn:
+            for sql in migrations:
+                try:
+                    await conn.execute(text(sql))
+                    print(f"✅ [Migration] 执行: {sql}")
+                except Exception as e:
+                    err_str = str(e)
+                    # MySQL 1060 = Duplicate column name，忽略即可
+                    if "1060" in err_str or "Duplicate column" in err_str:
+                        pass
+                    else:
+                        print(f"⚠️ [Migration] 跳过异常: {e}")
 
     async def update_message_feedback(self, message_id: str, feedback: int, feedback_text: str = None) -> bool:
         """更新消息反馈"""
@@ -200,8 +242,8 @@ class SessionDatabase:
                 return True
             return False
 
-    async def update_session_modes(self, session_id: str, user_id: int, modes: Dict[str, bool]) -> bool:
-        """更新会话模式 (科学家、思考、知识库)"""
+    async def update_session_modes(self, session_id: str, user_id: int, modes: Dict[str, Any]) -> bool:
+        """更新会话模式 (科学家、思考、知识库) 及模型选择"""
         async with self.async_session() as session:
             result = await session.execute(
                 select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user_id)
@@ -214,10 +256,88 @@ class SessionDatabase:
                     s.enable_thinking = modes['enable_thinking']
                 if 'enable_rag' in modes:
                     s.enable_rag = modes['enable_rag']
+                if 'model_provider' in modes:
+                    s.model_provider = modes['model_provider']
+                if 'model_name' in modes:
+                    s.model_name = modes['model_name']
                 s.updated_at = datetime.utcnow()
                 await session.commit()
                 return True
             return False
+
+    # ==================== API Key CRUD ====================
+
+    async def set_api_key(self, user_id: int, provider: str, api_key: str, base_url: str = None, model_name: str = None) -> bool:
+        """新增或更新用户的 API Key (upsert)"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserApiKeyModel).where(
+                    UserApiKeyModel.user_id == user_id,
+                    UserApiKeyModel.provider == provider
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                existing.api_key = api_key
+                existing.base_url = base_url
+                if model_name:
+                    existing.model_name = model_name
+                existing.updated_at = datetime.utcnow()
+            else:
+                new_key = UserApiKeyModel(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    provider=provider,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model_name=model_name,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                session.add(new_key)
+            await session.commit()
+            return True
+
+    async def get_api_key(self, user_id: int, provider: str) -> Optional[Dict[str, Any]]:
+        """获取用户某个供应商的 API Key"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserApiKeyModel).where(
+                    UserApiKeyModel.user_id == user_id,
+                    UserApiKeyModel.provider == provider
+                )
+            )
+            k = result.scalar_one_or_none()
+            return self._to_dict(k) if k else None
+
+    async def get_all_api_keys(self, user_id: int) -> List[Dict[str, Any]]:
+        """获取用户所有的 API Key"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserApiKeyModel).where(UserApiKeyModel.user_id == user_id)
+            )
+            keys = result.scalars().all()
+            return [self._to_dict(k) for k in keys]
+
+    async def delete_api_key(self, user_id: int, provider: str) -> bool:
+        """删除用户某个供应商的 API Key"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserApiKeyModel).where(
+                    UserApiKeyModel.user_id == user_id,
+                    UserApiKeyModel.provider == provider
+                )
+            )
+            if not result.scalar_one_or_none():
+                return False
+            await session.execute(
+                sqlalchemy_delete(UserApiKeyModel).where(
+                    UserApiKeyModel.user_id == user_id,
+                    UserApiKeyModel.provider == provider
+                )
+            )
+            await session.commit()
+            return True
 
     async def update_session_updated_at(self, session_id: str) -> bool:
         async with self.async_session() as session:

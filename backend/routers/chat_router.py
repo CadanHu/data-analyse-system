@@ -22,6 +22,7 @@ from agents.sql_agent import SQLAgent
 from agents.memory_manager import get_memory_manager
 from services.stream_service import StreamableHTTPService
 from services.pdf_service import pdf_service
+from services.user_context import set_user_api_keys
 from utils.json_utils import json_dumps
 
 class ExportPDFRequest(BaseModel):
@@ -165,7 +166,7 @@ async def run_scientist_mode(request: ChatRequest, current_user: dict):
                         "content": assistant_content, 
                         "sql": assistant_sql,
                         "chart_cfg": assistant_chart_cfg, 
-                        "reasoning": "", # 强制为空
+                        "thinking": "", # 🌟 科学家模式强制隔离：不采集思考过程
                         "data": json_dumps(data_payload)
                     })
                     
@@ -201,7 +202,7 @@ async def run_thinking_mode(request: ChatRequest, current_user: dict):
 
     async def event_generator():
         yield {"event": "thinking", "data": {"content": "Engaging Deep Reasoning (正在开启深度推理)..."}}
-        
+
         assistant_content = ""
         assistant_sql = ""
         assistant_chart_cfg = ""
@@ -210,13 +211,14 @@ async def run_thinking_mode(request: ChatRequest, current_user: dict):
 
         try:
             await session_db.create_message({
-                "id": user_message_id, 
-                "session_id": request.session_id, 
+                "id": user_message_id,
+                "session_id": request.session_id,
                 "user_id": user_id,
-                "role": "user", 
+                "role": "user",
                 "content": request.question,
                 "parent_id": request.parent_id
             })
+            print(f"💾 [DB] 用户消息已存储 → messages.id={user_message_id[:8]}，session={request.session_id[:8]}")
 
             history_str = await memory_manager.get_history_text(request.session_id)
             
@@ -240,26 +242,28 @@ async def run_thinking_mode(request: ChatRequest, current_user: dict):
                     yield event
                 else:
                     await session_db.create_message({
-                        "id": assistant_message_id, 
-                        "session_id": request.session_id, 
+                        "id": assistant_message_id,
+                        "session_id": request.session_id,
                         "user_id": user_id,
                         "parent_id": user_message_id,
-                        "role": "assistant", 
-                        "content": assistant_content, 
+                        "role": "assistant",
+                        "content": assistant_content,
                         "sql": assistant_sql,
-                        "chart_cfg": assistant_chart_cfg, 
-                        "reasoning": assistant_reasoning,
+                        "chart_cfg": assistant_chart_cfg,
+                        "thinking": assistant_reasoning,
                         "data": json_dumps(assistant_data_obj)
                     })
+                    print(f"💾 [DB] 用户消息已存储 → messages.id={user_message_id[:8]}")
+                    print(f"💾 [DB] 助手消息已存储 → messages.id={assistant_message_id[:8]}，thinking={len(assistant_reasoning)}字，content={len(assistant_content)}字")
                     yield {
-                        "event": "done", 
+                        "event": "done",
                         "data": {
-                            "message_id": assistant_message_id, 
+                            "message_id": assistant_message_id,
                             "user_message_id": user_message_id,
                             "session_title": (request.question or "Deep Analysis")[:50]
                         }
                     }
-                    
+
                     # 异步更新标题
                     asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
         except Exception as e:
@@ -328,13 +332,13 @@ async def run_rag_mode(request: ChatRequest, current_user: dict):
                     yield event
                 else:
                     await session_db.create_message({
-                        "id": assistant_message_id, 
-                        "session_id": request.session_id, 
+                        "id": assistant_message_id,
+                        "session_id": request.session_id,
                         "user_id": user_id,
                         "parent_id": user_message_id,
-                        "role": "assistant", 
-                        "content": assistant_content, 
-                        "reasoning": assistant_reasoning,
+                        "role": "assistant",
+                        "content": assistant_content,
+                        "thinking": assistant_reasoning,
                         "data": json_dumps(event_data)
                     })
                     yield {
@@ -405,20 +409,20 @@ async def run_depth_mode(request: ChatRequest, current_user: dict):
                     yield event
                 else:
                     await session_db.create_message({
-                        "id": assistant_message_id, 
-                        "session_id": request.session_id, 
+                        "id": assistant_message_id,
+                        "session_id": request.session_id,
                         "user_id": user_id,
                         "parent_id": user_message_id,
-                        "role": "assistant", 
-                        "content": assistant_content, 
+                        "role": "assistant",
+                        "content": assistant_content,
                         "sql": assistant_sql,
-                        "reasoning": assistant_reasoning,
+                        "thinking": assistant_reasoning,
                         "data": json_dumps(assistant_data_obj)
                     })
                     yield {
-                        "event": "done", 
+                        "event": "done",
                         "data": {
-                            "message_id": assistant_message_id, 
+                            "message_id": assistant_message_id,
                             "user_message_id": user_message_id,
                             "session_title": (request.question or "Depth Analysis")[:50]
                         }
@@ -454,18 +458,19 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
 
         try:
             await session_db.create_message({
-                "id": user_message_id, 
-                "session_id": request.session_id, 
+                "id": user_message_id,
+                "session_id": request.session_id,
                 "user_id": user_id,
-                "role": "user", 
+                "role": "user",
                 "content": request.question,
                 "parent_id": request.parent_id
             })
+            print(f"💾 [DB] 用户消息已存储 → messages.id={user_message_id[:8]}，session={request.session_id[:8]}")
 
             history_str = await memory_manager.get_history_text(request.session_id)
-            
+
             async for event in agent_instance.process_question_with_history(
-                request.question, history_str, 
+                request.question, history_str,
                 enable_thinking=request.enable_thinking,
                 provider=request.model_provider,
                 model_name=request.model_name,
@@ -484,26 +489,28 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
                     yield event
                 else:
                     await session_db.create_message({
-                        "id": assistant_message_id, 
-                        "session_id": request.session_id, 
+                        "id": assistant_message_id,
+                        "session_id": request.session_id,
                         "user_id": user_id,
                         "parent_id": user_message_id,
-                        "role": "assistant", 
-                        "content": assistant_content, 
+                        "role": "assistant",
+                        "content": assistant_content,
                         "sql": assistant_sql,
-                        "chart_cfg": assistant_chart_cfg, 
-                        "reasoning": assistant_reasoning,
+                        "chart_cfg": assistant_chart_cfg,
+                        "thinking": assistant_reasoning,
                         "data": json_dumps(assistant_data_obj)
                     })
+                    print(f"💾 [DB] 用户消息已存储 → messages.id={user_message_id[:8]}")
+                    print(f"💾 [DB] 助手消息已存储 → messages.id={assistant_message_id[:8]}，sql={'有' if assistant_sql else '无'}，content={len(assistant_content)}字")
                     yield {
-                        "event": "done", 
+                        "event": "done",
                         "data": {
-                            "message_id": assistant_message_id, 
+                            "message_id": assistant_message_id,
                             "user_message_id": user_message_id,
                             "session_title": (request.question or "New Chat")[:50]
                         }
                     }
-                    
+
                     # 异步更新标题
                     asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
         except Exception as e:
@@ -583,7 +590,32 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
     """
     多模式分发入口 (Multi-mode Dispatcher)
     """
-    # 🌟 核心分发逻辑
+    user_id = current_user["id"]
+
+    # 🔑 1. 从 Session 中读取用户选择的模型 (前端传来的优先，Session 存储作兜底)
+    if not request.model_provider:
+        session_info = await session_db.get_session(request.session_id, user_id)
+        if session_info:
+            request.model_provider = session_info.get("model_provider")
+            if not request.model_name:
+                request.model_name = session_info.get("model_name")
+
+    # 🔑 2. 查询用户存储的 API Key，注入到 ContextVar (LLMFactory 会自动读取)
+    provider = request.model_provider or "deepseek"
+    user_key_record = await session_db.get_api_key(user_id, provider)
+    if user_key_record:
+        ctx_keys = {
+            f"{provider}_api_key": user_key_record["api_key"],
+        }
+        if user_key_record.get("base_url"):
+            ctx_keys[f"{provider}_base_url"] = user_key_record["base_url"]
+        # 如果用户没有指定 model_name，使用其为该供应商存储的默认 model_name
+        if not request.model_name and user_key_record.get("model_name"):
+            request.model_name = user_key_record["model_name"]
+        set_user_api_keys(ctx_keys)
+        print(f"🔑 [ChatStream] 已为用户 {user_id} 注入 {provider} 自定义 API Key")
+
+    # 🌟 3. 核心分发逻辑
     if request.enable_data_science_agent:
         return await run_scientist_mode(request, current_user)
     elif request.enable_depth:

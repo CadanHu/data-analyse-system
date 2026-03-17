@@ -113,6 +113,7 @@ async def health_check():
 
 # 注册路由
 from routers import session_router, message_router, chat_router, upload_router, database_router, auth_router, observability_router
+from routers.api_key_router import router as api_key_router
 from fastapi.staticfiles import StaticFiles
 
 app.include_router(session_router.router, prefix="/api", tags=["会话管理"])
@@ -122,6 +123,7 @@ app.include_router(upload_router.router, prefix="/api", tags=["文件上传"])
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(database_router.router)
 app.include_router(observability_router.router)
+app.include_router(api_key_router, prefix="/api", tags=["API Key 管理"])
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")

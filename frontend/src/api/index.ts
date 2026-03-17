@@ -112,7 +112,13 @@ export const sessionApi = {
     api.delete(`/sessions/${id}`).then(res => res.data),
   updateSessionTitle: (id: string, title: string) =>
     api.patch(`/sessions/${id}`, { title }).then(res => res.data),
-  updateSessionModes: (id: string, modes: { enable_data_science_agent?: boolean, enable_thinking?: boolean, enable_rag?: boolean }) =>
+  updateSessionModes: (id: string, modes: {
+    enable_data_science_agent?: boolean
+    enable_thinking?: boolean
+    enable_rag?: boolean
+    model_provider?: string
+    model_name?: string
+  }) =>
     api.patch(`/sessions/${id}/modes`, modes).then(res => res.data),
   getMessages: (sessionId: string, all: boolean = false) =>
     api.get<Message[]>(`/sessions/${sessionId}/messages`, { params: { all } }).then(res => res.data),
@@ -174,6 +180,17 @@ export const uploadApi = {
     }).then(res => res.data);
   },
 };
+
+export const apiKeyApi = {
+  list: () =>
+    api.get('/api-keys').then(res => res.data),
+  save: (data: { provider: string; api_key: string; base_url?: string; model_name?: string }) =>
+    api.post('/api-keys', data).then(res => res.data),
+  remove: (provider: string) =>
+    api.delete(`/api-keys/${provider}`).then(res => res.data),
+  getThinkingSupport: () =>
+    api.get('/api-keys/thinking-support').then(res => res.data),
+}
 
 export const messageApi = {
   saveMessage: (sessionId: string, message: { session_id: string; role: string; content: string; data?: string; thinking?: string }) =>

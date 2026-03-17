@@ -120,6 +120,13 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
       {isLoading && storeMessages.length === 0 && (
         <MessageSkeleton />
       )}
+      {isLoading && storeMessages.length > 0 && !thinkingContent && (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs text-gray-400 animate-pulse">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      )}
     </div>
   )
 }

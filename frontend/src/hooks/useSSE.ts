@@ -286,10 +286,13 @@ export function useSSE() {
       } catch (error) {
         if (error instanceof Error && error.name !== 'AbortError') {
           console.error('Stream Error:', error)
-          setIsLoading(false)
           setThinkingContent('')
           handlers?.onError?.('连接错误，请稍后重试')
         }
+      } finally {
+        // 🛡️ 防御性兜底：无论如何都确保 loading 状态被清除
+        // （防止 done 事件未被正常接收时 loading 永久卡死）
+        setIsLoading(false)
       }
     },
     [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage, isThinkingMode]

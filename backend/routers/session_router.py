@@ -25,6 +25,8 @@ class SessionModesUpdate(BaseModel):
     enable_data_science_agent: Optional[bool] = None
     enable_thinking: Optional[bool] = None
     enable_rag: Optional[bool] = None
+    model_provider: Optional[str] = None
+    model_name: Optional[str] = None
 
 class SessionDatabaseUpdate(BaseModel):
     database_key: str

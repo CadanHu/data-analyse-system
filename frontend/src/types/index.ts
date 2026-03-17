@@ -5,6 +5,8 @@ export interface Session {
   enable_data_science_agent?: boolean
   enable_thinking?: boolean
   enable_rag?: boolean
+  model_provider?: string | null
+  model_name?: string | null
   created_at: string
   updated_at: string
 }

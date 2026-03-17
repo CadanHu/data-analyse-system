@@ -49,69 +49,85 @@ class SQLAgent:
         return content
     
     async def _chat_completion_stream(
-        self, 
-        messages: List[Dict[str, str]], 
+        self,
+        messages: List[Dict[str, str]],
         temperature: float = 0.7,
         enable_thinking: bool = True,
         provider: str = None,
         model_name: str = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         provider = provider or DEFAULT_PROVIDER
-        
+
         # 深度处理模型选择
         if not model_name:
             params = llm_factory.get_model_params(provider, is_reasoning=enable_thinking)
             model_name = params["model"]
-        
+
         print(f"\n📤 [Prompt ({provider}) 流式请求] >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         import json
         print(json.dumps(messages, ensure_ascii=False, indent=2))
         print(f"<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n")
 
-        llm = llm_factory.get_langchain_model(
-            provider=provider, 
-            model_name=model_name, 
-            temperature=temperature,
-            streaming=True
-        )
-        
-        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-        lc_messages = []
-        for m in messages:
-            if m["role"] == "system": lc_messages.append(SystemMessage(content=m["content"]))
-            elif m["role"] == "user": lc_messages.append(HumanMessage(content=m["content"]))
-            elif m["role"] == "assistant": lc_messages.append(AIMessage(content=m["content"]))
-
         print(f"\n📡 [{provider} 流式请求发起]")
         print(f"📤 [模型]: {model_name} | [思考模式]: {enable_thinking}")
-        
+
         full_content = ""
         full_reasoning = ""
 
-        async for chunk in llm.astream(lc_messages):
-            content = chunk.content if hasattr(chunk, "content") else str(chunk)
-            
-            # 处理不同供应商的思考/推理内容
-            reasoning = ""
-            # DeepSeek 特有逻辑 (如果通过 LangChain 调用，可能在 additional_kwargs 中)
-            if hasattr(chunk, "additional_kwargs"):
-                reasoning = chunk.additional_kwargs.get("reasoning_content", "")
-            
-            # Gemini/Claude 的思考内容可能也在 metadata 或其他地方，
-            # 但目前主流 LangChain 适配器将大部分内容放在 content 中
-            # 这里我们通过 yield 统一结构
-            
-            if reasoning:
-                full_reasoning += reasoning
-                yield {"reasoning_content": reasoning, "content": ""}
-            
-            if content:
-                full_content += content
-                yield {"reasoning_content": "", "content": content}
+        # 对 DeepSeek/OpenAI 使用原生客户端以正确捕获 reasoning_content
+        if provider in [ModelProvider.DEEPSEEK, ModelProvider.OPENAI]:
+            client = llm_factory.get_openai_client(provider)
+            stream = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+                stream=True
+            )
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                reasoning = getattr(delta, "reasoning_content", None) or ""
+                content = delta.content or ""
+
+                if reasoning:
+                    full_reasoning += reasoning
+                    yield {"reasoning_content": reasoning, "content": ""}
+                if content:
+                    full_content += content
+                    yield {"reasoning_content": "", "content": content}
+        else:
+            # Gemini / Claude 等使用 LangChain 封装
+            llm = llm_factory.get_langchain_model(
+                provider=provider,
+                model_name=model_name,
+                temperature=temperature,
+                streaming=True
+            )
+            from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+            lc_messages = []
+            for m in messages:
+                if m["role"] == "system": lc_messages.append(SystemMessage(content=m["content"]))
+                elif m["role"] == "user": lc_messages.append(HumanMessage(content=m["content"]))
+                elif m["role"] == "assistant": lc_messages.append(AIMessage(content=m["content"]))
+
+            async for chunk in llm.astream(lc_messages):
+                content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                reasoning = ""
+                if hasattr(chunk, "additional_kwargs"):
+                    reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+                if reasoning:
+                    full_reasoning += reasoning
+                    yield {"reasoning_content": reasoning, "content": ""}
+                if content:
+                    full_content += content
+                    yield {"reasoning_content": "", "content": content}
 
         # 请求结束时日志
         if full_content:
             print(f"\n📥 [{provider} 完整回答]:\n{full_content[:500]}...")
+        if full_reasoning:
+            print(f"\n🤔 [{provider} 思考过程]:\n{full_reasoning[:200]}...")
         print("-" * 30)
     async def generate_ai_title(self, question: str, provider: str = None, model_name: str = None, language: str = "zh") -> str:
         """根据对话内容生成专业标题 (AI 智能版)"""
