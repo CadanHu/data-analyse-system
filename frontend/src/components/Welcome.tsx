@@ -97,7 +97,7 @@ export default function Welcome() {
             <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">DataPulse AI</span>
           </div>
           <div className="flex items-center gap-3 sm:gap-6">
-            <LanguageSwitcher className="hidden sm:flex" />
+            <LanguageSwitcher className="flex" />
             <div className="flex items-center gap-4 sm:gap-6 text-sm">
               <Link to="/features" className="text-gray-400 hover:text-white transition-colors font-medium">{t('nav.features')}</Link>
               <Link to="/tutorial" className="text-gray-400 hover:text-white transition-colors font-medium">{t('nav.tutorial')}</Link>
@@ -145,7 +145,7 @@ export default function Welcome() {
               }} 
               className="w-full sm:w-auto px-10 py-5 text-base font-bold text-gray-300 border border-white/10 rounded-2xl hover:bg-white/5 hover:border-white/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
             >
-              了解更多
+              {t('welcome.learnMore')}
               <svg className="w-4.5 h-4.5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
             </button>
           </div>

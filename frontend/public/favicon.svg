@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a5f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0f1f3d;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="pulse" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#38bdf8;stop-opacity:0.6" />
+      <stop offset="50%" style="stop-color:#7dd3fc;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#38bdf8;stop-opacity:0.6" />
+    </linearGradient>
+    <linearGradient id="bar1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#38bdf8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0284c7;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="bar2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#7dd3fc;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#38bdf8;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="bar3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#bae6fd;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7dd3fc;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded rectangle -->
+  <rect width="32" height="32" rx="7" ry="7" fill="url(#bg)" />
+
+  <!-- Inner subtle border -->
+  <rect width="32" height="32" rx="7" ry="7" fill="none" stroke="#38bdf8" stroke-width="0.5" stroke-opacity="0.3" />
+
+  <!-- Bar chart: 3 bars at bottom -->
+  <rect x="5" y="18" width="5" height="9" rx="1.5" fill="url(#bar1)" />
+  <rect x="13.5" y="13" width="5" height="14" rx="1.5" fill="url(#bar2)" />
+  <rect x="22" y="8" width="5" height="19" rx="1.5" fill="url(#bar3)" />
+
+  <!-- Pulse line overlay on top area -->
+  <polyline
+    points="3,11 7,11 9,7 11,14 13,9 15,11 17,6 19,11 21,11 23,9 25,11 29,11"
+    fill="none"
+    stroke="url(#pulse)"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Glowing dot at pulse peak -->
+  <circle cx="17" cy="6" r="1.5" fill="#7dd3fc" opacity="0.9" />
+  <circle cx="17" cy="6" r="2.5" fill="#38bdf8" opacity="0.25" />
+</svg>

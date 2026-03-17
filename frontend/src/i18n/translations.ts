@@ -91,7 +91,7 @@ export type TranslationKey =
   | 'session.syncing' | 'session.wait' | 'session.viewLogs' | 'session.preparingFile'
   | 'session.shareTitle' | 'session.unnamed'
   // New welcome screen and assistant titles
-  | 'welcome.assistantTitle' | 'chat.welcomeMessage' | 'chat.featureViz' | 'chat.featureVizDesc'
+  | 'welcome.assistantTitle' | 'welcome.learnMore' | 'chat.welcomeMessage' | 'chat.featureViz' | 'chat.featureVizDesc'
   | 'chat.featureThinking' | 'chat.featureThinkingDesc' | 'chat.tryAsking' | 'chat.selectDb'
   | 'chat.example1' | 'chat.example2' | 'chat.example3' | 'chat.example4'
   | 'chat.example5' | 'chat.example6' | 'chat.example7' | 'chat.example8' | 'chat.example9' | 'chat.example10'
@@ -416,6 +416,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
 
     // New welcome screen and assistant titles
     'welcome.assistantTitle': '智能数据分析助理',
+    'welcome.learnMore': '了解更多',
     'chat.welcomeMessage': '我已经准备好为您深度分析数据，并自动适配 15+ 种进阶可视化方案。',
     'chat.featureViz': '进阶可视化',
     'chat.featureVizDesc': '自动适配雷达图、漏斗图、热力图等，让数据洞察更直观。',
@@ -772,6 +773,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
 
     // New welcome screen and assistant titles
     'welcome.assistantTitle': 'Intelligent Data Analysis Assistant',
+    'welcome.learnMore': 'Learn More',
     'chat.welcomeMessage': 'I am ready to perform deep data analysis for you, automatically adapting to 15+ advanced visualization schemes.',
     'chat.featureViz': 'Advanced Visualization',
     'chat.featureVizDesc': 'Automatically adapt to radar charts, funnel charts, heatmaps, etc., making data insights more intuitive.',

@@ -46,7 +46,7 @@ def get_sql_agent():
 
 # ==================== 0. 辅助函数 (Helpers) ====================
 
-async def _handle_session_auto_title(session_id: str, user_id: int, question: str, agent_instance, language: str):
+async def _handle_session_auto_title(session_id: str, user_id: int, question: str, agent_instance, language: str, provider: str = None, model_name: str = None):
     """
     [Shared Helper] 异步生成并更新会话标题
     逻辑：仅当会话标题为空或为默认占位符时，触发 AI 生成新标题。
@@ -58,10 +58,10 @@ async def _handle_session_auto_title(session_id: str, user_id: int, question: st
                 select(SessionModel.title).where(SessionModel.id == session_id)
             )
             current_title = result.scalar_one_or_none()
-            
+
             # 2. 如果标题为空，则由 AI 生成新标题
             if not current_title or current_title.strip() == "":
-                new_title = await agent_instance.generate_ai_title(question, language=language)
+                new_title = await agent_instance.generate_ai_title(question, provider=provider, model_name=model_name, language=language)
                 if new_title:
                     await session_db.update_session_title(session_id, user_id, new_title)
                     print(f"✅ [Auto-Rename] 会话 {session_id[:8]} 已自动重命名: {new_title}")
@@ -180,7 +180,7 @@ async def run_scientist_mode(request: ChatRequest, current_user: dict):
                     }
                     
                     # 异步更新标题
-                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
 
         except Exception as e:
             traceback.print_exc()
@@ -265,7 +265,7 @@ async def run_thinking_mode(request: ChatRequest, current_user: dict):
                     }
 
                     # 异步更新标题
-                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
         except Exception as e:
             traceback.print_exc()
             yield {"event": "error", "data": {"content": f"Thinking Mode Error: {str(e)}"}}
@@ -364,7 +364,7 @@ async def run_rag_mode(request: ChatRequest, current_user: dict):
                     }
                     
                     # 异步更新标题
-                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
         except Exception as e:
             traceback.print_exc()
             yield {"event": "error", "data": {"content": f"RAG Mode Error: {str(e)}"}}
@@ -442,7 +442,7 @@ async def run_depth_mode(request: ChatRequest, current_user: dict):
                     }
                     
                     # 异步更新标题
-                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
         except Exception as e:
             traceback.print_exc()
             yield {"event": "error", "data": {"content": f"Depth Mode Error: {str(e)}"}}
@@ -525,7 +525,7 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
                     }
 
                     # 异步更新标题
-                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language))
+                    asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
         except Exception as e:
             traceback.print_exc()
             yield {"event": "error", "data": {"content": f"Standard Mode Error: {str(e)}"}}
@@ -614,7 +614,18 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
                 request.model_name = session_info.get("model_name")
 
     # 🔑 2. 查询用户存储的 API Key，注入到 ContextVar (LLMFactory 会自动读取)
-    provider = request.model_provider or "deepseek"
+    # 如果 session 没有配置 provider，自动使用用户最近配置的 API Key 对应的 provider
+    provider = request.model_provider
+    if not provider:
+        all_keys = await session_db.get_all_api_keys(user_id)
+        if all_keys:
+            sorted_keys = sorted(all_keys, key=lambda k: k.get("updated_at") or "", reverse=True)
+            provider = sorted_keys[0]["provider"]
+            request.model_provider = provider
+            if not request.model_name and sorted_keys[0].get("model_name"):
+                request.model_name = sorted_keys[0]["model_name"]
+            print(f"🔑 [ChatStream] 用户 {user_id} 未配置会话 provider，自动使用最近配置的: {provider}")
+    provider = provider or "deepseek"
     user_key_record = await session_db.get_api_key(user_id, provider)
     if user_key_record:
         ctx_keys = {

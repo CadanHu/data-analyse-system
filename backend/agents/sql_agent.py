@@ -40,12 +40,18 @@ class SQLAgent:
         
         response = await llm.ainvoke(lc_messages)
         content = response.content
-        
+        # Gemini 思考模型返回 list 格式，提取 text 部分
+        if isinstance(content, list):
+            content = "".join(
+                part.get("text", "") for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+
         print(f"\n📡 [{provider} 交互详情]")
         print(f"📥 [模型]: {model_name}")
-        print(f"📥 [响应]: {content[:200]}...")
+        print(f"📥 [响应]: {str(content)[:200]}...")
         print("-" * 30)
-        
+
         return content
     
     async def _chat_completion_stream(
@@ -112,7 +118,14 @@ class SQLAgent:
                 elif m["role"] == "assistant": lc_messages.append(AIMessage(content=m["content"]))
 
             async for chunk in llm.astream(lc_messages):
-                content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                raw = chunk.content if hasattr(chunk, "content") else str(chunk)
+                if isinstance(raw, list):
+                    content = "".join(
+                        part.get("text", "") for part in raw
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+                else:
+                    content = raw
                 reasoning = ""
                 if hasattr(chunk, "additional_kwargs"):
                     reasoning = chunk.additional_kwargs.get("reasoning_content", "")
