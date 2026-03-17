@@ -7,7 +7,7 @@ export default function About() {
 
   return (
     <div className="min-h-screen bg-[#050810] text-white">
-      <nav className="fixed top-0 left-0 right-0 z-[100] px-6 py-4 bg-[#050810]/95 backdrop-blur-xl border-b border-white/10" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
+      <nav className="fixed top-0 left-0 right-0 z-[100] px-6 py-4 bg-[#050810]/95 backdrop-blur-xl border-b border-white/10" style={{ paddingTop: 'calc(var(--safe-top) + 1rem)' }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <button
             onClick={() => navigate('/')}

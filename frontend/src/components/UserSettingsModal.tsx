@@ -155,7 +155,7 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
       </div>
 
       {/* Header */}
-      <header className="relative z-10 flex-none flex items-center justify-between px-4 sm:px-8 py-4 bg-white/70 backdrop-blur-xl border-b border-white/50 shadow-sm">
+      <header className="relative z-10 flex-none flex items-center justify-between px-4 sm:px-8 py-4 bg-white/70 backdrop-blur-xl border-b border-white/50 shadow-sm" style={{ paddingTop: 'calc(var(--safe-top) + 1rem)' }}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#06d6a0] flex items-center justify-center text-white text-sm font-bold shadow-md">
             {(user?.username || 'U').charAt(0).toUpperCase()}

@@ -86,7 +86,7 @@ export default function Welcome() {
       <div className="fixed top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#06d6a0] to-transparent opacity-30" />
       <div className="fixed top-0 left-0 w-px h-full bg-gradient-to-b from-transparent via-[#06d6a0] to-transparent opacity-30" />
 
-      <nav className={`fixed top-0 left-0 right-0 z-50 px-6 py-4 backdrop-blur-xl border-b border-white/10 transition-all duration-300 ${scrolled ? 'bg-[#050810]/95 shadow-lg' : 'bg-[#050810]/80'}`} style={{ paddingTop: 'calc(env(safe-area-inset-top) + 1rem)' }}>
+      <nav className={`fixed top-0 left-0 right-0 z-50 px-6 py-4 backdrop-blur-xl border-b border-white/10 transition-all duration-300 ${scrolled ? 'bg-[#050810]/95 shadow-lg' : 'bg-[#050810]/80'}`} style={{ paddingTop: 'calc(var(--safe-top) + 1rem)' }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-end gap-1 h-6">
@@ -111,7 +111,7 @@ export default function Welcome() {
       </nav>
 
       {/* 主视觉区 */}
-      <main className="relative z-10 min-h-screen flex items-center justify-center px-6" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 5rem)' }}>
+      <main className="relative z-10 min-h-screen flex items-center justify-center px-6" style={{ paddingTop: 'calc(var(--safe-top) + 5rem)' }}>
         <div className="max-w-5xl mx-auto text-center">
           <a
             href="https://github.com/CadanHu/data-analyse-system"

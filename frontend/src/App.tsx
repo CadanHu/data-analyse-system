@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import SessionList from './components/SessionList'
 import ChatArea from './components/ChatArea'
@@ -33,6 +34,13 @@ export default function App() {
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen, isMobile, setIsMobile, orientation, setOrientation } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      document.documentElement.style.setProperty('--safe-top', 'env(safe-area-inset-top)')
+      document.documentElement.style.setProperty('--safe-bottom', 'env(safe-area-inset-bottom)')
+    }
+  }, [])
 
   useEffect(() => {
     const checkLayout = () => {
@@ -173,8 +181,8 @@ export default function App() {
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40rem] h-[40rem] bg-gradient-to-br from-[#E0FFFF]/20 via-[#BFFFD9]/15 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '4s' }} />
             </div>
 
-            <div className="relative z-10 h-full p-4 md:p-6 data-[mobile=true]:data-[orientation=landscape]:p-0">
-              <div className="h-full rounded-3xl data-[mobile=true]:data-[orientation=landscape]:rounded-none overflow-hidden backdrop-blur-2xl bg-white/70 border border-white/60 data-[mobile=true]:data-[orientation=landscape]:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]">
+            <div className={`relative z-10 h-full ${isMobile ? 'py-4 data-[mobile=true]:data-[orientation=landscape]:p-0' : 'p-0'}`}>
+              <div className={`h-full overflow-hidden backdrop-blur-2xl bg-white/70 ${isMobile ? 'rounded-3xl data-[mobile=true]:data-[orientation=landscape]:rounded-none border border-white/60 data-[mobile=true]:data-[orientation=landscape]:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]' : ''}`}>
                 {isFullScreen && isRightPanelVisible && (
                   <div className="absolute inset-0 z-[200] bg-white">
                     <RightPanel />
@@ -186,14 +194,14 @@ export default function App() {
                     <button 
                       onClick={() => navigate('/')}
                       className="absolute left-2 z-[100] p-1 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-gray-700 transition-all shadow-sm data-[mobile=true]:data-[orientation=landscape]:top-1"
-                      style={{ top: 'calc(env(safe-area-inset-top) + 0.4rem)' }}
+                      style={{ top: 'calc(var(--safe-top) + 0.4rem)' }}
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                       </svg>
                     </button>
 
-                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm data-[mobile=true]:data-[orientation=landscape]:bg-white/60" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm data-[mobile=true]:data-[orientation=landscape]:bg-white/60" style={{ paddingTop: 'var(--safe-top)' }}>
                       <div className="flex pl-10 data-[mobile=true]:data-[orientation=landscape]:pl-12">
                         <button
                           onClick={() => setActiveTab('sessions')}

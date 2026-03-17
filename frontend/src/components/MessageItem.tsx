@@ -148,7 +148,7 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
       {isFullScreen && createPortal(
         <div className="fixed inset-0 z-[10001] bg-black flex flex-col animate-in fade-in duration-200">
           <div className="flex items-center justify-between px-4 bg-white/5 border-b border-white/10"
-            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)', paddingBottom: '0.5rem' }}
+            style={{ paddingTop: 'calc(var(--safe-top) + 0.5rem)', paddingBottom: '0.5rem' }}
           >
             <div className="flex items-center gap-2 min-w-0">
               <BarChart3 size={16} className="text-blue-400 shrink-0" />
@@ -978,7 +978,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
         >
           <div
             className="flex items-center justify-end px-4 shrink-0"
-            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)', paddingBottom: '0.5rem' }}
+            style={{ paddingTop: 'calc(var(--safe-top) + 0.5rem)', paddingBottom: '0.5rem' }}
             onClick={e => e.stopPropagation()}
           >
             <button

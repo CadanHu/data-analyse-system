@@ -5,6 +5,8 @@
 /* 全局样式 */
 :root {
   font-family: 'Noto Sans SC', sans-serif;
+  --safe-top: 0px;
+  --safe-bottom: 0px;
 }
 
 body {
