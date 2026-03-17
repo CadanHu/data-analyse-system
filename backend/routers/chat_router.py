@@ -294,10 +294,23 @@ async def run_rag_mode(request: ChatRequest, current_user: dict):
             vs = VectorStore()
             history_str = await memory_manager.get_history_text(request.session_id)
             search_query = await agent_instance.rewrite_query_for_rag(request.question, history_str, language=request.language)
-            search_results = await vs.search(search_query, top_k=8, session_id=request.session_id)
+            # global 模式不传 session_id，检索当前用户全部会话的知识
+            search_session_id = None if request.rag_scope == "global" else request.session_id
+            search_results = await vs.search(search_query, top_k=4, session_id=search_session_id)
             if search_results:
-                rag_context = "\n".join([f"- {r['content']}" for r in search_results])
-                yield {"event": "thinking", "data": {"content": f"Found {len(search_results)} related snippets (已检索到 {len(search_results)} 条相关背景)."}}
+                # 每条片段最多保留 600 字符，总 RAG 内容不超过 3000 字符，避免 prompt 过长超时
+                MAX_CHUNK = 600
+                MAX_TOTAL = 3000
+                parts = []
+                total = 0
+                for r in search_results:
+                    chunk = r['content'][:MAX_CHUNK]
+                    if total + len(chunk) > MAX_TOTAL:
+                        break
+                    parts.append(f"- {chunk}")
+                    total += len(chunk)
+                rag_context = "\n".join(parts)
+                yield {"event": "thinking", "data": {"content": f"Found {len(parts)} related snippets (已检索到 {len(parts)} 条相关背景)."}}
         except Exception as re:
             print(f"⚠️ [RAG] Retrieval failed: {re}")
 

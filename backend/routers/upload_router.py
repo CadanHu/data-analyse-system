@@ -7,7 +7,7 @@ import json
 import traceback
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Form, Depends
 
 from config import UPLOAD_DIR
 from utils.logger import logger
@@ -15,6 +15,7 @@ from database.session_db import session_db
 from services.document_processor import DocumentProcessor
 from services.vector_store import VectorStore
 from services.knowledge_extraction_service import knowledge_extraction_service
+from routers.auth_router import get_current_user
 
 router = APIRouter()
 vector_store = VectorStore()
@@ -35,7 +36,7 @@ def get_file_type(filename: str) -> Optional[str]:
     return None
 
 import asyncio
-async def run_deep_extraction_task(file_path: Path, filename: str, session_id: str, engine: str, prompt: str = None, use_high_precision: bool = False):
+async def run_deep_extraction_task(file_path: Path, filename: str, session_id: str, user_id: int, engine: str, prompt: str = None, use_high_precision: bool = False):
     """后台执行深度提取任务 / Execute deep extraction task in background"""
     loop = asyncio.get_event_loop()
     try:
@@ -66,9 +67,10 @@ async def run_deep_extraction_task(file_path: Path, filename: str, session_id: s
         
         # 4. 存入向量库
         await vector_store.add_text(
-            text=text_content, 
+            text=text_content,
             metadata={"filename": filename, "type": "knowledge_source", "engine": engine},
-            session_id=session_id
+            session_id=session_id,
+            user_id=user_id
         )
 
         # 5. 完成通知
@@ -109,10 +111,12 @@ async def upload_for_knowledge(
     session_id: str = Form(...),
     engine: str = Form("pro"),
     prompt: Optional[str] = Form(None),
-    use_high_precision: bool = Form(False)
+    use_high_precision: bool = Form(False),
+    current_user: dict = Depends(get_current_user)
 ):
     """上传并提交后台深度提取任务 / Upload and submit background deep extraction task"""
     if not file.filename: raise HTTPException(status_code=400, detail="Filename is empty (文件名为空)")
+    user_id = current_user["id"]
     
     unique_filename = f"ext_{uuid.uuid4()}{Path(file.filename).suffix.lower()}"
     file_path = UPLOAD_DIR / unique_filename
@@ -133,11 +137,12 @@ async def upload_for_knowledge(
         })
 
         background_tasks.add_task(
-            run_deep_extraction_task, 
-            file_path, 
-            file.filename, 
-            session_id, 
-            engine, 
+            run_deep_extraction_task,
+            file_path,
+            file.filename,
+            session_id,
+            user_id,
+            engine,
             prompt,
             use_high_precision
         )
@@ -156,9 +161,11 @@ async def upload_file(
     file: UploadFile = File(...),
     session_id: str = Form(...),
     engine: str = Form("light"),
-    use_high_precision: bool = Form(False)
+    use_high_precision: bool = Form(False),
+    current_user: dict = Depends(get_current_user)
 ):
     """普通上传并同步 RAG 索引 / Standard upload and sync RAG index"""
+    user_id = current_user["id"]
     unique_filename = f"{uuid.uuid4()}{Path(file.filename).suffix.lower()}"
     file_path = UPLOAD_DIR / unique_filename
     try:
@@ -185,7 +192,7 @@ async def upload_file(
         
         print(f"==================================================\n")
 
-        await vector_store.add_text(text_content, {"filename": file.filename}, session_id=session_id)
+        await vector_store.add_text(text_content, {"filename": file.filename}, session_id=session_id, user_id=user_id)
 
         return {
             "filename": file.filename,

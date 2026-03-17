@@ -8,6 +8,7 @@ import { sessionApi } from '../api'
 import type { Session } from '../types'
 import SessionListSkeleton from './SessionListSkeleton'
 import { useTranslation } from '../hooks/useTranslation'
+import UserSettingsModal from './UserSettingsModal'
 
 import { Terminal, Monitor, XCircle, LogOut } from 'lucide-react'
 
@@ -28,6 +29,7 @@ export default function SessionList({
 }: SessionListProps) {
   const { sessions, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
   const { user, logout } = useAuthStore()
+  const [showUserSettings, setShowUserSettings] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const { t } = useTranslation()
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
@@ -352,9 +354,17 @@ export default function SessionList({
         )}
       </div>
 
+      {showUserSettings && (
+        <UserSettingsModal onClose={() => setShowUserSettings(false)} />
+      )}
+
       <div className="p-4 border-t border-white/30 bg-white/20 backdrop-blur-md data-[mobile=true]:data-[orientation=landscape]:p-1.5 data-[mobile=true]:data-[orientation=landscape]:px-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={() => setShowUserSettings(true)}
+            className="flex items-center gap-2 min-w-0 flex-1 rounded-xl hover:bg-white/40 px-1 py-1 -mx-1 transition-colors text-left"
+            title="点击进入用户设置"
+          >
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#3b82f6] to-[#06d6a0] flex items-center justify-center text-white text-xs font-bold shadow-sm flex-shrink-0 data-[mobile=true]:data-[orientation=landscape]:w-6 data-[mobile=true]:data-[orientation=landscape]:h-6 data-[mobile=true]:data-[orientation=landscape]:text-[10px]">
               {(user?.username || 'U').charAt(0).toUpperCase()}
             </div>
@@ -362,7 +372,7 @@ export default function SessionList({
               <p className="text-sm font-medium text-gray-700 truncate data-[mobile=true]:data-[orientation=landscape]:text-[10px]">{user?.username || t('session.syncing')}</p>
               <p className="text-[10px] text-gray-400 truncate data-[mobile=true]:data-[orientation=landscape]:hidden">{user?.email || t('session.wait')}</p>
             </div>
-          </div>
+          </button>
           <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={(e) => {

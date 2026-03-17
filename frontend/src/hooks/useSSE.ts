@@ -27,6 +27,7 @@ interface SSEHandlers {
 
 interface ConnectOptions {
   enable_rag?: boolean
+  rag_scope?: 'session' | 'global'
   rag_engine?: 'light' | 'pro'
   enable_data_science_agent?: boolean
   enable_thinking?: boolean
@@ -118,6 +119,7 @@ export function useSSE() {
             parent_id: options?.parent_id,
             enable_thinking: options?.enable_thinking ?? isThinkingMode,
             enable_rag: options?.enable_rag || false,
+            rag_scope: options?.rag_scope || 'session',
             rag_engine: options?.rag_engine || 'light',
             enable_data_science_agent: options?.enable_data_science_agent || false,
             model_provider: options?.model_provider,

@@ -1,10 +1,14 @@
 import os
 import traceback
 from typing import Optional, Any
+import httpx
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
 from openai import AsyncOpenAI
+
+# 流式请求超时：connect 5s，read 1800s（30分钟）
+_STREAM_TIMEOUT = httpx.Timeout(1800.0, connect=5.0)
 
 from config import (
     API_KEY, API_BASE_URL, CHAT_MODEL,
@@ -122,9 +126,9 @@ class LLMFactory:
         # 用户自定义 Key：不走缓存
         if user_api_key:
             if provider == ModelProvider.DEEPSEEK:
-                return AsyncOpenAI(api_key=user_api_key, base_url=user_base_url or API_BASE_URL)
+                return AsyncOpenAI(api_key=user_api_key, base_url=user_base_url or API_BASE_URL, timeout=_STREAM_TIMEOUT)
             elif provider == ModelProvider.OPENAI:
-                return AsyncOpenAI(api_key=user_api_key, base_url=user_base_url or OPENAI_BASE_URL)
+                return AsyncOpenAI(api_key=user_api_key, base_url=user_base_url or OPENAI_BASE_URL, timeout=_STREAM_TIMEOUT)
             else:
                 raise ValueError(f"供应商 {provider} 不支持原生 OpenAI 客户端调用")
 
@@ -132,12 +136,14 @@ class LLMFactory:
             if provider == ModelProvider.DEEPSEEK:
                 cls._openai_clients[provider] = AsyncOpenAI(
                     api_key=API_KEY,
-                    base_url=API_BASE_URL
+                    base_url=API_BASE_URL,
+                    timeout=_STREAM_TIMEOUT
                 )
             elif provider == ModelProvider.OPENAI:
                 cls._openai_clients[provider] = AsyncOpenAI(
                     api_key=OPENAI_API_KEY,
-                    base_url=OPENAI_BASE_URL
+                    base_url=OPENAI_BASE_URL,
+                    timeout=_STREAM_TIMEOUT
                 )
             else:
                 raise ValueError(f"供应商 {provider} 不支持原生 OpenAI 客户端调用")

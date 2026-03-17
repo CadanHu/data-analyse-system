@@ -192,6 +192,19 @@ export const apiKeyApi = {
     api.get('/api-keys/thinking-support').then(res => res.data),
 }
 
+export const ragApi = {
+  listChunks: (sessionId?: string) =>
+    api.get<{ chunks: Array<{ id: string; content: string; metadata: Record<string, any> }>; total: number }>(
+      '/rag/chunks', { params: sessionId ? { session_id: sessionId } : {} }
+    ).then(res => res.data),
+  deduplicate: (sessionId?: string, similarityThreshold: number = 0.85) =>
+    api.post<{ removed: number; remaining: number; total_before: number }>(
+      '/rag/deduplicate', { session_id: sessionId || null, similarity_threshold: similarityThreshold }
+    ).then(res => res.data),
+  deleteChunk: (chunkId: string) =>
+    api.post<{ success: boolean }>('/rag/chunk/delete', { chunk_id: chunkId }).then(res => res.data),
+};
+
 export const messageApi = {
   saveMessage: (sessionId: string, message: { session_id: string; role: string; content: string; data?: string; thinking?: string }) =>
     api.post(`/sessions/${sessionId}/messages`, message).then(res => res.data),

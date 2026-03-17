@@ -47,7 +47,11 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     setShowModelKeyModal,
   } = useChatStore()
   const { messages, addMessage, currentSession, updateSession } = useSessionStore()
-  const [isRAGMode, setRAGMode] = useState(false)
+  // RAG 三档状态: off → session（当前会话文件）→ global（全用户文件）→ off
+  type RagScope = 'off' | 'session' | 'global'
+  const [ragScope, setRagScope] = useState<RagScope>('off')
+  // 当前会话是否已上传过文件（用于决定点击 RAG 时进 session 还是 global）
+  const [sessionHasFiles, setSessionHasFiles] = useState(false)
   const [currentModelProvider, setCurrentModelProvider] = useState<string | null>(null)
   const [currentModelNameLocal, setCurrentModelNameLocal] = useState<string | null>(null)
 
@@ -60,14 +64,16 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       console.log('🔄 [InputBar] 正在从会话恢复模式状态:', currentSession.title);
       setThinkingMode(!!currentSession.enable_thinking)
       setDataScienceMode(!!currentSession.enable_data_science_agent)
-      setRAGMode(!!currentSession.enable_rag)
+      // 切换会话时 RAG 重置为 off，sessionHasFiles 也重置
+      setRagScope('off')
+      setSessionHasFiles(false)
       setCurrentModelProvider(currentSession.model_provider || null)
       setCurrentModelNameLocal(currentSession.model_name || null)
     }
   }, [currentSession?.id, sessionId])
 
   // 🚀 辅助函数：同步模式到后端
-  const syncModes = async (updates: { enable_data_science_agent?: boolean, enable_thinking?: boolean, enable_rag?: boolean }) => {
+  const syncModes = async (updates: { enable_data_science_agent?: boolean, enable_thinking?: boolean, enable_rag?: boolean, rag_scope?: string }) => {
     if (!sessionId) return
     try {
       await sessionApi.updateSessionModes(sessionId, updates)
@@ -165,7 +171,8 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       sessionId,
       question,
       {
-        enable_rag: isRAGMode,
+        enable_rag: ragScope !== 'off',
+        rag_scope: ragScope === 'off' ? 'session' : ragScope,
         rag_engine: ragEngine,
         parent_id: parentId,
         enable_data_science_agent: isDataScienceMode,
@@ -253,7 +260,8 @@ const handleStandardUpload = async (file: File) => {
     setIsLoading(true)
     // 🚀 传给后端高精度标志
     const response = await uploadApi.upload(file, sessionId!, 'light', useHighPrecision)
-    setRAGMode(true)
+    setSessionHasFiles(true)
+    setRagScope('session')
     console.log('文件已索引:', file.name)
 
     // ✨ 在 UI 中给出明确的正面反馈
@@ -420,7 +428,8 @@ const handleStandardUpload = async (file: File) => {
       try {
         setIsLoading(true)
         await uploadApi.upload(file, sessionId!, engine)
-        setRAGMode(true)
+        setSessionHasFiles(true)
+        setRagScope('session')
         console.log('PDF已索引:', file.name)
       } catch (e: any) {
         alert(`${t('alert.parseFailed')}: ${e.message}`)
@@ -664,29 +673,49 @@ const handleStandardUpload = async (file: File) => {
             >
               <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">Scientist</span>
             </button>
+            {/* RAG 三态按钮: off → session → global → off */}
             <button
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
-                if (!isLoading) {
-                  const newVal = !isRAGMode
-                  setRAGMode(newVal)
-                  if (newVal) setKnowledgeMode(false)
-                  syncModes({ enable_rag: newVal })
+                if (isLoading) return
+                setKnowledgeMode(false)
+                if (ragScope === 'off') {
+                  // 有文件则进 session，否则直接进 global
+                  const next: RagScope = sessionHasFiles ? 'session' : 'global'
+                  setRagScope(next)
+                  syncModes({ enable_rag: true })
+                } else if (ragScope === 'session') {
+                  setRagScope('global')
+                  syncModes({ enable_rag: true })
+                } else {
+                  setRagScope('off')
+                  syncModes({ enable_rag: false })
                 }
               }}
               disabled={isLoading}
-              className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
+              title={
+                ragScope === 'off'
+                  ? 'RAG 检索 OFF'
+                  : ragScope === 'session'
+                  ? '当前会话 RAG：仅检索本会话上传的文件\n再次点击切换为全局 RAG'
+                  : '全局 RAG：检索您所有会话中上传的文件\n再次点击关闭'
+              }
+              className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center gap-1 justify-center rounded-lg transition-all shadow-sm ${
                 isLoading ? 'opacity-50 cursor-not-allowed' : ''
               } ${
-                isRAGMode
+                ragScope === 'off'
+                  ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  : ragScope === 'session'
                   ? 'bg-[#00BFFF] text-white font-medium'
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  : 'bg-gradient-to-r from-violet-500 to-purple-600 text-white font-medium'
               }`}
-              title={isRAGMode ? t('chat.ragMode') + `: ${ragEngine === 'light' ? t('chat.lightMode') : t('chat.proMode')}` : t('chat.ragMode') + ' OFF'}
             >
-              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.ragMode')}</span>
+              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">
+                {ragScope === 'off' ? 'RAG' : ragScope === 'session' ? '会话RAG' : '全局RAG'}
+              </span>
             </button>
+
           </div>
 
           {/* 手机竖屏：停止按钮（仅加载时显示） */}
