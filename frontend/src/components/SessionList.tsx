@@ -4,11 +4,19 @@ import { Share } from '@capacitor/share'
 import { Capacitor } from '@capacitor/core'
 import { useSessionStore } from '../stores/sessionStore'
 import { useAuthStore } from '../stores/authStore'
+import { useSyncStore } from '../stores/syncStore'
 import { sessionApi } from '../api'
 import type { Session } from '../types'
 import SessionListSkeleton from './SessionListSkeleton'
 import { useTranslation } from '../hooks/useTranslation'
 import UserSettingsModal from './UserSettingsModal'
+import SyncStatusBadge from './SyncStatusBadge'
+import {
+  localGetSessions,
+  localCreateSession,
+  localUpdateSession,
+  localDeleteSession,
+} from '../services/localStore'
 
 import { Terminal, Monitor, XCircle, LogOut } from 'lucide-react'
 
@@ -28,7 +36,9 @@ export default function SessionList({
   onToggleLogs
 }: SessionListProps) {
   const { sessions, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
-  const { user, logout } = useAuthStore()
+  const { user, logout, offlineMode, localUserId } = useAuthStore()
+  const { connectionStatus } = useSyncStore()
+  const isOffline = connectionStatus === 'offline' || offlineMode
   const [showUserSettings, setShowUserSettings] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const { t } = useTranslation()
@@ -130,6 +140,21 @@ export default function SessionList({
 
   const handleCreateSession = async () => {
     try {
+      if (isOffline) {
+        const userId = localUserId ?? -1
+        const local = await localCreateSession(userId)
+        const session: Session = {
+          id: local.id,
+          title: local.title ?? undefined,
+          created_at: local.created_at ?? new Date().toISOString(),
+          updated_at: local.updated_at ?? new Date().toISOString(),
+        }
+        await loadSessions()
+        clearMessages()
+        setCurrentSession(session)
+        onSelectSession(session.id, session)
+        return
+      }
       const session = await sessionApi.createSession()
       await loadSessions()
       clearMessages()
@@ -142,6 +167,26 @@ export default function SessionList({
 
   const loadSessions = async () => {
     try {
+      if (isOffline) {
+        const userId = localUserId ?? -1
+        const localData = await localGetSessions(userId)
+        const mapped = localData.map(s => ({
+          id: s.id,
+          title: s.title ?? undefined,
+          database_key: s.database_key ?? undefined,
+          status: s.status ?? undefined,
+          enable_data_science_agent: !!s.enable_data_science_agent,
+          enable_thinking: !!s.enable_thinking,
+          enable_rag: !!s.enable_rag,
+          model_provider: s.model_provider ?? undefined,
+          model_name: s.model_name ?? undefined,
+          created_at: s.created_at ?? new Date().toISOString(),
+          updated_at: s.updated_at ?? new Date().toISOString(),
+        })) as Session[]
+        setSessions(mapped)
+        onSessionsUpdated?.()
+        return
+      }
       console.log('📡 [SessionList] Fetching sessions...')
       const data = await sessionApi.getSessions()
       console.log('✅ [SessionList] Sessions loaded:', data)
@@ -159,9 +204,13 @@ export default function SessionList({
     e.stopPropagation()
     const confirmed = window.confirm(t('session.deleteConfirm'))
     if (!confirmed) return
-    
+
     try {
-      await sessionApi.deleteSession(sessionId)
+      if (isOffline) {
+        await localDeleteSession(sessionId)
+      } else {
+        await sessionApi.deleteSession(sessionId)
+      }
       removeSession(sessionId)
       if (selectedSessionId === sessionId) {
         clearMessages()
@@ -184,7 +233,11 @@ export default function SessionList({
       return
     }
     try {
-      await sessionApi.updateSessionTitle(sessionId, editingTitle)
+      if (isOffline) {
+        await localUpdateSession(sessionId, { title: editingTitle })
+      } else {
+        await sessionApi.updateSessionTitle(sessionId, editingTitle)
+      }
       await loadSessions()
     } catch (error) {
       console.error('Failed to rename session:', error)
@@ -374,6 +427,7 @@ export default function SessionList({
             </div>
           </button>
           <div className="flex items-center gap-1 shrink-0">
+            <SyncStatusBadge />
             <button
               onClick={(e) => {
                 e.stopPropagation();

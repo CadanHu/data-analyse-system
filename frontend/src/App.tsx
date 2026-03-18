@@ -22,18 +22,26 @@ import { Terminal } from 'lucide-react'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useAuthStore } from './stores/authStore'
+import { useSyncStore } from './stores/syncStore'
 import { SQLResult } from './types/message'
 import { sessionApi } from '@/api'
 import { useTranslation } from './hooks/useTranslation'
+import { useSyncManager } from './hooks/useSyncManager'
+import { localGetMessages, localGetAllMessages } from './services/localStore'
 
 export default function App() {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const [showLogs, setShowLogs] = useState(false)
-  const { isAuthenticated, user, setAuth } = useAuthStore()
+  const { isAuthenticated, user, offlineMode } = useAuthStore()
+  const { connectionStatus } = useSyncStore()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen, isMobile, setIsMobile, orientation, setOrientation } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const isOffline = connectionStatus === 'offline' || offlineMode
+
+  // Initialize sync manager
+  useSyncManager()
 
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
@@ -78,8 +86,23 @@ export default function App() {
   const loadMessages = async (sessionId: string) => {
     if (!sessionId) return
     console.log('[App] Loading Messages for:', sessionId)
-    
+
     try {
+      // Load from local SQLite when offline
+      if (isOffline) {
+        const localMsgs = await localGetMessages(sessionId)
+        const localAllMsgs = await localGetAllMessages(sessionId)
+        const processMsg = (msg: any) => {
+          if (typeof msg.data === 'string' && msg.data) {
+            try { return { ...msg, data: JSON.parse(msg.data) } } catch { return msg }
+          }
+          return msg
+        }
+        setMessages(localMsgs.map(processMsg))
+        setAllMessages(localAllMsgs.map(processMsg))
+        return
+      }
+
       const data = await sessionApi.getMessages(sessionId)
       
       sessionApi.getMessages(sessionId, true).then(allData => {

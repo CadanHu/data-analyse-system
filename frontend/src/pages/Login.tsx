@@ -4,6 +4,7 @@ import { authApi } from '@/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { initLocalStore } from '@/services/localStore'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -13,6 +14,13 @@ export default function Login() {
 
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const { initOffline } = useAuthStore()
+
+  const handleOfflineMode = async () => {
+    await initLocalStore()
+    initOffline()
+    navigate('/app')
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -122,6 +130,16 @@ export default function Login() {
             <Link to="/register" className="text-[#06d6a0] hover:text-[#05b88a] font-medium ml-1 transition-colors">
               {t('login.register')}
             </Link>
+          </div>
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={handleOfflineMode}
+              className="w-full py-3 border border-white/10 text-gray-400 hover:text-white hover:border-white/30 rounded-2xl text-sm transition-all"
+            >
+              {t('login.offlineMode') || '离线使用 / 无需服务器'}
+            </button>
           </div>
         </div>
 

@@ -2,6 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Key, Check, Trash2, Eye, EyeOff, ChevronDown } from 'lucide-react'
 import { apiKeyApi, sessionApi } from '@/api'
+import { useAuthStore } from '@/stores/authStore'
+import { useSyncStore } from '@/stores/syncStore'
+import {
+  localGetApiKeys,
+  localSaveApiKey,
+  localDeleteApiKey,
+} from '@/services/localStore'
 
 // 各供应商的预置模型列表
 const PROVIDER_MODELS: Record<string, { label: string; models: { value: string; label: string; thinking?: boolean }[] }> = {
@@ -75,6 +82,9 @@ export default function ModelKeyModal({
 }: ModelKeyModalProps) {
   const [savedKeys, setSavedKeys] = useState<SavedKey[]>([])
   const [loading, setLoading] = useState(true)
+  const { offlineMode, localUserId } = useAuthStore()
+  const { connectionStatus } = useSyncStore()
+  const isOffline = connectionStatus === 'offline' || offlineMode
 
   // 表单状态
   const [selectedProvider, setSelectedProvider] = useState(currentProvider || 'deepseek')
@@ -170,6 +180,19 @@ export default function ModelKeyModal({
   const loadSavedKeys = async () => {
     try {
       setLoading(true)
+      if (isOffline) {
+        const userId = localUserId ?? -1
+        const localKeys = await localGetApiKeys(userId)
+        setSavedKeys(localKeys.map(k => ({
+          provider: k.provider,
+          model_name: k.model_name,
+          base_url: k.base_url,
+          has_key: true,
+          api_key_preview: k.api_key.slice(0, 4) + '****' + k.api_key.slice(-4),
+          updated_at: k.updated_at,
+        })))
+        return
+      }
       const keys = await apiKeyApi.list()
       setSavedKeys(keys)
     } catch (e) {
@@ -184,12 +207,22 @@ export default function ModelKeyModal({
     setSaving(true)
     setSaveSuccess(false)
     try {
-      await apiKeyApi.save({
-        provider: selectedProvider,
-        api_key: apiKey.trim(),
-        base_url: baseUrl.trim() || undefined,
-        model_name: selectedModel || undefined,
-      })
+      if (isOffline) {
+        const userId = localUserId ?? -1
+        await localSaveApiKey(userId, {
+          provider: selectedProvider,
+          api_key: apiKey.trim(),
+          base_url: baseUrl.trim() || undefined,
+          model_name: selectedModel || undefined,
+        })
+      } else {
+        await apiKeyApi.save({
+          provider: selectedProvider,
+          api_key: apiKey.trim(),
+          base_url: baseUrl.trim() || undefined,
+          model_name: selectedModel || undefined,
+        })
+      }
       await loadSavedKeys()
       setApiKey('')
       setSaveSuccess(true)
@@ -205,7 +238,12 @@ export default function ModelKeyModal({
   const handleDeleteKey = async (provider: string) => {
     if (!confirm(`确认删除 ${PROVIDER_MODELS[provider]?.label || provider} 的 API Key？`)) return
     try {
-      await apiKeyApi.remove(provider)
+      if (isOffline) {
+        const userId = localUserId ?? -1
+        await localDeleteApiKey(userId, provider)
+      } else {
+        await apiKeyApi.remove(provider)
+      }
       await loadSavedKeys()
     } catch (e) {
       console.error('Failed to delete API key:', e)
@@ -214,8 +252,7 @@ export default function ModelKeyModal({
 
   const handleApplyModel = async () => {
     if (!selectedProvider || !selectedModel) return
-    // 持久化到会话
-    if (sessionId) {
+    if (!isOffline && sessionId) {
       try {
         await sessionApi.updateSessionModes(sessionId, {
           model_provider: selectedProvider,
@@ -459,7 +496,9 @@ export default function ModelKeyModal({
               </div>
 
               <p className="text-[11px] text-gray-400 text-center">
-                API Key 存储在服务器数据库中，仅用于向对应的模型服务发起请求
+                {isOffline
+                  ? 'API Key 加密存储在本机，联网时自动同步'
+                  : 'API Key 存储在服务器数据库中，仅用于向对应的模型服务发起请求'}
               </p>
             </div>
           )}

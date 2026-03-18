@@ -487,6 +487,169 @@ class SessionDatabase:
             await session.commit()
             return True
 
+    # ==================== Sync helpers ====================
+
+    async def get_session_by_id(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """按 ID 获取 session（不校验 user_id，供同步使用）"""
+        async with self.async_session() as session:
+            result = await session.execute(select(SessionModel).where(SessionModel.id == session_id))
+            s = result.scalar_one_or_none()
+            return self._to_dict(s) if s else None
+
+    async def get_sessions_since(self, user_id: int, since: Optional[datetime]) -> List[Dict[str, Any]]:
+        """返回 user_id 下 updated_at >= since 的 sessions"""
+        async with self.async_session() as session:
+            q = select(SessionModel).where(SessionModel.user_id == user_id)
+            if since:
+                q = q.where(SessionModel.updated_at >= since)
+            result = await session.execute(q.order_by(SessionModel.updated_at.asc()))
+            return [self._to_dict(s) for s in result.scalars().all()]
+
+    async def get_messages_since(self, user_id: int, since: Optional[datetime]) -> List[Dict[str, Any]]:
+        """返回 user_id 的会话下 created_at >= since 的 messages"""
+        async with self.async_session() as session:
+            q = (
+                select(MessageModel)
+                .join(SessionModel, MessageModel.session_id == SessionModel.id)
+                .where(SessionModel.user_id == user_id)
+            )
+            if since:
+                q = q.where(MessageModel.created_at >= since)
+            result = await session.execute(q.order_by(MessageModel.created_at.asc()))
+            return [self._to_dict(m) for m in result.scalars().all()]
+
+    async def get_api_keys_since(self, user_id: int, since: Optional[datetime]) -> List[Dict[str, Any]]:
+        """返回 user_id 下 updated_at >= since 的 api_keys"""
+        async with self.async_session() as session:
+            q = select(UserApiKeyModel).where(UserApiKeyModel.user_id == user_id)
+            if since:
+                q = q.where(UserApiKeyModel.updated_at >= since)
+            result = await session.execute(q.order_by(UserApiKeyModel.updated_at.asc()))
+            return [self._to_dict(k) for k in result.scalars().all()]
+
+    async def upsert_session(self, data: Dict[str, Any]) -> None:
+        """从客户端推送的数据 upsert session"""
+        async with self.async_session() as session:
+            result = await session.execute(select(SessionModel).where(SessionModel.id == data["id"]))
+            s = result.scalar_one_or_none()
+            if s:
+                for field in ["title", "database_key", "status", "enable_data_science_agent",
+                              "enable_thinking", "enable_rag", "model_provider", "model_name"]:
+                    if field in data and data[field] is not None:
+                        setattr(s, field, data[field])
+                s.updated_at = datetime.utcnow()
+            else:
+                now = datetime.utcnow()
+                s = SessionModel(
+                    id=data["id"],
+                    user_id=data["user_id"],
+                    title=data.get("title"),
+                    database_key=data.get("database_key", "business"),
+                    status=data.get("status", "active"),
+                    enable_data_science_agent=data.get("enable_data_science_agent", False),
+                    enable_thinking=data.get("enable_thinking", False),
+                    enable_rag=data.get("enable_rag", False),
+                    model_provider=data.get("model_provider"),
+                    model_name=data.get("model_name"),
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(s)
+            await session.commit()
+
+    async def upsert_message(self, data: Dict[str, Any]) -> None:
+        """从客户端推送的数据 upsert message"""
+        async with self.async_session() as session:
+            result = await session.execute(select(MessageModel).where(MessageModel.id == data["id"]))
+            m = result.scalar_one_or_none()
+            if m:
+                for field in ["content", "sql", "chart_cfg", "thinking", "data",
+                              "is_current", "feedback", "feedback_text"]:
+                    if field in data and data[field] is not None:
+                        setattr(m, field, data[field])
+            else:
+                now = datetime.utcnow()
+                m = MessageModel(
+                    id=data["id"],
+                    session_id=data["session_id"],
+                    parent_id=data.get("parent_id"),
+                    role=data["role"],
+                    content=data.get("content", ""),
+                    sql=data.get("sql"),
+                    chart_cfg=data.get("chart_cfg"),
+                    thinking=data.get("thinking"),
+                    data=data.get("data"),
+                    is_current=1 if data.get("is_current", True) else 0,
+                    feedback=data.get("feedback", 0),
+                    feedback_text=data.get("feedback_text"),
+                    tokens_prompt=data.get("tokens_prompt", 0),
+                    tokens_completion=data.get("tokens_completion", 0),
+                    created_at=now,
+                )
+                session.add(m)
+            await session.commit()
+
+    async def upsert_api_key(self, data: Dict[str, Any]) -> None:
+        """从客户端推送的数据 upsert api_key"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserApiKeyModel).where(
+                    UserApiKeyModel.user_id == data["user_id"],
+                    UserApiKeyModel.provider == data["provider"]
+                )
+            )
+            k = result.scalar_one_or_none()
+            if k:
+                k.api_key = data["api_key"]
+                k.base_url = data.get("base_url")
+                k.model_name = data.get("model_name")
+                k.updated_at = datetime.utcnow()
+            else:
+                now = datetime.utcnow()
+                k = UserApiKeyModel(
+                    id=data.get("id", str(uuid.uuid4())),
+                    user_id=data["user_id"],
+                    provider=data["provider"],
+                    api_key=data["api_key"],
+                    base_url=data.get("base_url"),
+                    model_name=data.get("model_name"),
+                    created_at=now,
+                    updated_at=now,
+                )
+                session.add(k)
+            await session.commit()
+
+    async def delete_message(self, message_id: str, user_id: int) -> bool:
+        """删除消息（验证所属 session 的 user_id）"""
+        async with self.async_session() as session:
+            res = await session.execute(
+                select(MessageModel)
+                .join(SessionModel, MessageModel.session_id == SessionModel.id)
+                .where(MessageModel.id == message_id, SessionModel.user_id == user_id)
+            )
+            m = res.scalar_one_or_none()
+            if not m:
+                return False
+            await session.delete(m)
+            await session.commit()
+            return True
+
+    async def delete_api_key_by_id(self, key_id: str, user_id: int) -> bool:
+        """按 id 删除 api_key（验证 user_id）"""
+        async with self.async_session() as session:
+            res = await session.execute(
+                select(UserApiKeyModel).where(
+                    UserApiKeyModel.id == key_id,
+                    UserApiKeyModel.user_id == user_id
+                )
+            )
+            k = res.scalar_one_or_none()
+            if not k:
+                return False
+            await session.delete(k)
+            await session.commit()
+            return True
+
     def _to_dict(self, model_obj):
         if not model_obj: return None
         return {c.name: getattr(model_obj, c.name) for c in model_obj.__table__.columns}

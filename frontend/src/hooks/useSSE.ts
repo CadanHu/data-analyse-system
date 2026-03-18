@@ -2,6 +2,10 @@ import { useRef, useCallback } from 'react'
 import { useChatStore } from '../stores/chatStore'
 import { useLanguageStore } from '../stores/languageStore'
 import { useSessionStore } from '../stores/sessionStore'
+import { useSyncStore } from '../stores/syncStore'
+import { useAuthStore } from '../stores/authStore'
+import { streamDirectAi } from '../services/directAiService'
+import { localGetApiKey, localSaveMessage, localUpdateMessage } from '../services/localStore'
 
 // 简单的 UUID 生成函数
 function generateId(): string {
@@ -49,6 +53,8 @@ export function useSSE() {
   } = useChatStore()
   const { language } = useLanguageStore()
   const { addMessage, updateLastMessage, updateSession, updateMessageId } = useSessionStore()
+  const { connectionStatus } = useSyncStore()
+  const { localUserId, offlineMode } = useAuthStore()
 
   const connect = useCallback(
     async (sessionId: string, question: string, options?: ConnectOptions, handlers?: SSEHandlers) => {
@@ -66,6 +72,18 @@ export function useSSE() {
         content: question,
         created_at: new Date().toISOString()
       })
+
+      // Persist user message locally
+      await localSaveMessage({
+        id: userMessageId,
+        session_id: sessionId,
+        parent_id: options?.parent_id ?? null,
+        role: 'user',
+        content: question,
+        created_at: new Date().toISOString(),
+        _sync_dirty: 1,
+        _deleted: 0,
+      }).catch(() => {})
       
       console.log('✅ [SSE] 消息已提交至 Store:', userMessageId)
 
@@ -87,7 +105,91 @@ export function useSSE() {
       let assistantMessageAdded = false
 
       try {
-        // 2. 获取 Token
+        // 2a. Offline mode → direct AI
+        const isOffline = connectionStatus === 'offline' || offlineMode
+        if (isOffline) {
+          const provider = options?.model_provider || 'openai'
+          const model = options?.model_name || ''
+          const userId = localUserId ?? -1
+          const apiKey = await localGetApiKey(userId, provider).catch(() => null)
+
+          if (!apiKey) {
+            handlers?.onError?.('离线模式需要先在「模型配置」中保存 API Key')
+            return
+          }
+
+          // Use outer scope variables (they are initialized to '' / false above)
+          // Build messages for AI
+          const aiMessages = [{ role: 'user', content: question }]
+
+          await streamDirectAi({
+            provider,
+            model,
+            messages: aiMessages,
+            enableThinking: options?.enable_thinking ?? isThinkingMode,
+            apiKey,
+            signal: controller.signal,
+            onModelThinking: (chunk) => {
+              assistantModelThinking += chunk
+              setThinkingContent(assistantModelThinking)
+              handlers?.onModelThinking?.(chunk)
+              if (!assistantMessageAdded) {
+                addMessage({
+                  id: assistantMessageId,
+                  session_id: sessionId,
+                  parent_id: userMessageId,
+                  role: 'assistant',
+                  content: '',
+                  thinking: assistantModelThinking,
+                  created_at: new Date().toISOString()
+                })
+                assistantMessageAdded = true
+              } else {
+                updateLastMessage({ thinking: assistantModelThinking })
+              }
+            },
+            onSummary: (chunk) => {
+              assistantContent += chunk
+              handlers?.onSummary?.(chunk)
+              if (!assistantMessageAdded) {
+                addMessage({
+                  id: assistantMessageId,
+                  session_id: sessionId,
+                  parent_id: userMessageId,
+                  role: 'assistant',
+                  content: assistantContent,
+                  thinking: assistantModelThinking,
+                  created_at: new Date().toISOString()
+                })
+                assistantMessageAdded = true
+              } else {
+                updateLastMessage({ content: assistantContent, thinking: assistantModelThinking })
+              }
+            },
+            onDone: () => {
+              // Persist assistant message locally
+              localSaveMessage({
+                id: assistantMessageId,
+                session_id: sessionId,
+                parent_id: userMessageId,
+                role: 'assistant',
+                content: assistantContent,
+                thinking: assistantModelThinking || null,
+                created_at: new Date().toISOString(),
+                _sync_dirty: 1,
+                _deleted: 0,
+              }).catch(() => {})
+              handlers?.onDone?.({})
+              options?.onMessageSent?.()
+            },
+            onError: (msg) => {
+              handlers?.onError?.(msg)
+            },
+          })
+          return
+        }
+
+        // 2b. 获取 Token
         let token = ''
         const authStore = localStorage.getItem('auth-storage')
         if (authStore) {
@@ -297,7 +399,7 @@ export function useSSE() {
         setIsLoading(false)
       }
     },
-    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage, isThinkingMode]
+    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage, isThinkingMode, connectionStatus, offlineMode, localUserId]
   )
 
   const disconnect = useCallback(() => {

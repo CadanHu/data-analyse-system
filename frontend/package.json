@@ -14,6 +14,7 @@
     "android:build": "npm run build && npx cap copy android"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "^6.0.0",
     "@capacitor/android": "^6.2.1",
     "@capacitor/cli": "^6.2.1",
     "@capacitor/core": "^6.2.1",
@@ -33,6 +34,7 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.0",
     "remark-math": "^6.0.0",
+    "uuid": "^9.0.1",
     "zustand": "^4.4.7"
   },
   "devDependencies": {
@@ -48,6 +50,7 @@
     "eslint-plugin-react-refresh": "^0.4.5",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
+    "@types/uuid": "^9.0.7",
     "typescript": "^5.2.2",
     "vite": "^5.4.21"
   }
