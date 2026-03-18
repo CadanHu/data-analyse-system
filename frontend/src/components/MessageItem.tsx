@@ -37,6 +37,7 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useAuthStore } from '../stores/authStore'
 import { sessionApi, getBaseURL, messageApi } from '@/api'
+import { resolveUrl, isCached } from '@/services/fileCache'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
 
@@ -329,7 +330,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   const isKnowledgeExtraction = parsedData?.is_knowledge_extraction
   const htmlReport = parsedData?.html_report
-  const pdfUrl = parsedData?.file_url ? `${getBaseURL().replace('/api', '')}${parsedData.file_url}` : null
+  const pdfServerUrl = parsedData?.file_url ? `${getBaseURL().replace('/api', '')}${parsedData.file_url}` : null
+  const pdfUrl = pdfServerUrl ? resolveUrl(pdfServerUrl) : null
+  const pdfIsLocal = pdfServerUrl ? isCached(pdfServerUrl) : false
   const plotImageBase64 = parsedData?.plot_image_base64
 
   const displayContent = (isFullTextExpanded && parsedData?.markdown_full) 
@@ -930,9 +933,16 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             
             <div className="flex-1 flex overflow-hidden divide-x divide-gray-200">
               <div className="w-1/2 h-full flex flex-col">
-                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.original')}</div>
-                <iframe 
-                  src={`${pdfUrl}#toolbar=0`} 
+                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                  {t('preview.original')}
+                  {pdfIsLocal && (
+                    <span className="text-[9px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                      📱 本机缓存
+                    </span>
+                  )}
+                </div>
+                <iframe
+                  src={`${pdfUrl}#toolbar=0`}
                   className="flex-1 w-full border-none"
                   title="PDF Original"
                 />

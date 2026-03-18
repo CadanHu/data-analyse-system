@@ -4,7 +4,8 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
-import { uploadApi, messageApi, sessionApi, databaseApi } from '@/api'
+import { uploadApi, messageApi, sessionApi, databaseApi, getBaseURL } from '@/api'
+import { cacheFile } from '@/services/fileCache'
 import ModelKeyModal from './ModelKeyModal'
 
 // 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
@@ -364,6 +365,12 @@ const handleStandardUpload = async (file: File) => {
         markdown_full: response.markdown_preview,
         file_url: response.file_url,
         is_knowledge_extraction: true
+      }
+
+      // 🗂️ 立即把 PDF 缓存到设备本地，确保换 Wi-Fi 后仍可离线查看
+      if (response.file_url) {
+        const fullUrl = `${getBaseURL().replace('/api', '')}${response.file_url}`
+        cacheFile(fullUrl).catch(e => console.warn('[FileCache] Pre-cache failed:', e))
       }
 
       const assistantMsg = {
