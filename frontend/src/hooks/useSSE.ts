@@ -5,7 +5,10 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useSyncStore } from '../stores/syncStore'
 import { useAuthStore } from '../stores/authStore'
 import { streamDirectAi } from '../services/directAiService'
-import { localGetApiKey, localSaveMessage, localUpdateMessage } from '../services/localStore'
+import { localGetApiKey, localSaveMessage, localUpdateMessage, localUpdateSession } from '../services/localStore'
+import { getLocalBizTables, executeLocalQuery } from '../services/db'
+import { convertMySQLToSQLite } from '../services/sqlDialectConverter'
+import { Capacitor } from '@capacitor/core'
 
 // 简单的 UUID 生成函数
 function generateId(): string {
@@ -52,7 +55,7 @@ export function useSSE() {
     isThinkingMode
   } = useChatStore()
   const { language } = useLanguageStore()
-  const { addMessage, updateLastMessage, updateSession, updateMessageId } = useSessionStore()
+  const { addMessage, updateLastMessage, updateSession, updateMessageId, messages } = useSessionStore()
   const { connectionStatus } = useSyncStore()
   const { localUserId, offlineMode } = useAuthStore()
 
@@ -118,9 +121,28 @@ export function useSSE() {
             return
           }
 
-          // Use outer scope variables (they are initialized to '' / false above)
-          // Build messages for AI
-          const aiMessages = [{ role: 'user', content: question }]
+          // Build messages with full conversation history for context
+          const historyMessages = messages
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .filter(m => m.id !== userMessageId) // exclude the just-added user msg (will be appended below)
+            .slice(-20) // keep last 20 messages to avoid token overflow
+            .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
+          const aiMessages: { role: string; content: string }[] = [
+            ...historyMessages,
+            { role: 'user', content: question },
+          ]
+
+          // Get local database schema for offline SQL generation
+          const currentDb = useSessionStore.getState().sessions.find(s => s.id === sessionId)?.database_key ?? null
+          let localTables: { tableName: string; columns: string[] }[] = []
+          if (currentDb && Capacitor.isNativePlatform()) {
+            try { localTables = await getLocalBizTables(currentDb) } catch { /* ignore */ }
+          }
+          if (localTables.length > 0) {
+            const schemaLines = localTables.map(t => `${t.tableName}(${t.columns.join(', ')})`).join('\n')
+            const systemPrompt = `你是数据分析助手。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n请根据用户问题生成 SQL 查询。必须以 JSON 格式回复，格式：\n{"sql":"SELECT ...","chart_type":"bar|line|pie|none","reasoning":"分析思路"}\n若不需要 SQL 则 sql 字段为空字符串。SQL 使用 MySQL 语法。`
+            aiMessages.unshift({ role: 'system', content: systemPrompt })
+          }
 
           await streamDirectAi({
             provider,
@@ -179,6 +201,16 @@ export function useSSE() {
                 _sync_dirty: 1,
                 _deleted: 0,
               }).catch(() => {})
+
+              // Auto-rename session if it has no title yet (offline equivalent of backend session_title)
+              const currentSessions = useSessionStore.getState().sessions
+              const sess = currentSessions.find(s => s.id === sessionId)
+              if (!sess?.title) {
+                const autoTitle = question.trim().slice(0, 24) + (question.trim().length > 24 ? '…' : '')
+                localUpdateSession(sessionId, { title: autoTitle }).catch(() => {})
+                updateSession(sessionId, { title: autoTitle })
+              }
+
               handlers?.onDone?.({})
               options?.onMessageSent?.()
             },
@@ -186,6 +218,45 @@ export function useSSE() {
               handlers?.onError?.(msg)
             },
           })
+
+          // After streaming: parse SQL from response and execute locally
+          if (currentDb && localTables.length > 0 && assistantContent) {
+            const jsonMatch = assistantContent.match(/\{[\s\S]*\}/)
+            if (jsonMatch) {
+              try {
+                const parsed = JSON.parse(jsonMatch[0])
+                const rawSql: string = parsed.sql || ''
+                const reasoning: string = parsed.reasoning || parsed.explanation || ''
+                if (rawSql.trim()) {
+                  const displayContent = reasoning || assistantContent
+                  const tableNames = localTables.map(t => t.tableName)
+                  const sqliteSQL = convertMySQLToSQLite(rawSql, currentDb, tableNames)
+                  setCurrentSql(rawSql)
+                  try {
+                    const rows = await executeLocalQuery(sqliteSQL)
+                    const cleanRows = (rows as any[]).filter((r: any) => !('ios_columns' in r))
+                    const columns = cleanRows.length > 0 ? Object.keys(cleanRows[0]) : []
+                    const sqlResult = { columns, rows: cleanRows, total_count: cleanRows.length }
+                    setSqlResult(sqlResult)
+                    updateLastMessage({
+                      content: displayContent,
+                      sql: rawSql,
+                      sql_result: JSON.stringify(sqlResult),
+                    })
+                    await localUpdateMessage(assistantMessageId, {
+                      content: displayContent,
+                      sql: rawSql,
+                      sql_result: JSON.stringify(sqlResult),
+                    }).catch(() => {})
+                  } catch (execErr) {
+                    const errMsg = execErr instanceof Error ? execErr.message : 'SQL执行失败'
+                    updateLastMessage({ content: `${reasoning}\n\n❌ ${errMsg}\n\`\`\`sql\n${rawSql}\n\`\`\`` })
+                  }
+                }
+              } catch { /* not valid JSON, keep as plain text */ }
+            }
+          }
+
           return
         }
 

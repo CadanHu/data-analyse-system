@@ -46,6 +46,19 @@ export interface LocalMessage {
   _deleted: number
 }
 
+export interface LocalAccount {
+  id: number
+  username: string
+  email: string
+  password_hash: string
+  avatar_url: string | null
+  is_active: number
+  created_at: string
+  last_login: string | null
+  local_only: number
+  server_id: number | null
+}
+
 export interface LocalApiKey {
   id: string
   user_id: number
@@ -145,6 +158,27 @@ CREATE TABLE IF NOT EXISTS knowledge_relationships (
   attributes TEXT NULL DEFAULT '{}',
   created_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS local_accounts (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT    NOT NULL,
+  email         TEXT    NOT NULL UNIQUE,
+  password_hash TEXT    NOT NULL,
+  avatar_url    TEXT    NULL,
+  is_active     INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT    NOT NULL,
+  last_login    TEXT    NULL,
+  local_only    INTEGER NOT NULL DEFAULT 1,
+  server_id     INTEGER NULL
+);
+
+CREATE TABLE IF NOT EXISTS biz_sync_meta (
+  db_key     TEXT NOT NULL,
+  table_name TEXT NOT NULL,
+  synced_at  TEXT,
+  row_count  INTEGER DEFAULT 0,
+  PRIMARY KEY (db_key, table_name)
+);
 `
 
 // ==================== DB Service ====================
@@ -156,6 +190,10 @@ const CURRENT_DB_VERSION = 1
 let sqlite: SQLiteConnection | null = null
 let db: SQLiteDBConnection | null = null
 let initialized = false
+
+export function isDbInitialized(): boolean {
+  return initialized
+}
 
 export async function initDb(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) {
@@ -170,7 +208,7 @@ export async function initDb(): Promise<boolean> {
     await db.open()
     await db.execute(DDL)
     initialized = true
-    console.log('[DB] SQLite initialized:', DB_NAME)
+    console.log('✅ [DB] SQLite initialized:', DB_NAME)
     return true
   } catch (e) {
     console.error('[DB] Init failed:', e)
@@ -427,9 +465,12 @@ export async function clearApiKeyDirty(id: string): Promise<void> {
 // ==================== User ID Migration ====================
 
 export async function migrateUserId(fromId: number, toId: number): Promise<void> {
-  await requireDb().run('UPDATE sessions SET user_id = ? WHERE user_id = ?', [toId, fromId])
-  await requireDb().run('UPDATE user_api_keys SET user_id = ? WHERE user_id = ?', [toId, fromId])
-  console.log(`[DB] Migrated user_id ${fromId} → ${toId}`)
+  const db = requireDb()
+  // Mark messages dirty first (before sessions user_id changes)
+  await db.run('UPDATE messages SET _sync_dirty = 1 WHERE session_id IN (SELECT id FROM sessions WHERE user_id = ?)', [fromId])
+  await db.run('UPDATE sessions SET user_id = ?, _sync_dirty = 1 WHERE user_id = ?', [toId, fromId])
+  await db.run('UPDATE user_api_keys SET user_id = ?, _sync_dirty = 1 WHERE user_id = ?', [toId, fromId])
+  console.log(`[DB] Migrated user_id ${fromId} → ${toId} (marked dirty)`)
 }
 
 // ==================== User Cache ====================
@@ -445,6 +486,162 @@ export async function upsertUser(user: { id: number; username: string; email: st
        last_login=excluded.last_login`,
     [user.id, user.username, user.email, user.avatar_url ?? null, user.created_at ?? null, user.last_login ?? null]
   )
+}
+
+// ==================== Local Accounts ====================
+
+export async function upsertLocalAccount(account: {
+  username: string; email: string; password_hash: string;
+  avatar_url?: string | null; local_only?: number; server_id?: number | null
+}): Promise<void> {
+  const now = new Date().toISOString()
+  await requireDb().run(
+    `INSERT INTO local_accounts (username, email, password_hash, avatar_url, created_at, local_only, server_id)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(email) DO UPDATE SET
+       username=excluded.username,
+       password_hash=excluded.password_hash,
+       avatar_url=excluded.avatar_url,
+       local_only=excluded.local_only,
+       server_id=excluded.server_id,
+       last_login=?`,
+    [
+      account.username,
+      account.email,
+      account.password_hash,
+      account.avatar_url ?? null,
+      now,
+      account.local_only ?? 1,
+      account.server_id ?? null,
+      now,
+    ]
+  )
+}
+
+export async function getLocalAccount(email: string): Promise<LocalAccount | null> {
+  const result = await requireDb().query(
+    'SELECT * FROM local_accounts WHERE email = ?',
+    [email]
+  )
+  return (result.values?.[0] as LocalAccount) || null
+}
+
+export async function getLocalOnlyAccounts(): Promise<LocalAccount[]> {
+  const result = await requireDb().query(
+    'SELECT * FROM local_accounts WHERE local_only = 1'
+  )
+  return (result.values || []) as LocalAccount[]
+}
+
+export async function updateLocalAccountServerId(email: string, serverId: number): Promise<void> {
+  await requireDb().run(
+    'UPDATE local_accounts SET server_id = ?, local_only = 0 WHERE email = ?',
+    [serverId, email]
+  )
+}
+
+// ==================== Business Data Tables ====================
+
+export interface BizSyncMeta {
+  db_key: string
+  table_name: string
+  synced_at: string | null
+  row_count: number
+}
+
+/**
+ * Create (or recreate) a business data table in SQLite.
+ * tableName should be the full prefixed name, e.g. "biz_classic_business__orders".
+ * columns: array of {name, sqliteType} where sqliteType is one of TEXT/INTEGER/REAL/BLOB.
+ */
+export async function createBusinessTable(
+  tableName: string,
+  columns: { name: string; sqliteType: string }[]
+): Promise<void> {
+  const db = requireDb()
+  // Drop + recreate for a clean full sync
+  await db.execute(`DROP TABLE IF EXISTS "${tableName}"`)
+  const colDefs = columns.map(c => `"${c.name}" ${c.sqliteType}`).join(', ')
+  await db.execute(`CREATE TABLE IF NOT EXISTS "${tableName}" (${colDefs})`)
+}
+
+/**
+ * Bulk-insert rows into a business table using executeSet (batched transaction).
+ * rows: array of value arrays, must match the column order of columns[].
+ */
+export async function bulkInsertBusinessRows(
+  tableName: string,
+  columns: string[],
+  rows: (string | number | null)[][]
+): Promise<void> {
+  if (rows.length === 0) return
+  const db = requireDb()
+  const colList = columns.map(c => `"${c}"`).join(', ')
+  const placeholders = columns.map(() => '?').join(', ')
+  const sql = `INSERT OR REPLACE INTO "${tableName}" (${colList}) VALUES (${placeholders})`
+  const set = rows.map(values => ({ statement: sql, values }))
+  await db.executeSet(set)
+}
+
+/**
+ * Execute an arbitrary SQL query on the local SQLite database.
+ * Used for offline AI query execution.
+ */
+export async function executeLocalQuery(sql: string): Promise<Record<string, unknown>[]> {
+  const result = await requireDb().query(sql)
+  return (result.values || []) as Record<string, unknown>[]
+}
+
+export async function getBizSyncMeta(dbKey: string): Promise<BizSyncMeta[]> {
+  const result = await requireDb().query(
+    'SELECT * FROM biz_sync_meta WHERE db_key = ?',
+    [dbKey]
+  )
+  return (result.values || []) as BizSyncMeta[]
+}
+
+export async function getAllBizSyncMeta(): Promise<BizSyncMeta[]> {
+  const result = await requireDb().query('SELECT * FROM biz_sync_meta')
+  return (result.values || []) as BizSyncMeta[]
+}
+
+export async function upsertBizSyncMeta(meta: BizSyncMeta): Promise<void> {
+  await requireDb().run(
+    `INSERT INTO biz_sync_meta (db_key, table_name, synced_at, row_count)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(db_key, table_name) DO UPDATE SET
+       synced_at = excluded.synced_at,
+       row_count = excluded.row_count`,
+    [meta.db_key, meta.table_name, meta.synced_at, meta.row_count]
+  )
+}
+
+export async function getLocalBizTables(dbKey: string): Promise<{ tableName: string; columns: string[] }[]> {
+  if (!initialized) return []
+  const safeKey = dbKey.replace(/[^a-zA-Z0-9]/g, '_')
+  const prefix = `biz_${safeKey}__`
+  try {
+    const tables = await executeLocalQuery(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '${prefix}%' ORDER BY name`
+    )
+    const result: { tableName: string; columns: string[] }[] = []
+    for (const t of tables) {
+      const fullName = t.name as string
+      const tableName = fullName.slice(prefix.length)
+      try {
+        const cols = await executeLocalQuery(`PRAGMA table_info("${fullName}")`)
+        const columns = (cols as any[])
+          .map((c: any) => c.name as string)
+          .filter(n => !n.startsWith('_'))
+        result.push({ tableName, columns })
+      } catch { /* skip */ }
+    }
+    return result
+  } catch { return [] }
+}
+
+export async function clearBizSyncMeta(dbKey: string): Promise<void> {
+  await requireDb().run('DELETE FROM biz_sync_meta WHERE db_key = ?', [dbKey])
 }
 
 export const dbService = {
@@ -471,6 +668,14 @@ export const dbService = {
   clearApiKeyDirty,
   migrateUserId,
   upsertUser,
+  createBusinessTable,
+  bulkInsertBusinessRows,
+  executeLocalQuery,
+  getBizSyncMeta,
+  getAllBizSyncMeta,
+  upsertBizSyncMeta,
+  clearBizSyncMeta,
+  getLocalBizTables,
 }
 
 export default dbService

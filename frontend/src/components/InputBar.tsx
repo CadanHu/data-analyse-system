@@ -7,6 +7,8 @@ import { useTranslation } from '../hooks/useTranslation'
 import { uploadApi, messageApi, sessionApi, databaseApi, getBaseURL } from '@/api'
 import { cacheFile } from '@/services/fileCache'
 import ModelKeyModal from './ModelKeyModal'
+import { useAuthStore } from '@/stores/authStore'
+import { useSyncStore } from '@/stores/syncStore'
 
 // 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
 const THINKING_SUPPORTED_MODELS = new Set([
@@ -48,6 +50,9 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     setShowModelKeyModal,
   } = useChatStore()
   const { messages, addMessage, currentSession, updateSession } = useSessionStore()
+  const { offlineMode } = useAuthStore()
+  const { connectionStatus } = useSyncStore()
+  const isOffline = connectionStatus === 'offline' || offlineMode
   // RAG 三档状态: off → session（当前会话文件）→ global（全用户文件）→ off
   type RagScope = 'off' | 'session' | 'global'
   const [ragScope, setRagScope] = useState<RagScope>('off')
@@ -141,8 +146,8 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
 
     const question = textToSubmit.trim()
     
-    // 🚀 核心修复：如果还没选库（比如刚通过 pending 自动创建的会话），自动帮他选第一个
-    if (!currentDb) {
+    // 离线模式无需数据库，直接跳过选库逻辑
+    if (!currentDb && !isOffline) {
       console.log('🎯 [InputBar] No DB selected, trying auto-select first one...')
       try {
         const { databases } = await databaseApi.getDatabases()
@@ -150,8 +155,6 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
           const firstDb = databases[0].key
           await databaseApi.switchDatabase(firstDb, sessionId)
           updateSession(sessionId, { database_key: firstDb })
-          // 重新进入 handleSubmit（递归调用一次，此时 currentDb 还没刷新，但后端已经切换成功）
-          // 或者通过 connect 注入 db 逻辑
         } else {
           alert(t('chat.selectDb'))
           return
@@ -570,13 +573,13 @@ const handleStandardUpload = async (file: File) => {
             placeholder={
               !sessionId
                 ? t('chat.noSession')
-                : !currentDb
+                : !currentDb && !isOffline
                   ? '⚠️ Please select a database in the top right'
                   : isKnowledgeMode
                     ? t('feature.file.title')
                     : t('chat.placeholder')
             }
-            disabled={isLoading || !sessionId || !currentDb}
+            disabled={isLoading || !sessionId || (!currentDb && !isOffline)}
             className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed data-[mobile=true]:data-[orientation=landscape]:text-xs data-[mobile=true]:data-[orientation=landscape]:leading-tight"
             rows={1}
           />
@@ -585,7 +588,7 @@ const handleStandardUpload = async (file: File) => {
           {isMobilePortrait && (
             <button
               onClick={() => handleSubmit()}
-              disabled={!input.trim() || !sessionId || isLoading || !currentDb}
+              disabled={!input.trim() || !sessionId || isLoading || (!currentDb && !isOffline)}
               className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed shadow-sm transition-all"
               title={t('chat.send')}
             >
@@ -753,7 +756,7 @@ const handleStandardUpload = async (file: File) => {
               )}
               <button
                 onClick={() => handleSubmit()}
-                disabled={!input.trim() || !sessionId || isLoading || !currentDb}
+                disabled={!input.trim() || !sessionId || isLoading || (!currentDb && !isOffline)}
                 className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
               >
                 <svg className="w-4.5 h-4.5 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -100,6 +100,62 @@ export function isCached(serverUrl: string): boolean {
   return !!getMap()[serverUrl]
 }
 
+// ==================== ECharts 离线缓存 ====================
+
+const ECHARTS_CDN = 'https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js'
+const ECHARTS_FS_PATH = 'filecache/echarts_5_5_0.min.js'
+const ECHARTS_CACHED_KEY = 'dp_echarts_cached'
+// Matches any echarts CDN <script src="..."> tag
+const ECHARTS_SCRIPT_RE = /<script\s[^>]*src=["'][^"']*echarts[^"']*["'][^>]*><\/script>/i
+
+/**
+ * 将 ECharts CDN 脚本缓存到本地文件系统（仅 Native）。
+ * 首次联网时调用一次，之后即可完全离线使用。
+ */
+export async function cacheECharts(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  if (localStorage.getItem(ECHARTS_CACHED_KEY) === '1') return
+
+  try {
+    const resp = await fetch(ECHARTS_CDN, { signal: AbortSignal.timeout(20000) })
+    if (!resp.ok) return
+    const blob = await resp.blob()
+    const base64 = await blobToBase64(blob)
+    await Filesystem.writeFile({
+      path: ECHARTS_FS_PATH,
+      data: base64,
+      directory: Directory.Data,
+      recursive: true,
+    })
+    localStorage.setItem(ECHARTS_CACHED_KEY, '1')
+    console.log('[FileCache] ECharts cached for offline use')
+  } catch (e) {
+    console.warn('[FileCache] ECharts cache failed (CDN fallback will be used):', e)
+  }
+}
+
+/**
+ * 将 HTML report 中的 ECharts CDN <script src> 替换为内联 <script> 代码块。
+ * 从 Capacitor Filesystem 异步读取已缓存的 ECharts JS，直接嵌入 HTML。
+ * 供 DashboardPreview 在 useEffect 中异步调用。
+ */
+export async function resolveEChartsInHtml(html: string): Promise<string> {
+  if (!Capacitor.isNativePlatform()) return html
+  if (!ECHARTS_SCRIPT_RE.test(html)) return html
+  if (localStorage.getItem(ECHARTS_CACHED_KEY) !== '1') return html
+
+  try {
+    const result = await Filesystem.readFile({
+      path: ECHARTS_FS_PATH,
+      directory: Directory.Data,
+    })
+    const jsText = atob(result.data as string)
+    return html.replace(ECHARTS_SCRIPT_RE, `<script>${jsText}</script>`)
+  } catch {
+    return html // fallback: original CDN URL
+  }
+}
+
 // ==================== 工具函数 ====================
 
 function urlToFilename(url: string): string {

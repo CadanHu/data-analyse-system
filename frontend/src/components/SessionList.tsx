@@ -18,7 +18,8 @@ import {
   localDeleteSession,
 } from '../services/localStore'
 
-import { Terminal, Monitor, XCircle, LogOut } from 'lucide-react'
+import { Terminal, Monitor, XCircle, LogOut, Database } from 'lucide-react'
+import BizSyncModal from './BizSyncModal'
 
 interface SessionListProps {
   selectedSessionId: string | null
@@ -37,9 +38,10 @@ export default function SessionList({
 }: SessionListProps) {
   const { sessions, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
   const { user, logout, offlineMode, localUserId } = useAuthStore()
-  const { connectionStatus } = useSyncStore()
+  const { connectionStatus, lastSyncAt } = useSyncStore()
   const isOffline = connectionStatus === 'offline' || offlineMode
   const [showUserSettings, setShowUserSettings] = useState(false)
+  const [showBizSync, setShowBizSync] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const { t } = useTranslation()
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
@@ -65,6 +67,20 @@ export default function SessionList({
       loadSessions()
     }
   }, [user])
+
+  // Reload sessions from server after each sync completes (catches migrated offline sessions)
+  useEffect(() => {
+    if (lastSyncAt && !isOffline) {
+      loadSessions()
+    }
+  }, [lastSyncAt])
+
+  // When connection is confirmed offline, load sessions from local SQLite
+  useEffect(() => {
+    if (connectionStatus === 'offline' && user) {
+      loadSessions()
+    }
+  }, [connectionStatus])
 
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -97,7 +113,7 @@ export default function SessionList({
           const writeResult = await Filesystem.writeFile({
             path: fileName,
             data: base64Data,
-            directory: Directory.Cache,
+            directory: Directory.Documents,
             recursive: true
           });
           await Share.share({
@@ -196,6 +212,28 @@ export default function SessionList({
       }
     } catch (error) {
       console.error('❌ [SessionList] Failed to load sessions:', error)
+      // Server unreachable → fall back to local SQLite on native
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const userId = localUserId ?? -1
+          const localData = await localGetSessions(userId)
+          const mapped = localData.map(s => ({
+            id: s.id,
+            title: s.title ?? undefined,
+            database_key: s.database_key ?? undefined,
+            status: s.status ?? undefined,
+            enable_data_science_agent: !!s.enable_data_science_agent,
+            enable_thinking: !!s.enable_thinking,
+            enable_rag: !!s.enable_rag,
+            model_provider: s.model_provider ?? undefined,
+            model_name: s.model_name ?? undefined,
+            created_at: s.created_at ?? new Date().toISOString(),
+            updated_at: s.updated_at ?? new Date().toISOString(),
+          })) as Session[]
+          setSessions(mapped)
+          onSessionsUpdated?.()
+        } catch { /* ignore */ }
+      }
     }
   }
 
@@ -410,6 +448,9 @@ export default function SessionList({
       {showUserSettings && (
         <UserSettingsModal onClose={() => setShowUserSettings(false)} />
       )}
+      {showBizSync && (
+        <BizSyncModal onClose={() => setShowBizSync(false)} />
+      )}
 
       <div className="p-4 border-t border-white/30 bg-white/20 backdrop-blur-md data-[mobile=true]:data-[orientation=landscape]:p-1.5 data-[mobile=true]:data-[orientation=landscape]:px-4">
         <div className="flex items-center justify-between">
@@ -428,6 +469,15 @@ export default function SessionList({
           </button>
           <div className="flex items-center gap-1 shrink-0">
             <SyncStatusBadge />
+            {Capacitor.isNativePlatform() && (
+              <button
+                onClick={() => setShowBizSync(true)}
+                className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all data-[mobile=true]:data-[orientation=landscape]:p-1"
+                title="离线数据同步"
+              >
+                <Database className="w-5 h-5 data-[mobile=true]:data-[orientation=landscape]:w-4 data-[mobile=true]:data-[orientation=landscape]:h-4" />
+              </button>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();

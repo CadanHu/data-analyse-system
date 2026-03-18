@@ -2,6 +2,17 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { migrateOfflineUserId } from '../services/localStore'
 
+/** 本地解码 JWT，检查是否过期，不联网 */
+export function isTokenValid(token: string | null): boolean {
+  if (!token) return false
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    return payload.exp * 1000 > Date.now()
+  } catch {
+    return false
+  }
+}
+
 interface User {
   id: number
   username: string
@@ -35,7 +46,7 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (user, token) => {
         const prev = get()
         // Migrate offline data to real user ID
-        if (prev.offlineMode && prev.localUserId === -1 && user.id !== -1) {
+        if ((prev.offlineMode || prev.localUserId < 0) && user.id > 0) {
           migrateOfflineUserId(user.id).catch(console.error)
         }
         set({ user, token, isAuthenticated: true, offlineMode: false, localUserId: user.id })

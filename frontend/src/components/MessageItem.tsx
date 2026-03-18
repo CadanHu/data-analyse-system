@@ -37,7 +37,8 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useAuthStore } from '../stores/authStore'
 import { sessionApi, getBaseURL, messageApi } from '@/api'
-import { resolveUrl, isCached } from '@/services/fileCache'
+import { resolveUrl, isCached, cacheECharts, resolveEChartsInHtml } from '@/services/fileCache'
+import { upsertMessage } from '@/services/db'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
 
@@ -50,10 +51,23 @@ interface MessageItemProps {
 const DashboardPreview = ({ report, token }: { report: { title?: string, summary?: string, html?: string }, token: string | null }) => {
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [resolvedHtml, setResolvedHtml] = useState(report.html || '')
   const { t } = useTranslation()
-  
+
   // 🚀 安全处理：防止 summary 为空导致 split 崩溃
   const summaries = (report.summary || '').split('\n').filter(s => s.trim())
+
+  // Cache ECharts and patch HTML for offline rendering
+  useEffect(() => {
+    const html = report.html || ''
+    setResolvedHtml(html)
+    // Trigger cache (no-op if already cached or not native)
+    cacheECharts().then(() => {
+      return resolveEChartsInHtml(html)
+    }).then(patched => {
+      setResolvedHtml(patched)
+    }).catch(() => {/* CDN fallback */})
+  }, [report.html])
 
   const handleExportPDF = async () => {
     try {
@@ -173,7 +187,7 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
             </div>
           </div>
           <iframe
-            srcDoc={report.html || ''}
+            srcDoc={resolvedHtml}
             className="flex-1 w-full border-none bg-white"
             title="Dashboard"
           />
@@ -410,9 +424,18 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             
             if (newData && newData.report_status !== 'processing') {
               console.log(`✅ [Poll] Analysis finished: ${newData.report_status}`);
-              updateMessage(message.id, {
-                data: (typeof updatedMessage.data === 'string') ? updatedMessage.data : JSON.stringify(updatedMessage.data)
-              });
+              const dataStr = (typeof updatedMessage.data === 'string') ? updatedMessage.data : JSON.stringify(updatedMessage.data)
+              updateMessage(message.id, { data: dataStr });
+              // Persist html_report to local SQLite so it's available cross-WiFi
+              if (isNativePlatform) {
+                upsertMessage({
+                  id: message.id,
+                  session_id: message.session_id || (currentSession?.id ?? ''),
+                  data: dataStr,
+                  _sync_dirty: 0,
+                  _deleted: 0,
+                }).catch(e => console.warn('[Poll] SQLite persist failed:', e))
+              }
               if (pollInterval) clearInterval(pollInterval);
             }
           }

@@ -3,9 +3,14 @@ import MessageList from './MessageList'
 import InputBar from './InputBar'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
+import { useAuthStore } from '../stores/authStore'
+import { useSyncStore } from '../stores/syncStore'
 import { databaseApi } from '../api'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
+import { getAllBizSyncMeta } from '../services/db'
+import { localUpdateSession } from '../services/localStore'
+import { Capacitor } from '@capacitor/core'
 
 interface ChatAreaProps {
   selectedSessionId: string | null
@@ -21,6 +26,9 @@ interface Database {
 export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaProps) {
   const { currentSession, messages, setMessages, updateSession } = useSessionStore()
   const { isLoading } = useChatStore()
+  const { offlineMode } = useAuthStore()
+  const { connectionStatus } = useSyncStore()
+  const isOffline = connectionStatus === 'offline' || offlineMode
   const { connect } = useSSE()
   const { t } = useTranslation()
   const listRef = useRef<HTMLDivElement>(null)
@@ -29,8 +37,23 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   const [showDbSelector, setShowDbSelector] = useState(false)
 
   useEffect(() => {
-    loadDatabases()
-  }, [])
+    if (!isOffline) {
+      loadDatabases()
+    } else if (Capacitor.isNativePlatform()) {
+      getAllBizSyncMeta().then(meta => {
+        const seen = new Set<string>()
+        const localDbs: Database[] = []
+        for (const m of meta) {
+          if (!seen.has(m.db_key)) {
+            seen.add(m.db_key)
+            localDbs.push({ key: m.db_key, name: m.db_key, is_current: false })
+          }
+        }
+        setDatabases(localDbs)
+        if (localDbs.length > 0 && !currentDb) setShowDbSelector(true)
+      }).catch(() => {})
+    }
+  }, [isOffline])
 
   useEffect(() => {
     if (currentSession && (currentSession as any).database_key) {
@@ -38,11 +61,11 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       console.log(`🎯 [Session] 会话切换，同步数据库为: ${sessionDbKey}`)
       setCurrentDb(sessionDbKey)
       // 🚀 核心修复：会话切换时，必须强制后端同步切换到该会话绑定的库
-      switchDatabase(sessionDbKey, false) 
+      if (!isOffline) switchDatabase(sessionDbKey, false)
     } else {
       // 🚀 优化：新建对话默认不选择数据库，强制用户手动触发
       setCurrentDb(null)
-      setShowDbSelector(true) // 自动弹出选择器提示用户
+      if (!isOffline) setShowDbSelector(true) // 自动弹出选择器提示用户
     }
   }, [currentSession?.id])
 
@@ -58,6 +81,15 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   }
 
   const switchDatabase = async (dbKey: string, shouldUpdateSession: boolean = true) => {
+    if (isOffline) {
+      setCurrentDb(dbKey)
+      setShowDbSelector(false)
+      if (shouldUpdateSession && selectedSessionId) {
+        localUpdateSession(selectedSessionId, { database_key: dbKey }).catch(() => {})
+        updateSession(selectedSessionId, { database_key: dbKey })
+      }
+      return
+    }
     try {
       await databaseApi.switchDatabase(dbKey, shouldUpdateSession && selectedSessionId ? selectedSessionId : undefined)
       setCurrentDb(dbKey)
@@ -114,8 +146,8 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
             <p className="text-xs text-gray-400 mt-1 data-[mobile=true]:data-[orientation=landscape]:mt-0 data-[mobile=true]:data-[orientation=landscape]:text-[9px] truncate">{t('welcome.assistantTitle')}</p>
           </div>
           
-          {/* 🚀 仅在已选择会话时显示数据库切换按钮 */}
-          {selectedSessionId && (
+          {/* 🚀 仅在已选择会话且有可用数据库时显示数据库切换按钮 */}
+          {selectedSessionId && databases.length > 0 && (
             <div className="flex-none relative">
               <button
                 onClick={() => setShowDbSelector(!showDbSelector)}
@@ -151,6 +183,14 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
           )}
         </div>
       </div>
+
+      {/* 离线模式提示横幅 */}
+      {isOffline && selectedSessionId && (
+        <div className="flex-none flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-700">
+          <span>☁️</span>
+          <span>离线模式：AI 直连厂商，SQL 在本地执行</span>
+        </div>
+      )}
 
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
         <MessageList onEditMessage={handleEditMessage} />

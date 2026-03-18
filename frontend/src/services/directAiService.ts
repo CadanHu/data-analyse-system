@@ -40,14 +40,15 @@ const openaiCompatible = (baseUrl: string): ProviderConfig => ({
     messages: opts.messages,
     stream: true,
   }),
-  parseChunk: (line, _onThinking, onSummary) => {
+  parseChunk: (line, onThinking, onSummary) => {
     if (!line.startsWith('data: ')) return
     const data = line.slice(6)
     if (data === '[DONE]') return
     try {
       const obj = JSON.parse(data)
-      const content = obj.choices?.[0]?.delta?.content
-      if (content) onSummary(content)
+      const delta = obj.choices?.[0]?.delta
+      if (delta?.reasoning_content) onThinking(delta.reasoning_content)
+      if (delta?.content) onSummary(delta.content)
     } catch { /* ignore */ }
   },
   isDone: (line) => line === 'data: [DONE]',
@@ -95,12 +96,21 @@ const PROVIDER_CONFIGS: Record<string, (apiKey: LocalApiKey) => ProviderConfig> 
     buildUrl: (model, apiKey) =>
       `${k.base_url || 'https://generativelanguage.googleapis.com'}/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`,
     buildHeaders: () => ({ 'Content-Type': 'application/json' }),
-    buildBody: (opts) => ({
-      contents: opts.messages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      })),
-    }),
+    buildBody: (opts) => {
+      const systemMsg = opts.messages.find(m => m.role === 'system')
+      const body: any = {
+        contents: opts.messages
+          .filter(m => m.role !== 'system')
+          .map(m => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }],
+          })),
+      }
+      if (systemMsg) {
+        body.systemInstruction = { parts: [{ text: systemMsg.content }] }
+      }
+      return body
+    },
     parseChunk: (line, _onThinking, onSummary) => {
       if (!line.startsWith('data: ')) return
       try {

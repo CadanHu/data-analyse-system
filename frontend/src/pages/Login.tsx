@@ -5,6 +5,9 @@ import { useAuthStore } from '@/stores/authStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import { initLocalStore } from '@/services/localStore'
+import { isDbInitialized } from '@/services/db'
+import { saveOnlineLoginLocally, localLogin, buildLocalToken } from '@/services/localAuthService'
+import { Capacitor } from '@capacitor/core'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -51,11 +54,31 @@ export default function Login() {
       useAuthStore.getState().setToken(access_token)
       const user = await authApi.getMe()
       useAuthStore.getState().setAuth(user, access_token)
-      
+
+      if (Capacitor.isNativePlatform()) {
+        try {
+          if (!isDbInitialized()) await initLocalStore()
+          await saveOnlineLoginLocally(user, password)
+        } catch { /* non-fatal */ }
+      }
+
       setTimeout(() => {
         navigate('/app')
       }, 100)
     } catch (err: any) {
+      // Server unreachable → try local cache
+      if (Capacitor.isNativePlatform()) {
+        try {
+          if (!isDbInitialized()) await initLocalStore()
+          const localUser = await localLogin(email, password)
+          if (localUser) {
+            const fakeToken = buildLocalToken(localUser)
+            useAuthStore.getState().setAuth(localUser, fakeToken)
+            navigate('/app')
+            return
+          }
+        } catch { /* fall through to show error */ }
+      }
       setError(err.response?.data?.detail || t('login.failed'))
     } finally {
       setIsLoading(false)
@@ -132,15 +155,17 @@ export default function Login() {
             </Link>
           </div>
 
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={handleOfflineMode}
-              className="w-full py-3 border border-white/10 text-gray-400 hover:text-white hover:border-white/30 rounded-2xl text-sm transition-all"
-            >
-              {t('login.offlineMode') || '离线使用 / 无需服务器'}
-            </button>
-          </div>
+          {Capacitor.isNativePlatform() && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={handleOfflineMode}
+                className="w-full py-3 border border-white/10 text-gray-400 hover:text-white hover:border-white/30 rounded-2xl text-sm transition-all"
+              >
+                {t('login.offlineMode') || '离线使用 / 无需服务器'}
+              </button>
+            </div>
+          )}
         </div>
 
         <footer className="mt-12 text-center">

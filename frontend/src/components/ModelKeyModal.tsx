@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Key, Check, Trash2, Eye, EyeOff, ChevronDown } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
 import { apiKeyApi, sessionApi } from '@/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncStore } from '@/stores/syncStore'
@@ -73,6 +74,249 @@ interface ModelKeyModalProps {
   onModelChange: (provider: string, modelName: string) => void
 }
 
+// ─── 移动端全屏 Sheet ──────────────────────────────────────────────────────────
+function MobileSheet({
+  sessionId, currentProvider, currentModelName, onClose, onModelChange,
+  savedKeys, loading, isOffline, localUserId,
+  selectedProvider, setSelectedProvider,
+  selectedModel, setSelectedModel,
+  apiKey, setApiKey,
+  baseUrl, setBaseUrl,
+  showKey, setShowKey,
+  saving, saveSuccess,
+  handleSaveKey, handleDeleteKey, handleApplyModel,
+}: any) {
+  const [activeTab, setActiveTab] = useState<'select' | 'config'>('select')
+  const currentModels = PROVIDER_MODELS[selectedProvider]?.models || []
+  const hasSavedKey = savedKeys.find((k: SavedKey) => k.provider === selectedProvider)
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+
+      {/* Sheet */}
+      <div
+        className="relative mt-auto bg-white rounded-t-3xl flex flex-col"
+        style={{ maxHeight: '92vh', paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {/* Drag bar */}
+        <div className="flex-none flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 bg-gray-300 rounded-full" />
+        </div>
+
+        {/* Header */}
+        <div className="flex-none flex items-center justify-between px-5 py-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Key size={18} className="text-emerald-600" />
+            <h2 className="font-bold text-gray-800 text-base">模型 & API Key 配置</h2>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+            <X size={20} className="text-gray-500" />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex-none flex border-b border-gray-100">
+          <button
+            onClick={() => setActiveTab('select')}
+            className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'select' ? 'text-emerald-600 border-b-2 border-emerald-500' : 'text-gray-500'}`}
+          >
+            选择模型
+          </button>
+          <button
+            onClick={() => setActiveTab('config')}
+            className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'config' ? 'text-emerald-600 border-b-2 border-emerald-500' : 'text-gray-500'}`}
+          >
+            配置 API Key
+          </button>
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {activeTab === 'select' && (
+            <>
+              {/* Provider */}
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">供应商</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(PROVIDER_MODELS).map(([key, info]) => {
+                    const hasSaved = savedKeys.find((k: SavedKey) => k.provider === key)
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setSelectedProvider(key)}
+                        className={`flex items-center gap-2 p-3 rounded-2xl border-2 text-left transition-all active:scale-95 ${
+                          selectedProvider === key ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-gray-800 truncate">{info.label}</div>
+                          {hasSaved && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              <span className="text-[10px] text-emerald-600">已配置</span>
+                            </div>
+                          )}
+                        </div>
+                        {selectedProvider === key && <Check size={14} className="text-emerald-500 flex-shrink-0" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Model */}
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">模型</label>
+                <div className="space-y-2">
+                  {currentModels.map((model: any) => (
+                    <button
+                      key={model.value}
+                      onClick={() => setSelectedModel(model.value)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-2xl border-2 text-left transition-all active:scale-[0.98] ${
+                        selectedModel === model.value ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-800">{model.label}</div>
+                        {model.thinking && (
+                          <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-medium">
+                            💡 支持思考模式
+                          </span>
+                        )}
+                      </div>
+                      {selectedModel === model.value && <Check size={14} className="text-emerald-500 flex-shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {!hasSavedKey && (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-700">
+                  <span>⚠️</span>
+                  <span>该供应商尚未配置 API Key，请先在「配置 API Key」标签页中添加。</span>
+                </div>
+              )}
+
+              <button
+                onClick={handleApplyModel}
+                disabled={!selectedModel || !hasSavedKey}
+                className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-semibold rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] text-base"
+              >
+                应用模型设置
+              </button>
+            </>
+          )}
+
+          {activeTab === 'config' && (
+            <>
+              {/* Saved keys */}
+              {!loading && savedKeys.length > 0 && (
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">已配置的 Key</label>
+                  <div className="space-y-2">
+                    {savedKeys.map((k: SavedKey) => (
+                      <div key={k.provider} className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-200">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-gray-800">{PROVIDER_MODELS[k.provider]?.label || k.provider}</div>
+                          <div className="text-xs text-gray-500 font-mono mt-0.5">{k.api_key_preview}</div>
+                          {k.model_name && <div className="text-[10px] text-emerald-600 mt-0.5">默认: {k.model_name}</div>}
+                        </div>
+                        <button
+                          onClick={() => handleDeleteKey(k.provider)}
+                          className="p-2 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-xl transition-colors"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Add/Update form */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block">
+                  {savedKeys.find((k: SavedKey) => k.provider === selectedProvider) ? '更新 API Key' : '新增 API Key'}
+                </label>
+
+                {/* Provider select */}
+                <div className="relative">
+                  <select
+                    value={selectedProvider}
+                    onChange={e => setSelectedProvider(e.target.value)}
+                    className="w-full appearance-none px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 pr-8"
+                  >
+                    {Object.entries(PROVIDER_MODELS).map(([key, info]) => (
+                      <option key={key} value={key}>{info.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+
+                {/* API Key input — 用 type="text" + -webkit-text-security 替代 type="password"，解决 iOS WKWebView 粘贴被禁的问题 */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="text"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    placeholder={`${PROVIDER_MODELS[selectedProvider]?.label} API Key`}
+                    className="w-full px-4 py-3 pr-12 bg-gray-50 border border-gray-200 rounded-2xl text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 font-mono placeholder-gray-400"
+                    style={{ WebkitTextSecurity: showKey ? 'none' : 'disc' } as React.CSSProperties}
+                  />
+                  <button
+                    onClick={() => setShowKey(!showKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400"
+                  >
+                    {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+
+                {/* Base URL */}
+                {(selectedProvider === 'deepseek' || selectedProvider === 'openai') && (
+                  <input
+                    type="text"
+                    value={baseUrl}
+                    onChange={e => setBaseUrl(e.target.value)}
+                    placeholder={`Base URL (可选，默认: ${PROVIDER_BASE_URL_HINT[selectedProvider]})`}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 placeholder-gray-400"
+                  />
+                )}
+
+                <button
+                  onClick={handleSaveKey}
+                  disabled={saving || !apiKey.trim()}
+                  className={`w-full py-4 font-semibold rounded-2xl transition-all active:scale-[0.98] text-base ${
+                    saveSuccess
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white disabled:opacity-50 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  {saving ? '保存中...' : saveSuccess ? '✓ 保存成功' : '保存 API Key'}
+                </button>
+              </div>
+
+              <p className="text-[11px] text-gray-400 text-center pb-2">
+                {isOffline
+                  ? 'API Key 加密存储在本机，联网时自动同步'
+                  : 'API Key 存储在服务器数据库中，仅用于向对应的模型服务发起请求'}
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+// ─── 主组件 ───────────────────────────────────────────────────────────────────
 export default function ModelKeyModal({
   sessionId,
   currentProvider,
@@ -85,6 +329,21 @@ export default function ModelKeyModal({
   const { offlineMode, localUserId } = useAuthStore()
   const { connectionStatus } = useSyncStore()
   const isOffline = connectionStatus === 'offline' || offlineMode
+  const isMobile = Capacitor.isNativePlatform() || window.innerWidth < 768
+
+  // iOS viewport zoom reset: 关闭 modal 时强制还原缩放
+  const handleClose = () => {
+    if (isMobile) {
+      const viewport = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null
+      if (viewport) {
+        const original = viewport.content
+        viewport.content = 'width=device-width, initial-scale=1, maximum-scale=1'
+        // 短暂锁定后还原，让 iOS 有时间重置 zoom
+        setTimeout(() => { viewport.content = original }, 100)
+      }
+    }
+    onClose()
+  }
 
   // 表单状态
   const [selectedProvider, setSelectedProvider] = useState(currentProvider || 'deepseek')
@@ -96,10 +355,9 @@ export default function ModelKeyModal({
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [activeTab, setActiveTab] = useState<'select' | 'config'>('select')
 
+  // Desktop drag/resize state
   const MIN_W = 360
   const MIN_H = 200
-
-  // 位置 & 尺寸 — 初始居中
   const [rect, setRect] = useState(() => {
     const w = 512
     const h = 560
@@ -110,9 +368,7 @@ export default function ModelKeyModal({
       h,
     }
   })
-
   const modalRef = useRef<HTMLDivElement>(null)
-  // 'drag' | 'n'|'s'|'e'|'w'|'ne'|'nw'|'se'|'sw' | null
   const action = useRef<string | null>(null)
   const startState = useRef({ mx: 0, my: 0, x: 0, y: 0, w: 0, h: 0 })
 
@@ -131,12 +387,12 @@ export default function ModelKeyModal({
   }, [rect])
 
   useEffect(() => {
+    if (isMobile) return
     const onMove = (e: MouseEvent) => {
       if (!action.current) return
       const dx = e.clientX - startState.current.mx
       const dy = e.clientY - startState.current.my
       const { x, y, w, h } = startState.current
-
       if (action.current === 'drag') {
         setRect(r => ({
           ...r,
@@ -145,7 +401,6 @@ export default function ModelKeyModal({
         }))
         return
       }
-
       let nx = x, ny = y, nw = w, nh = h
       if (action.current.includes('e')) nw = Math.max(MIN_W, w + dx)
       if (action.current.includes('s')) nh = Math.max(MIN_H, h + dy)
@@ -160,13 +415,12 @@ export default function ModelKeyModal({
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [])
+  }, [isMobile])
 
   useEffect(() => {
     loadSavedKeys()
   }, [])
 
-  // 当切换供应商时，自动选择第一个模型
   useEffect(() => {
     const models = PROVIDER_MODELS[selectedProvider]?.models || []
     if (models.length > 0 && !models.find(m => m.value === selectedModel)) {
@@ -263,15 +517,32 @@ export default function ModelKeyModal({
       }
     }
     onModelChange(selectedProvider, selectedModel)
-    onClose()
+    handleClose()
   }
 
+  const sharedProps = {
+    sessionId, currentProvider, currentModelName, onClose: handleClose, onModelChange,
+    savedKeys, loading, isOffline, localUserId,
+    selectedProvider, setSelectedProvider,
+    selectedModel, setSelectedModel,
+    apiKey, setApiKey,
+    baseUrl, setBaseUrl,
+    showKey, setShowKey,
+    saving, saveSuccess,
+    handleSaveKey, handleDeleteKey, handleApplyModel,
+  }
+
+  // ─── 移动端：底部 Sheet ──────────────────────────────────────────────────────
+  if (isMobile) {
+    return <MobileSheet {...sharedProps} />
+  }
+
+  // ─── 桌面端：可拖拽浮窗 ─────────────────────────────────────────────────────
   const currentModels = PROVIDER_MODELS[selectedProvider]?.models || []
   const hasSavedKey = savedKeys.find(k => k.provider === selectedProvider)
 
-  // resize handle 辅助
-  const H = 6 // handle 厚度px
-  const C = 12 // 角 handle 大小px
+  const H = 6
+  const C = 12
   const handles: { dir: string; style: React.CSSProperties }[] = [
     { dir: 'n',  style: { top: 0, left: C, right: C, height: H, cursor: 'n-resize' } },
     { dir: 's',  style: { bottom: 0, left: C, right: C, height: H, cursor: 's-resize' } },
@@ -289,220 +560,202 @@ export default function ModelKeyModal({
       style={{ position: 'fixed', left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: 9999 }}
       className="bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col"
     >
-      {/* Resize handles */}
       {handles.map(({ dir, style }) => (
-        <div
-          key={dir}
-          onMouseDown={startResize(dir)}
-          style={{ position: 'absolute', ...style, zIndex: 10 }}
-        />
+        <div key={dir} onMouseDown={startResize(dir)} style={{ position: 'absolute', ...style, zIndex: 10 }} />
       ))}
 
-        {/* Header — 拖拽把手 */}
-        <div
-          onMouseDown={startDrag}
-          className="flex-none flex items-center justify-between px-5 py-4 bg-gradient-to-r from-emerald-50 to-cyan-50 border-b border-gray-100 cursor-grab active:cursor-grabbing select-none"
+      <div
+        onMouseDown={startDrag}
+        className="flex-none flex items-center justify-between px-5 py-4 bg-gradient-to-r from-emerald-50 to-cyan-50 border-b border-gray-100 cursor-grab active:cursor-grabbing select-none"
+      >
+        <div className="flex items-center gap-2">
+          <Key size={18} className="text-emerald-600" />
+          <h2 className="font-bold text-gray-800">模型 & API Key 配置</h2>
+        </div>
+        <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer">
+          <X size={18} className="text-gray-500" />
+        </button>
+      </div>
+
+      <div className="flex-none flex border-b border-gray-100">
+        <button
+          onClick={() => setActiveTab('select')}
+          className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'select' ? 'text-emerald-600 border-b-2 border-emerald-500' : 'text-gray-500 hover:text-gray-700'}`}
         >
-          <div className="flex items-center gap-2">
-            <Key size={18} className="text-emerald-600" />
-            <h2 className="font-bold text-gray-800">模型 & API Key 配置</h2>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer">
-            <X size={18} className="text-gray-500" />
-          </button>
-        </div>
+          选择模型
+        </button>
+        <button
+          onClick={() => setActiveTab('config')}
+          className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'config' ? 'text-emerald-600 border-b-2 border-emerald-500' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          配置 API Key
+        </button>
+      </div>
 
-        {/* Tabs */}
-        <div className="flex-none flex border-b border-gray-100">
-          <button
-            onClick={() => setActiveTab('select')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'select' ? 'text-emerald-600 border-b-2 border-emerald-500' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            选择模型
-          </button>
-          <button
-            onClick={() => setActiveTab('config')}
-            className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'config' ? 'text-emerald-600 border-b-2 border-emerald-500' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            配置 API Key
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5">
-          {activeTab === 'select' && (
-            <div className="space-y-4">
-              {/* Provider Selection */}
-              <div>
-                <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">供应商</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(PROVIDER_MODELS).map(([key, info]) => {
-                    const hasSaved = savedKeys.find(k => k.provider === key)
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => setSelectedProvider(key)}
-                        className={`flex items-center gap-2 p-3 rounded-xl border-2 text-left transition-all ${
-                          selectedProvider === key
-                            ? 'border-emerald-400 bg-emerald-50'
-                            : 'border-gray-200 hover:border-gray-300 bg-white'
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-gray-800 truncate">{info.label}</div>
-                          {hasSaved && (
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              <span className="text-[10px] text-emerald-600">已配置</span>
-                            </div>
-                          )}
-                        </div>
-                        {selectedProvider === key && <Check size={14} className="text-emerald-500 flex-shrink-0" />}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Model Selection */}
-              <div>
-                <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">模型</label>
-                <div className="space-y-2">
-                  {currentModels.map(model => (
+      <div className="flex-1 overflow-y-auto p-5">
+        {activeTab === 'select' && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">供应商</label>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(PROVIDER_MODELS).map(([key, info]) => {
+                  const hasSaved = savedKeys.find(k => k.provider === key)
+                  return (
                     <button
-                      key={model.value}
-                      onClick={() => setSelectedModel(model.value)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
-                        selectedModel === model.value
-                          ? 'border-emerald-400 bg-emerald-50'
-                          : 'border-gray-200 hover:border-gray-300 bg-white'
+                      key={key}
+                      onClick={() => setSelectedProvider(key)}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 text-left transition-all ${
+                        selectedProvider === key ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300 bg-white'
                       }`}
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-800">{model.label}</div>
-                        {model.thinking && (
-                          <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-medium">
-                            💡 支持思考模式
-                          </span>
+                        <div className="text-sm font-semibold text-gray-800 truncate">{info.label}</div>
+                        {hasSaved && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            <span className="text-[10px] text-emerald-600">已配置</span>
+                          </div>
                         )}
                       </div>
-                      {selectedModel === model.value && <Check size={14} className="text-emerald-500 flex-shrink-0" />}
+                      {selectedProvider === key && <Check size={14} className="text-emerald-500 flex-shrink-0" />}
                     </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">模型</label>
+              <div className="space-y-2">
+                {currentModels.map(model => (
+                  <button
+                    key={model.value}
+                    onClick={() => setSelectedModel(model.value)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                      selectedModel === model.value ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-800">{model.label}</div>
+                      {model.thinking && (
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-medium">
+                          💡 支持思考模式
+                        </span>
+                      )}
+                    </div>
+                    {selectedModel === model.value && <Check size={14} className="text-emerald-500 flex-shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {!hasSavedKey && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+                <span>⚠️</span>
+                <span>该供应商尚未配置 API Key，请先在「配置 API Key」标签页中添加。</span>
+              </div>
+            )}
+
+            <button
+              onClick={handleApplyModel}
+              disabled={!selectedModel || !hasSavedKey}
+              className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-semibold rounded-xl hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+            >
+              应用模型设置
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'config' && (
+          <div className="space-y-4">
+            {!loading && savedKeys.length > 0 && (
+              <div>
+                <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">已配置的 Key</label>
+                <div className="space-y-2">
+                  {savedKeys.map(k => (
+                    <div key={k.provider} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-gray-800">{PROVIDER_MODELS[k.provider]?.label || k.provider}</div>
+                        <div className="text-xs text-gray-500 font-mono mt-0.5">{k.api_key_preview}</div>
+                        {k.model_name && <div className="text-[10px] text-emerald-600 mt-0.5">默认: {k.model_name}</div>}
+                      </div>
+                      <button
+                        onClick={() => handleDeleteKey(k.provider)}
+                        className="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
+            )}
 
-              {!hasSavedKey && (
-                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
-                  <span>⚠️</span>
-                  <span>该供应商尚未配置 API Key，请先在「配置 API Key」标签页中添加。</span>
-                </div>
-              )}
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-gray-600 uppercase tracking-wider block">
+                {savedKeys.find(k => k.provider === selectedProvider) ? '更新 API Key' : '新增 API Key'}
+              </label>
 
-              <button
-                onClick={handleApplyModel}
-                disabled={!selectedModel || !hasSavedKey}
-                className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-semibold rounded-xl hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
-              >
-                应用模型设置
-              </button>
-            </div>
-          )}
-
-          {activeTab === 'config' && (
-            <div className="space-y-4">
-              {/* Saved keys list */}
-              {!loading && savedKeys.length > 0 && (
-                <div>
-                  <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">已配置的 Key</label>
-                  <div className="space-y-2">
-                    {savedKeys.map(k => (
-                      <div key={k.provider} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-gray-800">{PROVIDER_MODELS[k.provider]?.label || k.provider}</div>
-                          <div className="text-xs text-gray-500 font-mono mt-0.5">{k.api_key_preview}</div>
-                          {k.model_name && <div className="text-[10px] text-emerald-600 mt-0.5">默认: {k.model_name}</div>}
-                        </div>
-                        <button
-                          onClick={() => handleDeleteKey(k.provider)}
-                          className="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-lg transition-colors"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Add / Update key form */}
-              <div className="space-y-3">
-                <label className="text-xs font-bold text-gray-600 uppercase tracking-wider block">
-                  {savedKeys.find(k => k.provider === selectedProvider) ? '更新 API Key' : '新增 API Key'}
-                </label>
-
-                {/* Provider select */}
-                <div className="relative">
-                  <select
-                    value={selectedProvider}
-                    onChange={e => setSelectedProvider(e.target.value)}
-                    className="w-full appearance-none px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 pr-8"
-                  >
-                    {Object.entries(PROVIDER_MODELS).map(([key, info]) => (
-                      <option key={key} value={key}>{info.label}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                </div>
-
-                {/* API Key input */}
-                <div className="relative">
-                  <input
-                    type={showKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={e => setApiKey(e.target.value)}
-                    placeholder={`${PROVIDER_MODELS[selectedProvider]?.label} API Key`}
-                    className="w-full px-4 py-2.5 pr-10 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 font-mono"
-                  />
-                  <button
-                    onClick={() => setShowKey(!showKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-
-                {/* Base URL (optional) */}
-                {(selectedProvider === 'deepseek' || selectedProvider === 'openai') && (
-                  <input
-                    type="text"
-                    value={baseUrl}
-                    onChange={e => setBaseUrl(e.target.value)}
-                    placeholder={`Base URL (可选，默认: ${PROVIDER_BASE_URL_HINT[selectedProvider]})`}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
-                  />
-                )}
-
-                <button
-                  onClick={handleSaveKey}
-                  disabled={saving || !apiKey.trim()}
-                  className={`w-full py-3 font-semibold rounded-xl transition-all shadow-sm ${
-                    saveSuccess
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed'
-                  }`}
+              <div className="relative">
+                <select
+                  value={selectedProvider}
+                  onChange={e => setSelectedProvider(e.target.value)}
+                  className="w-full appearance-none px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 pr-8"
                 >
-                  {saving ? '保存中...' : saveSuccess ? '✓ 保存成功' : '保存 API Key'}
+                  {Object.entries(PROVIDER_MODELS).map(([key, info]) => (
+                    <option key={key} value={key}>{info.label}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
+
+              <div className="relative">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  placeholder={`${PROVIDER_MODELS[selectedProvider]?.label} API Key`}
+                  className="w-full px-4 py-2.5 pr-10 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 font-mono"
+                />
+                <button
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
 
-              <p className="text-[11px] text-gray-400 text-center">
-                {isOffline
-                  ? 'API Key 加密存储在本机，联网时自动同步'
-                  : 'API Key 存储在服务器数据库中，仅用于向对应的模型服务发起请求'}
-              </p>
+              {(selectedProvider === 'deepseek' || selectedProvider === 'openai') && (
+                <input
+                  type="text"
+                  value={baseUrl}
+                  onChange={e => setBaseUrl(e.target.value)}
+                  placeholder={`Base URL (可选，默认: ${PROVIDER_BASE_URL_HINT[selectedProvider]})`}
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                />
+              )}
+
+              <button
+                onClick={handleSaveKey}
+                disabled={saving || !apiKey.trim()}
+                className={`w-full py-3 font-semibold rounded-xl transition-all shadow-sm ${
+                  saveSuccess
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed'
+                }`}
+              >
+                {saving ? '保存中...' : saveSuccess ? '✓ 保存成功' : '保存 API Key'}
+              </button>
             </div>
-          )}
-        </div>
+
+            <p className="text-[11px] text-gray-400 text-center">
+              {isOffline
+                ? 'API Key 加密存储在本机，联网时自动同步'
+                : 'API Key 存储在服务器数据库中，仅用于向对应的模型服务发起请求'}
+            </p>
+          </div>
+        )}
       </div>
+    </div>
   , document.body)
 }

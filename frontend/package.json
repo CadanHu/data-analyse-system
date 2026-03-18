@@ -22,6 +22,7 @@
     "@capacitor/ios": "^6.2.1",
     "@capacitor/share": "^6.0.4",
     "axios": "^1.6.2",
+    "bcryptjs": "^3.0.3",
     "echarts": "^5.4.3",
     "katex": "^0.16.9",
     "lucide-react": "^0.577.0",
@@ -39,8 +40,10 @@
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.10",
+    "@types/bcryptjs": "^2.4.6",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
+    "@types/uuid": "^9.0.7",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
     "@vitejs/plugin-react": "^4.2.1",
@@ -50,7 +53,6 @@
     "eslint-plugin-react-refresh": "^0.4.5",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
-    "@types/uuid": "^9.0.7",
     "typescript": "^5.2.2",
     "vite": "^5.4.21"
   }

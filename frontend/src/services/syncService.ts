@@ -4,6 +4,7 @@
  * 冲突解决: last-write-wins (updated_at)
  */
 
+import { Capacitor } from '@capacitor/core'
 import { getBaseURL } from '../api'
 import { useAuthStore } from '../stores/authStore'
 import { useSyncStore } from '../stores/syncStore'
@@ -13,7 +14,7 @@ import {
   getDirtyRows,
   clearDirtyFlags,
 } from './localStore'
-import dbService from './db'
+import dbService, { isDbInitialized } from './db'
 
 const PING_TIMEOUT_MS = 3000
 const LAST_SYNC_TS_KEY = 'dp_last_sync_ts'
@@ -101,8 +102,22 @@ export async function fullSync(): Promise<void> {
   const { setSyncing, setSyncError, setLastSyncAt, setConnectionStatus } = useSyncStore.getState()
   const userId = getUserId()
 
-  // Only sync when authenticated
-  if (!useAuthStore.getState().isAuthenticated) return
+  // Only sync when authenticated with a real token (not offline mode)
+  const authState = useAuthStore.getState()
+  if (!authState.isAuthenticated || authState.offlineMode) return
+
+  // On native, wait for SQLite to be ready (max 3s)
+  if (Capacitor.isNativePlatform() && !isDbInitialized()) {
+    let waited = 0
+    while (!isDbInitialized() && waited < 3000) {
+      await new Promise(r => setTimeout(r, 100))
+      waited += 100
+    }
+    if (!isDbInitialized()) {
+      console.warn('[Sync] DB not ready after 3s, skipping sync')
+      return
+    }
+  }
 
   setSyncing(true)
   setSyncError(null)
@@ -118,39 +133,37 @@ export async function fullSync(): Promise<void> {
 
     const since = localStorage.getItem(LAST_SYNC_TS_KEY) || undefined
 
-    // 2. Pull
-    const pulled = await pull(since)
-    if (pulled) {
-      // Merge: server.updated_at > local.updated_at → overwrite local
-      // But if local._sync_dirty = 1 → keep local (push handles it)
-      for (const serverSession of pulled.sessions) {
-        const local = await dbService.getSession(serverSession.id)
-        if (!local || (local._sync_dirty === 0 && serverSession.updated_at > (local.updated_at || ''))) {
-          await dbService.upsertSession({ ...serverSession, _sync_dirty: 0, _deleted: 0 })
+    // 2. Pull → merge into local SQLite (native only; web has no local SQLite)
+    if (Capacitor.isNativePlatform()) {
+      const pulled = await pull(since)
+      if (pulled) {
+        for (const serverSession of pulled.sessions) {
+          const local = await dbService.getSession(serverSession.id)
+          if (!local || (local._sync_dirty === 0 && serverSession.updated_at > (local.updated_at || ''))) {
+            await dbService.upsertSession({ ...serverSession, _sync_dirty: 0, _deleted: 0 })
+          }
         }
-      }
 
-      for (const serverMsg of pulled.messages) {
-        // Messages are append-only from server side, just upsert if not locally dirty
-        try {
-          await dbService.upsertMessage({ ...serverMsg, _sync_dirty: 0, _deleted: 0 })
-        } catch { /* ignore */ }
-      }
-
-      for (const serverKey of pulled.api_keys) {
-        const local = await dbService.getApiKey(serverKey.user_id, serverKey.provider)
-        if (!local || (local._sync_dirty === 0 && serverKey.updated_at > (local.updated_at || ''))) {
-          await dbService.upsertApiKey({ ...serverKey, _sync_dirty: 0, _deleted: 0 })
+        for (const serverMsg of pulled.messages) {
+          try {
+            await dbService.upsertMessage({ ...serverMsg, _sync_dirty: 0, _deleted: 0 })
+          } catch { /* ignore */ }
         }
-      }
 
-      // Store server time as next sync cursor
-      if (pulled.server_time) {
-        localStorage.setItem(LAST_SYNC_TS_KEY, pulled.server_time)
+        for (const serverKey of pulled.api_keys) {
+          const local = await dbService.getApiKey(serverKey.user_id, serverKey.provider)
+          if (!local || (local._sync_dirty === 0 && serverKey.updated_at > (local.updated_at || ''))) {
+            await dbService.upsertApiKey({ ...serverKey, _sync_dirty: 0, _deleted: 0 })
+          }
+        }
+
+        if (pulled.server_time) {
+          localStorage.setItem(LAST_SYNC_TS_KEY, pulled.server_time)
+        }
       }
     }
 
-    // 3. Push dirty rows
+    // 3. Push dirty rows (native only; web has no local dirty rows)
     const dirty = await getDirtyRows()
     const activeSessions = dirty.sessions.filter(s => !s._deleted)
     const deletedSessionIds = dirty.sessions.filter(s => s._deleted).map(s => s.id)

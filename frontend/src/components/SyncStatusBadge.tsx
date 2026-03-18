@@ -21,7 +21,7 @@ export default function SyncStatusBadge() {
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
         </svg>
-        <span className="hidden sm:inline">同步中</span>
+        <span>同步中</span>
       </div>
     )
   }
@@ -30,7 +30,7 @@ export default function SyncStatusBadge() {
     return (
       <div className="flex items-center gap-1 text-xs text-orange-500" title={syncError}>
         <span>⚠</span>
-        <span className="hidden sm:inline">同步失败</span>
+        <span>同步失败</span>
       </div>
     )
   }
@@ -42,7 +42,7 @@ export default function SyncStatusBadge() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
             d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
         </svg>
-        <span className="hidden sm:inline">离线</span>
+        <span>离线</span>
       </div>
     )
   }

@@ -19,7 +19,7 @@ export default function MobileDebugPanel() {
   const testConnection = async () => {
     setStatus('testing');
     setErrorMsg('');
-    const testUrl = `${getMobileBaseURL()}/auth/me`;
+    const testUrl = `${getMobileBaseURL()}/sync/ping`;
     
     try {
       console.log(`🔍 [Debug] Testing connectivity: ${testUrl}`);

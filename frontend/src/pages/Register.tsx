@@ -3,6 +3,10 @@ import { useNavigate, Link } from 'react-router-dom'
 import { authApi } from '@/api'
 import { useTranslation } from '@/hooks/useTranslation'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { Capacitor } from '@capacitor/core'
+import { initLocalStore } from '@/services/localStore'
+import { isDbInitialized } from '@/services/db'
+import { localRegister } from '@/services/localAuthService'
 
 export default function Register() {
   const [username, setUsername] = useState('')
@@ -63,15 +67,30 @@ export default function Register() {
     setIsLoading(true)
 
     try {
-      console.log('📝 [Register] Sending registration request:', { 
-        username, 
-        email, 
-        password: password.substring(0, 3) + '***', 
-        verification_code: verificationCode 
+      console.log('📝 [Register] Sending registration request:', {
+        username,
+        email,
+        password: password.substring(0, 3) + '***',
+        verification_code: verificationCode
       })
       await authApi.register({ username, email, password, verification_code: verificationCode })
       navigate('/login', { state: { message: t('register.success') } })
     } catch (err: any) {
+      // Server unreachable → offer offline registration on native
+      if (Capacitor.isNativePlatform()) {
+        const isNetworkError = !err.response || err.code === 'ERR_NETWORK' || err.code === 'ECONNABORTED'
+        if (isNetworkError) {
+          try {
+            if (!isDbInitialized()) await initLocalStore()
+            await localRegister(username, email, password)
+            navigate('/login', { state: { message: '已创建本地账号，联网后可同步至服务器' } })
+            return
+          } catch (localErr: any) {
+            setError(localErr.message || t('register.failed'))
+            return
+          }
+        }
+      }
       setError(err.response?.data?.detail || t('register.failed'))
     } finally {
       setIsLoading(false)
