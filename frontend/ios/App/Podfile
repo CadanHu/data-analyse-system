@@ -5,5 +5,5 @@ target 'App' do
   pod 'CapacitorCordova', :path => '../../node_modules/@capacitor/ios'
   pod 'CapacitorFilesystem', :path => '../../node_modules/@capacitor/filesystem'
   pod 'CapacitorShare', :path => '../../node_modules/@capacitor/share'
-  pod 'CapacitorSQLite', :path => '../../node_modules/@capacitor-community/sqlite'
+  pod 'CapacitorCommunitySqlite', :path => '../../node_modules/@capacitor-community/sqlite'
 end
