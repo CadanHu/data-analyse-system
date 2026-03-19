@@ -4,15 +4,27 @@ import { authApi } from '@/api'
 import { useAuthStore } from '@/stores/authStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { initLocalStore } from '@/services/localStore'
+import { isDbInitialized } from '@/services/db'
+import { saveOnlineLoginLocally, localLogin, buildLocalToken } from '@/services/localAuthService'
+import { Capacitor } from '@capacitor/core'
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loginInfo, setLoginInfo] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const { initOffline } = useAuthStore()
+
+  const handleOfflineMode = async () => {
+    await initLocalStore()
+    initOffline()
+    navigate('/app')
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,11 +55,39 @@ export default function Login() {
       useAuthStore.getState().setToken(access_token)
       const user = await authApi.getMe()
       useAuthStore.getState().setAuth(user, access_token)
-      
+
+      if (Capacitor.isNativePlatform()) {
+        try {
+          if (!isDbInitialized()) await initLocalStore()
+          await saveOnlineLoginLocally(user, password)
+        } catch { /* non-fatal */ }
+      }
+
       setTimeout(() => {
         navigate('/app')
       }, 100)
     } catch (err: any) {
+      const isNetworkError = !err.response
+      // Server unreachable → try local cache
+      if (Capacitor.isNativePlatform()) {
+        try {
+          if (!isDbInitialized()) await initLocalStore()
+          const localUser = await localLogin(email, password)
+          if (localUser) {
+            const fakeToken = buildLocalToken(localUser)
+            useAuthStore.getState().setAuth(localUser, fakeToken)
+            setLoginInfo('当前无网络，已切换本地账号登录')
+            setTimeout(() => navigate('/app'), 1500)
+            return
+          }
+        } catch { /* fall through to show error */ }
+        setError(
+          isNetworkError
+            ? '服务器无法连接，且本地未找到缓存账号。请先在网络正常时登录一次。'
+            : (err.response?.data?.detail || t('login.failed'))
+        )
+        return
+      }
       setError(err.response?.data?.detail || t('login.failed'))
     } finally {
       setIsLoading(false)
@@ -78,6 +118,14 @@ export default function Login() {
 
         <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 md:p-10 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-6">
+            {loginInfo && (
+              <div className="bg-teal-500/10 border border-teal-500/30 text-teal-300 px-4 py-3 rounded-xl text-sm text-center select-text flex items-center justify-center gap-2">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {loginInfo}
+              </div>
+            )}
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm text-center select-text">
                 {error}
@@ -123,6 +171,21 @@ export default function Login() {
               {t('login.register')}
             </Link>
           </div>
+
+          {Capacitor.isNativePlatform() && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={handleOfflineMode}
+                className="w-full py-3 border border-white/10 text-gray-400 hover:text-white hover:border-white/30 rounded-2xl text-sm transition-all"
+              >
+                {t('login.offlineMode') || '离线使用 / 无需服务器'}
+              </button>
+              <p className="text-center text-[11px] text-gray-600 mt-2">
+                无网络但有账号缓存？直接点「登录」，系统会自动切换本地账号
+              </p>
+            </div>
+          )}
         </div>
 
         <footer className="mt-12 text-center">

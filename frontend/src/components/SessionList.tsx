@@ -4,13 +4,23 @@ import { Share } from '@capacitor/share'
 import { Capacitor } from '@capacitor/core'
 import { useSessionStore } from '../stores/sessionStore'
 import { useAuthStore } from '../stores/authStore'
+import { useSyncStore } from '../stores/syncStore'
 import { sessionApi } from '../api'
 import type { Session } from '../types'
 import SessionListSkeleton from './SessionListSkeleton'
 import { useTranslation } from '../hooks/useTranslation'
 import UserSettingsModal from './UserSettingsModal'
+import SyncStatusBadge from './SyncStatusBadge'
+import {
+  localGetSessions,
+  localCreateSession,
+  localUpdateSession,
+  localDeleteSession,
+} from '../services/localStore'
 
-import { Terminal, Monitor, XCircle, LogOut } from 'lucide-react'
+import { Terminal, Monitor, XCircle, LogOut, Database, HardDrive } from 'lucide-react'
+import BizSyncModal from './BizSyncModal'
+import StorageModal from './StorageModal'
 
 interface SessionListProps {
   selectedSessionId: string | null
@@ -28,8 +38,15 @@ export default function SessionList({
   onToggleLogs
 }: SessionListProps) {
   const { sessions, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
-  const { user, logout } = useAuthStore()
+  const { user, logout, offlineMode, localUserId } = useAuthStore()
+  const { connectionStatus, lastSyncAt } = useSyncStore()
+  // Native platform always uses local SQLite for session management (AI conversations
+  // are also local-only on native). This prevents server/local mismatch that causes
+  // rename failures and ghost sessions when connected to the same Wi-Fi as the PC.
+  const isOffline = connectionStatus === 'offline' || offlineMode || Capacitor.isNativePlatform()
   const [showUserSettings, setShowUserSettings] = useState(false)
+  const [showBizSync, setShowBizSync] = useState(false)
+  const [showStorage, setShowStorage] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const { t } = useTranslation()
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
@@ -55,6 +72,22 @@ export default function SessionList({
       loadSessions()
     }
   }, [user])
+
+  // Reload sessions after each sync completes
+  // - Web (online): reload from server to get latest
+  // - Native: always reload from local SQLite (sync merges server data into SQLite first)
+  useEffect(() => {
+    if (lastSyncAt) {
+      loadSessions()
+    }
+  }, [lastSyncAt])
+
+  // When connection is confirmed offline, load sessions from local SQLite
+  useEffect(() => {
+    if (connectionStatus === 'offline' && user) {
+      loadSessions()
+    }
+  }, [connectionStatus])
 
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -87,7 +120,7 @@ export default function SessionList({
           const writeResult = await Filesystem.writeFile({
             path: fileName,
             data: base64Data,
-            directory: Directory.Cache,
+            directory: Directory.Documents,
             recursive: true
           });
           await Share.share({
@@ -130,6 +163,21 @@ export default function SessionList({
 
   const handleCreateSession = async () => {
     try {
+      if (isOffline) {
+        const userId = localUserId ?? -1
+        const local = await localCreateSession(userId)
+        const session: Session = {
+          id: local.id,
+          title: local.title ?? undefined,
+          created_at: local.created_at ?? new Date().toISOString(),
+          updated_at: local.updated_at ?? new Date().toISOString(),
+        }
+        await loadSessions()
+        clearMessages()
+        setCurrentSession(session)
+        onSelectSession(session.id, session)
+        return
+      }
       const session = await sessionApi.createSession()
       await loadSessions()
       clearMessages()
@@ -140,8 +188,41 @@ export default function SessionList({
     }
   }
 
+  const mapLocalSessions = (localData: any[]) => localData.map(s => ({
+    id: s.id,
+    title: s.title ?? undefined,
+    database_key: s.database_key ?? undefined,
+    status: s.status ?? undefined,
+    enable_data_science_agent: !!s.enable_data_science_agent,
+    enable_thinking: !!s.enable_thinking,
+    enable_rag: !!s.enable_rag,
+    model_provider: s.model_provider ?? undefined,
+    model_name: s.model_name ?? undefined,
+    created_at: s.created_at ?? new Date().toISOString(),
+    updated_at: s.updated_at ?? new Date().toISOString(),
+  })) as Session[]
+
   const loadSessions = async () => {
     try {
+      if (isOffline) {
+        const userId = localUserId ?? -1
+        const localData = await localGetSessions(userId)
+        setSessions(mapLocalSessions(localData))
+        onSessionsUpdated?.()
+        return
+      }
+
+      // Native: pre-load from local SQLite immediately so the list isn't blank
+      // during the server request (which may take 3-10s to timeout if offline)
+      if (Capacitor.isNativePlatform()) {
+        const userId = localUserId ?? -1
+        const localData = await localGetSessions(userId)
+        if (localData.length > 0) {
+          setSessions(mapLocalSessions(localData))
+          onSessionsUpdated?.()
+        }
+      }
+
       console.log('📡 [SessionList] Fetching sessions...')
       const data = await sessionApi.getSessions()
       console.log('✅ [SessionList] Sessions loaded:', data)
@@ -151,6 +232,15 @@ export default function SessionList({
       }
     } catch (error) {
       console.error('❌ [SessionList] Failed to load sessions:', error)
+      // Server unreachable and no pre-load was done → fall back to local SQLite
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const userId = localUserId ?? -1
+          const localData = await localGetSessions(userId)
+          setSessions(mapLocalSessions(localData))
+          onSessionsUpdated?.()
+        } catch { /* ignore */ }
+      }
     }
   }
 
@@ -159,9 +249,13 @@ export default function SessionList({
     e.stopPropagation()
     const confirmed = window.confirm(t('session.deleteConfirm'))
     if (!confirmed) return
-    
+
     try {
-      await sessionApi.deleteSession(sessionId)
+      if (isOffline) {
+        await localDeleteSession(sessionId)
+      } else {
+        await sessionApi.deleteSession(sessionId)
+      }
       removeSession(sessionId)
       if (selectedSessionId === sessionId) {
         clearMessages()
@@ -184,7 +278,11 @@ export default function SessionList({
       return
     }
     try {
-      await sessionApi.updateSessionTitle(sessionId, editingTitle)
+      if (isOffline) {
+        await localUpdateSession(sessionId, { title: editingTitle })
+      } else {
+        await sessionApi.updateSessionTitle(sessionId, editingTitle)
+      }
       await loadSessions()
     } catch (error) {
       console.error('Failed to rename session:', error)
@@ -357,6 +455,12 @@ export default function SessionList({
       {showUserSettings && (
         <UserSettingsModal onClose={() => setShowUserSettings(false)} />
       )}
+      {showBizSync && (
+        <BizSyncModal onClose={() => setShowBizSync(false)} />
+      )}
+      {showStorage && (
+        <StorageModal onClose={() => setShowStorage(false)} localUserId={localUserId ?? -1} />
+      )}
 
       <div className="p-4 border-t border-white/30 bg-white/20 backdrop-blur-md data-[mobile=true]:data-[orientation=landscape]:p-1.5 data-[mobile=true]:data-[orientation=landscape]:px-4">
         <div className="flex items-center justify-between">
@@ -374,6 +478,26 @@ export default function SessionList({
             </div>
           </button>
           <div className="flex items-center gap-1 shrink-0">
+            <SyncStatusBadge />
+            {Capacitor.isNativePlatform() && (
+              <>
+                <button
+                  onClick={() => setShowBizSync(true)}
+                  className="flex items-center gap-1 px-2 py-1.5 text-blue-500 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all data-[mobile=true]:data-[orientation=landscape]:p-1 data-[mobile=true]:data-[orientation=landscape]:px-1.5"
+                  title="同步业务数据库到本地，离线时 AI 可查询本地数据"
+                >
+                  <Database className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3.5 data-[mobile=true]:data-[orientation=landscape]:h-3.5" />
+                  <span className="text-[11px] font-medium data-[mobile=true]:data-[orientation=landscape]:hidden">离线数据</span>
+                </button>
+                <button
+                  onClick={() => setShowStorage(true)}
+                  className="p-2 text-gray-400 hover:text-purple-500 hover:bg-purple-50 rounded-xl transition-all data-[mobile=true]:data-[orientation=landscape]:p-1"
+                  title="本地存储管理"
+                >
+                  <HardDrive className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3.5 data-[mobile=true]:data-[orientation=landscape]:h-3.5" />
+                </button>
+              </>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();

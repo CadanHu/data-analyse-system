@@ -7,7 +7,15 @@ const config: CapacitorConfig = {
   server: {
     // 强制使用 http 协议，避免 Mixed Content 拦截对后端 API 的请求
     androidScheme: 'http',
-    allowNavigation: ['10.0.2.2', 'localhost'],
+    allowNavigation: [
+      '10.0.2.2',
+      'localhost',
+      // AI Provider domains for offline direct access
+      'api.openai.com',
+      'api.deepseek.com',
+      'api.anthropic.com',
+      'generativelanguage.googleapis.com',
+    ],
     cleartext: true
   }
 };

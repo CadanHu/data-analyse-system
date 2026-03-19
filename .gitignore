@@ -76,3 +76,7 @@ __pycache__/
 .env
 # Generated reports
 backend/outputs/
+
+# Xcode user-specific state (not shareable)
+xcuserdata/
+*.xcuserstate

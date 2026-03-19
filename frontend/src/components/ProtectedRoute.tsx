@@ -1,11 +1,16 @@
 import { Navigate, Outlet } from 'react-router-dom'
-import { useAuthStore } from '@/stores/authStore'
+import { useAuthStore, isTokenValid } from '@/stores/authStore'
 
 export default function ProtectedRoute() {
-  const isAuthenticated = useAuthStore(state => state.isAuthenticated)
+  const { isAuthenticated, token, user, setAuth } = useAuthStore()
+
+  // If store says unauthenticated but we have a locally valid token, restore session
+  if (!isAuthenticated && isTokenValid(token) && user) {
+    setAuth(user, token!)
+    return <Outlet />
+  }
 
   if (!isAuthenticated) {
-    // 如果未登录，重定向到登录页
     return <Navigate to="/login" replace />
   }
 

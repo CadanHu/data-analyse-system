@@ -22,18 +22,28 @@ import { Terminal } from 'lucide-react'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useAuthStore } from './stores/authStore'
+import { useSyncStore } from './stores/syncStore'
 import { SQLResult } from './types/message'
 import { sessionApi } from '@/api'
 import { useTranslation } from './hooks/useTranslation'
+import { useSyncManager } from './hooks/useSyncManager'
+import { localGetMessages, localGetAllMessages } from './services/localStore'
 
 export default function App() {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const [showLogs, setShowLogs] = useState(false)
-  const { isAuthenticated, user, setAuth } = useAuthStore()
+  const { isAuthenticated, user, offlineMode } = useAuthStore()
+  const { connectionStatus } = useSyncStore()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
   const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen, isMobile, setIsMobile, orientation, setOrientation } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  // On native: treat 'checking' as offline to avoid remote API calls during ping cycle
+  const isNativePlatform = Capacitor.isNativePlatform()
+  const isOffline = offlineMode || (isNativePlatform ? connectionStatus !== 'online' : connectionStatus === 'offline')
+
+  // Initialize sync manager
+  useSyncManager()
 
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
@@ -75,11 +85,68 @@ export default function App() {
     }
   }
 
+  // Restore chart state from the last assistant message that has chart data.
+  // Called after loading messages so each historical session shows its own chart.
+  // Uses setChartOption/setSqlResult (not setCurrentAnalysis) to avoid auto-opening the panel.
+  const restoreChartFromMessages = (msgs: any[]) => {
+    const lastChartMsg = [...msgs].reverse().find(m => {
+      if (m.role !== 'assistant' || !m.chart_cfg) return false
+      // Skip scientist-mode messages — they don't use the standard chart panel
+      const d = typeof m.data === 'string' ? (() => { try { return JSON.parse(m.data) } catch { return {} } })() : (m.data ?? {})
+      if (d?.is_data_science) return false
+      return !!(m.data || m.sql_result)
+    })
+    if (lastChartMsg) {
+      let chartOption: any = null
+      try {
+        chartOption = typeof lastChartMsg.chart_cfg === 'string'
+          ? JSON.parse(lastChartMsg.chart_cfg)
+          : lastChartMsg.chart_cfg
+      } catch { /* ignore */ }
+
+      let sqlResult = lastChartMsg.data
+      if (!sqlResult && lastChartMsg.sql_result) {
+        try {
+          sqlResult = typeof lastChartMsg.sql_result === 'string'
+            ? JSON.parse(lastChartMsg.sql_result)
+            : lastChartMsg.sql_result
+        } catch { /* ignore */ }
+      }
+
+      const chartType = chartOption?.series?.[0]?.type || 'table'
+      if (chartOption) setChartOption(chartOption, chartType)
+      if (sqlResult) setSqlResult(sqlResult)
+      if (lastChartMsg.sql) setCurrentSql(lastChartMsg.sql)
+    } else {
+      // No chart in this session — clear so previous session's chart doesn't bleed through
+      setChartOption(null, 'bar')
+      setSqlResult(null)
+      setCurrentSql('')
+    }
+  }
+
   const loadMessages = async (sessionId: string) => {
     if (!sessionId) return
     console.log('[App] Loading Messages for:', sessionId)
-    
+
     try {
+      // Load from local SQLite when offline
+      if (isOffline) {
+        const localMsgs = await localGetMessages(sessionId)
+        const localAllMsgs = await localGetAllMessages(sessionId)
+        const processMsg = (msg: any) => {
+          if (typeof msg.data === 'string' && msg.data) {
+            try { return { ...msg, data: JSON.parse(msg.data) } } catch { return msg }
+          }
+          return msg
+        }
+        const processed = localMsgs.map(processMsg)
+        setMessages(processed)
+        setAllMessages(localAllMsgs.map(processMsg))
+        restoreChartFromMessages(processed)
+        return
+      }
+
       const data = await sessionApi.getMessages(sessionId)
       
       sessionApi.getMessages(sessionId, true).then(allData => {
@@ -111,7 +178,8 @@ export default function App() {
       })
       
       setMessages(processedData)
-      
+      restoreChartFromMessages(processedData)
+
       if (processedData.length > 0) {
         const lastMessage = processedData[processedData.length - 1]
         if (lastMessage.role === 'assistant') {

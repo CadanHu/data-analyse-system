@@ -14,7 +14,7 @@
 
 ## ⚡ 快速一键启动 (推荐)
 
-如果您已经在 `.env` 中配置好了 `DEEPSEEK_API_KEY`，可以使用项目提供的自动化脚本一键启动前后端：
+如果数据库已就绪，可以使用项目提供的自动化脚本一键启动前后端：
 
 ```bash
 # 在项目根目录下执行
@@ -33,7 +33,8 @@ bash scripts/stop-test.sh
 - **确保 Docker Desktop 已运行**：在执行命令前，请检查您的电脑状态栏（Mac 为小鲸鱼图标），确保 Docker 引擎已处于 `Running` 状态。
 - **配置环境变量**：
   - 系统依赖 `.env` 文件。请在根目录执行 `cp .env.example .env`。
-  - **必填**：打开 `.env` 文件，填入您的 `DEEPSEEK_API_KEY`（或 OpenAI Key）。
+  - **必填**：打开 `.env` 文件，填入 `SECRET_KEY`（用于 JWT 签名）。
+  - **AI API Key**：无需写入 `.env`，启动后在应用内「模型/Key」设置页面动态配置（支持 DeepSeek、OpenAI、Google Gemini、Anthropic Claude）。
 
 ### 2. 解决端口冲突 (重要)
 Docker 会尝试占用您电脑的 `8000` (后端) 和 `80` (前端) 端口。
@@ -81,10 +82,12 @@ docker-compose down && docker-compose up --build
    cp .env.example .env
    ```
    **必填项说明：**
-   - `DEEPSEEK_API_KEY`: 您的 DeepSeek API Key。
+   - `SECRET_KEY`: JWT 签名密钥，可用 `openssl rand -hex 32` 生成。
    - `MYSQL_HOST`: `localhost`
    - `MYSQL_USER`: 您的数据库用户名 (如 `root`)
    - `MYSQL_PASSWORD`: 您的数据库密码
+
+   > **AI API Key 无需写入 `.env`**：启动后在应用内「模型/Key」设置页面配置，支持 DeepSeek、OpenAI、Google Gemini、Anthropic Claude 等多个供应商。
 
 4. **初始化会话数据库与环境验证**：
    运行验证脚本，它会检查您的 MySQL 配置并确保会话数据库就绪。
@@ -147,8 +150,8 @@ python3 scripts/inject_2024_data.py
 - **验证点**：MySQL `users` 表中应出现新记录。
 
 ### 2. AI 思考过程展示
-- 在输入框输入：“分析去年的销售趋势”。
-- **验证点**：观察输入框上方是否实时滚动出现 AI 的推理逻辑（思维链），这是 R1 模型的核心特性。
+- 在输入框输入：”分析去年的销售趋势”。
+- **验证点**：若当前使用支持思考链的模型（DeepSeek R1、Claude Opus/Sonnet、Gemini Pro 等），观察输入框上方是否实时滚动出现 AI 的推理逻辑（思维链）。
 
 ### 3. 多数据库切换
 - 点击侧边栏或设置中的“数据库管理”。
@@ -169,8 +172,8 @@ python3 scripts/inject_2024_data.py
 
 如果您不想手动配置环境，可以使用 Docker：
 ```bash
-# 1. 设置环境变量
-export DEEPSEEK_API_KEY=your_key_here
+# 1. 复制并编辑环境变量（填写 SECRET_KEY 等服务配置，无需填 AI API Key）
+cp .env.example .env
 
 # 2. 启动容器
 docker-compose up -d --build
@@ -178,4 +181,6 @@ docker-compose up -d --build
 # 3. 访问
 # 前端：http://localhost
 # 后端：http://localhost:8000
+
+# 4. 在应用内「模型/Key」页面配置 AI 供应商 API Key
 ```

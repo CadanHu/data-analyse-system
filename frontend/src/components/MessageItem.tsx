@@ -37,6 +37,8 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useAuthStore } from '../stores/authStore'
 import { sessionApi, getBaseURL, messageApi } from '@/api'
+import { resolveUrl, isCached, cacheECharts, resolveEChartsInHtml } from '@/services/fileCache'
+import { upsertMessage } from '@/services/db'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
 
@@ -49,10 +51,23 @@ interface MessageItemProps {
 const DashboardPreview = ({ report, token }: { report: { title?: string, summary?: string, html?: string }, token: string | null }) => {
   const [isFullScreen, setIsFullScreen] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [resolvedHtml, setResolvedHtml] = useState(report.html || '')
   const { t } = useTranslation()
-  
+
   // 🚀 安全处理：防止 summary 为空导致 split 崩溃
   const summaries = (report.summary || '').split('\n').filter(s => s.trim())
+
+  // Cache ECharts and patch HTML for offline rendering
+  useEffect(() => {
+    const html = report.html || ''
+    setResolvedHtml(html)
+    // Trigger cache (no-op if already cached or not native)
+    cacheECharts().then(() => {
+      return resolveEChartsInHtml(html)
+    }).then(patched => {
+      setResolvedHtml(patched)
+    }).catch(() => {/* CDN fallback */})
+  }, [report.html])
 
   const handleExportPDF = async () => {
     try {
@@ -172,7 +187,7 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
             </div>
           </div>
           <iframe
-            srcDoc={report.html || ''}
+            srcDoc={resolvedHtml}
             className="flex-1 w-full border-none bg-white"
             title="Dashboard"
           />
@@ -329,7 +344,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   const isKnowledgeExtraction = parsedData?.is_knowledge_extraction
   const htmlReport = parsedData?.html_report
-  const pdfUrl = parsedData?.file_url ? `${getBaseURL().replace('/api', '')}${parsedData.file_url}` : null
+  const pdfServerUrl = parsedData?.file_url ? `${getBaseURL().replace('/api', '')}${parsedData.file_url}` : null
+  const pdfUrl = pdfServerUrl ? resolveUrl(pdfServerUrl) : null
+  const pdfIsLocal = pdfServerUrl ? isCached(pdfServerUrl) : false
   const plotImageBase64 = parsedData?.plot_image_base64
 
   const displayContent = (isFullTextExpanded && parsedData?.markdown_full) 
@@ -407,9 +424,18 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             
             if (newData && newData.report_status !== 'processing') {
               console.log(`✅ [Poll] Analysis finished: ${newData.report_status}`);
-              updateMessage(message.id, {
-                data: (typeof updatedMessage.data === 'string') ? updatedMessage.data : JSON.stringify(updatedMessage.data)
-              });
+              const dataStr = (typeof updatedMessage.data === 'string') ? updatedMessage.data : JSON.stringify(updatedMessage.data)
+              updateMessage(message.id, { data: dataStr });
+              // Persist html_report to local SQLite so it's available cross-WiFi
+              if (isNativePlatform) {
+                upsertMessage({
+                  id: message.id,
+                  session_id: message.session_id || (currentSession?.id ?? ''),
+                  data: dataStr,
+                  _sync_dirty: 0,
+                  _deleted: 0,
+                }).catch(e => console.warn('[Poll] SQLite persist failed:', e))
+              }
               if (pollInterval) clearInterval(pollInterval);
             }
           }
@@ -930,9 +956,16 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             
             <div className="flex-1 flex overflow-hidden divide-x divide-gray-200">
               <div className="w-1/2 h-full flex flex-col">
-                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.original')}</div>
-                <iframe 
-                  src={`${pdfUrl}#toolbar=0`} 
+                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                  {t('preview.original')}
+                  {pdfIsLocal && (
+                    <span className="text-[9px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                      📱 本机缓存
+                    </span>
+                  )}
+                </div>
+                <iframe
+                  src={`${pdfUrl}#toolbar=0`}
                   className="flex-1 w-full border-none"
                   title="PDF Original"
                 />

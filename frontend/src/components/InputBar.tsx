@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sparkles, KeyRound } from 'lucide-react'
+import { Sparkles, KeyRound, WifiOff } from 'lucide-react'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
-import { uploadApi, messageApi, sessionApi, databaseApi } from '@/api'
+import { uploadApi, messageApi, sessionApi, databaseApi, getBaseURL } from '@/api'
+import { cacheFile } from '@/services/fileCache'
 import ModelKeyModal from './ModelKeyModal'
+import { useAuthStore } from '@/stores/authStore'
+import { useSyncStore } from '@/stores/syncStore'
 
 // 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
 const THINKING_SUPPORTED_MODELS = new Set([
@@ -47,6 +50,9 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     setShowModelKeyModal,
   } = useChatStore()
   const { messages, addMessage, currentSession, updateSession } = useSessionStore()
+  const { offlineMode } = useAuthStore()
+  const { connectionStatus } = useSyncStore()
+  const isOffline = connectionStatus === 'offline' || offlineMode
   // RAG 三档状态: off → session（当前会话文件）→ global（全用户文件）→ off
   type RagScope = 'off' | 'session' | 'global'
   const [ragScope, setRagScope] = useState<RagScope>('off')
@@ -67,8 +73,11 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       // 切换会话时 RAG 重置为 off，sessionHasFiles 也重置
       setRagScope('off')
       setSessionHasFiles(false)
-      setCurrentModelProvider(currentSession.model_provider || null)
-      setCurrentModelNameLocal(currentSession.model_name || null)
+      // 优先用会话自身保存的模型，否则回退全局默认（localStorage）
+      const provider = currentSession.model_provider || localStorage.getItem('DEFAULT_PROVIDER') || null
+      const model    = currentSession.model_name    || localStorage.getItem('DEFAULT_MODEL')    || null
+      setCurrentModelProvider(provider)
+      setCurrentModelNameLocal(model)
     }
   }, [currentSession?.id, sessionId])
 
@@ -140,8 +149,8 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
 
     const question = textToSubmit.trim()
     
-    // 🚀 核心修复：如果还没选库（比如刚通过 pending 自动创建的会话），自动帮他选第一个
-    if (!currentDb) {
+    // 离线模式无需数据库，直接跳过选库逻辑
+    if (!currentDb && !isOffline) {
       console.log('🎯 [InputBar] No DB selected, trying auto-select first one...')
       try {
         const { databases } = await databaseApi.getDatabases()
@@ -149,8 +158,6 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
           const firstDb = databases[0].key
           await databaseApi.switchDatabase(firstDb, sessionId)
           updateSession(sessionId, { database_key: firstDb })
-          // 重新进入 handleSubmit（递归调用一次，此时 currentDb 还没刷新，但后端已经切换成功）
-          // 或者通过 connect 注入 db 逻辑
         } else {
           alert(t('chat.selectDb'))
           return
@@ -366,6 +373,12 @@ const handleStandardUpload = async (file: File) => {
         is_knowledge_extraction: true
       }
 
+      // 🗂️ 立即把 PDF 缓存到设备本地，确保换 Wi-Fi 后仍可离线查看
+      if (response.file_url) {
+        const fullUrl = `${getBaseURL().replace('/api', '')}${response.file_url}`
+        cacheFile(fullUrl).catch(e => console.warn('[FileCache] Pre-cache failed:', e))
+      }
+
       const assistantMsg = {
         id: `resp_${Date.now()}`,
         session_id: sessionId!,
@@ -505,6 +518,17 @@ const handleStandardUpload = async (file: File) => {
         </div>
       )}
 
+      {/* Offline mode indicator */}
+      {isOffline && (
+        <div className="mb-1.5 px-3 py-1.5 bg-amber-50/90 border border-amber-200/70 rounded-xl text-xs text-amber-700 flex items-center justify-between data-[mobile=true]:data-[orientation=landscape]:py-0.5 data-[mobile=true]:data-[orientation=landscape]:mb-1">
+          <div className="flex items-center gap-1.5">
+            <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>离线模式 · AI 直连{currentModelProvider ? ` · ${currentModelProvider}` : ''}</span>
+          </div>
+          <span className="text-amber-500 text-[10px]">数据本地存储</span>
+        </div>
+      )}
+
       <div className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] data-[mobile=true]:data-[orientation=landscape]:rounded-xl">
         <div className="flex items-center gap-2 px-4 pt-4 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pt-2">
           <button
@@ -563,13 +587,13 @@ const handleStandardUpload = async (file: File) => {
             placeholder={
               !sessionId
                 ? t('chat.noSession')
-                : !currentDb
+                : !currentDb && !isOffline
                   ? '⚠️ Please select a database in the top right'
                   : isKnowledgeMode
                     ? t('feature.file.title')
                     : t('chat.placeholder')
             }
-            disabled={isLoading || !sessionId || !currentDb}
+            disabled={isLoading || !sessionId || (!currentDb && !isOffline)}
             className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed data-[mobile=true]:data-[orientation=landscape]:text-xs data-[mobile=true]:data-[orientation=landscape]:leading-tight"
             rows={1}
           />
@@ -578,7 +602,7 @@ const handleStandardUpload = async (file: File) => {
           {isMobilePortrait && (
             <button
               onClick={() => handleSubmit()}
-              disabled={!input.trim() || !sessionId || isLoading || !currentDb}
+              disabled={!input.trim() || !sessionId || isLoading || (!currentDb && !isOffline)}
               className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed shadow-sm transition-all"
               title={t('chat.send')}
             >
@@ -746,7 +770,7 @@ const handleStandardUpload = async (file: File) => {
               )}
               <button
                 onClick={() => handleSubmit()}
-                disabled={!input.trim() || !sessionId || isLoading || !currentDb}
+                disabled={!input.trim() || !sessionId || isLoading || (!currentDb && !isOffline)}
                 className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] disabled:from-gray-200 disabled:to-gray-300 disabled:cursor-not-allowed rounded-xl text-gray-700 transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
               >
                 <svg className="w-4.5 h-4.5 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">

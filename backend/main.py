@@ -115,6 +115,8 @@ async def health_check():
 from routers import session_router, message_router, chat_router, upload_router, database_router, auth_router, observability_router
 from routers.api_key_router import router as api_key_router
 from routers.rag_router import router as rag_router
+from routers.sync_router import router as sync_router
+from routers.business_sync_router import router as business_sync_router
 from fastapi.staticfiles import StaticFiles
 
 app.include_router(session_router.router, prefix="/api", tags=["会话管理"])
@@ -126,6 +128,8 @@ app.include_router(database_router.router)
 app.include_router(observability_router.router)
 app.include_router(api_key_router, prefix="/api", tags=["API Key 管理"])
 app.include_router(rag_router, prefix="/api", tags=["RAG 知识库管理"])
+app.include_router(sync_router, prefix="/api", tags=["移动端同步"])
+app.include_router(business_sync_router, prefix="/api", tags=["业务数据同步"])
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
