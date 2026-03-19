@@ -40,7 +40,10 @@ export default function SessionList({
   const { sessions, setSessions, setCurrentSession, removeSession, loading, clearMessages } = useSessionStore()
   const { user, logout, offlineMode, localUserId } = useAuthStore()
   const { connectionStatus, lastSyncAt } = useSyncStore()
-  const isOffline = connectionStatus === 'offline' || offlineMode
+  // Native platform always uses local SQLite for session management (AI conversations
+  // are also local-only on native). This prevents server/local mismatch that causes
+  // rename failures and ghost sessions when connected to the same Wi-Fi as the PC.
+  const isOffline = connectionStatus === 'offline' || offlineMode || Capacitor.isNativePlatform()
   const [showUserSettings, setShowUserSettings] = useState(false)
   const [showBizSync, setShowBizSync] = useState(false)
   const [showStorage, setShowStorage] = useState(false)
@@ -70,9 +73,11 @@ export default function SessionList({
     }
   }, [user])
 
-  // Reload sessions from server after each sync completes (catches migrated offline sessions)
+  // Reload sessions after each sync completes
+  // - Web (online): reload from server to get latest
+  // - Native: always reload from local SQLite (sync merges server data into SQLite first)
   useEffect(() => {
-    if (lastSyncAt && !isOffline) {
+    if (lastSyncAt) {
       loadSessions()
     }
   }, [lastSyncAt])

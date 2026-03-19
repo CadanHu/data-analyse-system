@@ -110,12 +110,12 @@ export function useSSE() {
 
       try {
         // 2a. Offline mode → direct AI
-        // On Native: treat 'checking' as offline too — server must be confirmed online.
-        //   This prevents the ping cycle (checking→offline) from causing race conditions.
+        // On Native: always use local AI for conversations regardless of Wi-Fi / backend reachability.
+        //   Backend is only used for data sync, not for AI chat on mobile.
         // On Web: only offlineMode matters — transient ping failures must not bypass the
         //   backend (otherwise PLAN_GENERATION two-step flow breaks).
         const isNative = Capacitor.isNativePlatform()
-        const isOffline = offlineMode || (isNative && connectionStatus !== 'online')
+        const isOffline = offlineMode || isNative
         if (isOffline) {
           const provider = options?.model_provider || 'openai'
           const model = options?.model_name || ''
@@ -167,7 +167,7 @@ export function useSSE() {
             let systemPrompt: string
             if (isConfirmation) {
               // Step 2: user confirmed the plan → generate SQL
-              systemPrompt = `你是数据分析助手。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n用户已确认上一轮你提出的分析方案，现在请生成完整的 SQL 查询并执行。\n必须以 JSON 格式回复：\n{"sql":"SELECT ...","chart_type":"bar|line|pie|area|scatter|table|none","reasoning":"执行说明"}\nSQL 使用 MySQL 语法，chart_type 根据数据特征选择最合适的图表类型。`
+              systemPrompt = `你是数据分析助手。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n用户已确认上一轮你提出的分析方案，现在请生成完整的 SQL 查询并执行。\n必须以 JSON 格式回复：\n{"sql":"SELECT ...","chart_type":"bar|line|pie|area|scatter|map|table|none","reasoning":"执行说明"}\nSQL 使用 MySQL 语法，chart_type 根据数据特征选择最合适的图表类型。\n【地图类型规则】地理地图选 map，SQL 必须只按 city 分组（GROUP BY c.city），用 AVG(c.latitude) 和 AVG(c.longitude) 取城市平均坐标（同一城市不同客户坐标略有差异，按 city+lat+lng 分组会产生重复点导致地图标签重叠），并 SELECT city, AVG(latitude) AS latitude, AVG(longitude) AS longitude 以及一个数值指标字段。\n状态过滤使用 IN ('Shipped','shipped') 枚举，禁止使用 LOWER(column) LIKE '%value%' 全表扫描写法。`
             } else {
               // Step 1: new question → propose plan, ask for confirmation, NO SQL yet
               systemPrompt = `你是专业的数据分析顾问。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n用户提出了分析需求，请按以下格式提出分析方案供用户确认，不要生成 SQL：\n必须以 JSON 格式回复：\n{"sql":"","chart_type":"none","reasoning":"【分析方案】\\n1. 涉及的数据表及作用：...\\n2. 分析思路：...\\n3. 推荐图表类型：...\\n\\n这个分析方案是否可以？如果确认，我将为您生成数据并分析。"}\n\n注意：sql 字段必须为空字符串，等用户确认后再生成 SQL。`
@@ -288,18 +288,32 @@ export function useSSE() {
                     let offlineChartOption = null
                     const effectiveChartType = cleanRows.length > 0 && chartType !== 'none' ? chartType : 'table'
                     if (cleanRows.length > 0 && chartType !== 'none') {
-                      const xKey = columns[0]
-                      const yKey = columns[1] || columns[0]
-                      offlineChartOption = {
-                        xAxis: { type: 'category', data: cleanRows.map((r: any) => r[xKey]) },
-                        yAxis: { type: 'value' },
-                        series: [{
-                          data: cleanRows.map((r: any) => r[yKey]),
-                          type: chartType === 'area' ? 'line' : chartType,
-                          ...(chartType === 'area' ? { areaStyle: {} } : {}),
-                          smooth: true,
-                        }],
-                        tooltip: { trigger: 'axis' },
+                      if (chartType === 'map') {
+                        // Map type: build a bar chart ranked by the metric column (offline has no geo renderer)
+                        const metricKey = columns.find((c: string) => !['city', 'latitude', 'longitude', 'province'].includes(c.toLowerCase())) || columns[columns.length - 1]
+                        const cityKey = columns.find((c: string) => c.toLowerCase() === 'city') || columns[0]
+                        const sorted = [...cleanRows].sort((a: any, b: any) => (b[metricKey] ?? 0) - (a[metricKey] ?? 0)).slice(0, 30)
+                        offlineChartOption = {
+                          chart_type: 'map',
+                          xAxis: { type: 'category', data: sorted.map((r: any) => r[cityKey]), axisLabel: { rotate: 45 } },
+                          yAxis: { type: 'value' },
+                          series: [{ data: sorted.map((r: any) => r[metricKey] ?? 0), type: 'bar' }],
+                          tooltip: { trigger: 'axis' },
+                        }
+                      } else {
+                        const xKey = columns[0]
+                        const yKey = columns[1] || columns[0]
+                        offlineChartOption = {
+                          xAxis: { type: 'category', data: cleanRows.map((r: any) => r[xKey]) },
+                          yAxis: { type: 'value' },
+                          series: [{
+                            data: cleanRows.map((r: any) => r[yKey]),
+                            type: chartType === 'area' ? 'line' : chartType,
+                            ...(chartType === 'area' ? { areaStyle: {} } : {}),
+                            smooth: true,
+                          }],
+                          tooltip: { trigger: 'axis' },
+                        }
                       }
                     }
                     // Open right panel — only if the user hasn't switched to a different session
