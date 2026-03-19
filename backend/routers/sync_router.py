@@ -151,7 +151,10 @@ async def sync_push(
         # Verify the session belongs to current_user
         try:
             sess = await session_db.get_session_by_id(m.session_id)
-            if sess and sess.get("user_id") != user_id:
+            if not sess:
+                errors.append(f"message {m.id}: session not found")
+                continue
+            if sess.get("user_id") != user_id:
                 errors.append(f"message {m.id}: session user_id mismatch")
                 continue
             await session_db.upsert_message({

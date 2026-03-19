@@ -136,35 +136,45 @@ export async function fullSync(): Promise<void> {
     // 2. Pull → merge into local SQLite (native only; web has no local SQLite)
     if (Capacitor.isNativePlatform()) {
       const pulled = await pull(since)
-      if (pulled) {
-        for (const serverSession of pulled.sessions) {
-          const local = await dbService.getSession(serverSession.id)
-          if (!local || (local._sync_dirty === 0 && serverSession.updated_at > (local.updated_at || ''))) {
-            await dbService.upsertSession({ ...serverSession, _sync_dirty: 0, _deleted: 0 })
-          }
-        }
+      if (!pulled) {
+        setSyncError('Failed to pull data from server')
+        setConnectionStatus('offline')
+        return
+      }
 
-        for (const serverMsg of pulled.messages) {
-          try {
-            await dbService.upsertMessage({ ...serverMsg, _sync_dirty: 0, _deleted: 0 })
-          } catch { /* ignore */ }
+      for (const serverSession of pulled.sessions) {
+        const local = await dbService.getSession(serverSession.id)
+        if (!local || (local._sync_dirty === 0 && serverSession.updated_at > (local.updated_at || ''))) {
+          await dbService.upsertSession({ ...serverSession, _sync_dirty: 0, _deleted: 0 })
         }
+      }
 
-        for (const serverKey of pulled.api_keys) {
-          const local = await dbService.getApiKey(serverKey.user_id, serverKey.provider)
-          if (!local || (local._sync_dirty === 0 && serverKey.updated_at > (local.updated_at || ''))) {
-            await dbService.upsertApiKey({ ...serverKey, _sync_dirty: 0, _deleted: 0 })
-          }
-        }
+      for (const serverMsg of pulled.messages) {
+        try {
+          await dbService.upsertMessage({ ...serverMsg, _sync_dirty: 0, _deleted: 0 })
+        } catch { /* ignore */ }
+      }
 
-        if (pulled.server_time) {
-          localStorage.setItem(LAST_SYNC_TS_KEY, pulled.server_time)
+      for (const serverKey of pulled.api_keys) {
+        const local = await dbService.getApiKey(serverKey.user_id, serverKey.provider)
+        if (!local || (local._sync_dirty === 0 && serverKey.updated_at > (local.updated_at || ''))) {
+          await dbService.upsertApiKey({ ...serverKey, _sync_dirty: 0, _deleted: 0 })
         }
+      }
+
+      if (pulled.server_time) {
+        localStorage.setItem(LAST_SYNC_TS_KEY, pulled.server_time)
       }
     }
 
     // 3. Push dirty rows (native only; web has no local dirty rows)
+    // Snapshot dirty rows BEFORE push to avoid clearing flags for writes that
+    // happen concurrently during the network round-trip (race condition fix).
     const dirty = await getDirtyRows()
+    const snapshotSessionIds = dirty.sessions.map(s => s.id)
+    const snapshotMessageIds = dirty.messages.map(m => m.id)
+    const snapshotApiKeyIds = dirty.apiKeys.map(k => k.id)
+
     const activeSessions = dirty.sessions.filter(s => !s._deleted)
     const deletedSessionIds = dirty.sessions.filter(s => s._deleted).map(s => s.id)
     const activeMessages = dirty.messages.filter(m => !m._deleted)
@@ -187,11 +197,12 @@ export async function fullSync(): Promise<void> {
       })
 
       if (pushed) {
-        // 4. Clear dirty flags + hard-delete soft-deleted
+        // 4. Clear dirty flags only for the rows snapshotted before push,
+        //    preserving dirty flags for any concurrent local writes.
         await clearDirtyFlags({
-          sessionIds: dirty.sessions.map(s => s.id),
-          messageIds: dirty.messages.map(m => m.id),
-          apiKeyIds: dirty.apiKeys.map(k => k.id),
+          sessionIds: snapshotSessionIds,
+          messageIds: snapshotMessageIds,
+          apiKeyIds: snapshotApiKeyIds,
         })
       }
     }

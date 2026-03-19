@@ -18,7 +18,7 @@ const DEBOUNCE_PUSH_MS = 300
 
 export function useSyncManager() {
   const { setConnectionStatus, connectionStatus } = useSyncStore()
-  const { isAuthenticated, offlineMode, localUserId } = useAuthStore()
+  const { isAuthenticated, offlineMode, localUserId, migrationReady } = useAuthStore()
   const prevOnlineRef = useRef(false)
   const prevAuthRef = useRef(false)
   const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -59,16 +59,21 @@ export function useSyncManager() {
     prevOnlineRef.current = connectionStatus === 'online'
   }, [connectionStatus, isAuthenticated, localUserId])
 
-  // When user logs in (offlineMode → normal login) → wait for migration then sync
+  // When user logs in (offlineMode → normal login) → sync after migration completes
   useEffect(() => {
     const justLoggedIn = isAuthenticated && !offlineMode && !prevAuthRef.current
     prevAuthRef.current = isAuthenticated && !offlineMode
-    if (justLoggedIn && connectionStatus === 'online') {
-      // 600ms delay to allow migrateOfflineUserId to complete
-      const t = setTimeout(() => fullSync(), 600)
-      return () => clearTimeout(t)
+    if (justLoggedIn && connectionStatus === 'online' && migrationReady) {
+      fullSync()
     }
   }, [isAuthenticated, offlineMode])
+
+  // When migration finishes after login → trigger sync
+  useEffect(() => {
+    if (migrationReady && isAuthenticated && !offlineMode && connectionStatus === 'online') {
+      fullSync()
+    }
+  }, [migrationReady])
 
   // Visibility change → sync
   useEffect(() => {

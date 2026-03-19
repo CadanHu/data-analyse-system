@@ -48,12 +48,43 @@ export async function localRegister(
   return { id: -(acct!.id), username, email }
 }
 
-/** Create a pseudo-JWT for local-only session (no cryptographic signature) */
+const DEVICE_NONCE_KEY = 'dp_device_nonce'
+
+/** Returns (and lazily creates) a per-device random nonce stored in localStorage */
+function getDeviceNonce(): string {
+  let nonce = localStorage.getItem(DEVICE_NONCE_KEY)
+  if (!nonce) {
+    nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+    localStorage.setItem(DEVICE_NONCE_KEY, nonce)
+  }
+  return nonce
+}
+
+/** Create a pseudo-JWT for local-only session.
+ *  Embeds a device-specific nonce so the token cannot be trivially forged
+ *  on a different device or by someone who doesn't have access to localStorage. */
 export function buildLocalToken(user: { id: number; email: string }): string {
   const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }))
   const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365
-  const payload = btoa(JSON.stringify({ sub: user.email, id: user.id, exp }))
+  const nonce = getDeviceNonce()
+  const payload = btoa(JSON.stringify({ sub: user.email, id: user.id, exp, nonce }))
   return `${header}.${payload}.local`
+}
+
+/** Validate that a local token's nonce matches this device */
+export function isValidLocalToken(token: string): boolean {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3 || parts[2] !== 'local') return false
+    const payload = JSON.parse(atob(parts[1]))
+    if (payload.exp * 1000 <= Date.now()) return false
+    const nonce = localStorage.getItem(DEVICE_NONCE_KEY)
+    return !!nonce && payload.nonce === nonce
+  } catch {
+    return false
+  }
 }
 
 export { updateLocalAccountServerId }
