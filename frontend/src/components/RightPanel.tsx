@@ -99,8 +99,9 @@ function DataTable({ sqlResult, onExportCsv }: { sqlResult: any; onExportCsv: ()
 
 /**
  * 降级方案：自动生成图表配置
+ * 返回 { option, warning? }，warning 在图表上方展示给用户
  */
-function fallbackGenerateChart(sqlResult: any, type: string, t: any) {
+function fallbackGenerateChart(sqlResult: any, type: string, t: any): any | null {
   if (!sqlResult?.rows?.length || !sqlResult?.columns?.length) return null;
   const columns = sqlResult.columns;
   const rows = sqlResult.rows;
@@ -345,7 +346,7 @@ function fallbackGenerateChart(sqlResult: any, type: string, t: any) {
       const valCol  = numericCols.find((c: string) => !/lat|lon|lng/i.test(c)) || y
 
       if (!latCol || !lngCol) {
-        // 没有坐标列，降级为横向 bar
+        // 没有坐标列，降级为横向 bar（调用方会在图表上方显示 warning banner）
         return {
           title: base.title,
           tooltip: base.tooltip,
@@ -451,8 +452,19 @@ export default function RightPanel() {
       return { type: 'chart', option: currentChartOption }
     }
 
+    // Detect map chart missing coordinate columns and surface a warning
+    let mapWarning: string | undefined
+    if (targetType === 'map') {
+      const cols: string[] = currentSqlResult.columns
+      const hasLat = cols.some((c) => /lat/i.test(c))
+      const hasLng = cols.some((c) => /lon|lng/i.test(c))
+      if (!hasLat || !hasLng) {
+        mapWarning = t('panel.mapMissingCoords', 'SQL 缺少坐标字段，已降级为柱状图。请在 SQL 中 SELECT latitude, longitude 字段（通过 JOIN customers 表获取）。')
+      }
+    }
+
     const generatedOption = fallbackGenerateChart(currentSqlResult, targetType, t)
-    return { type: 'chart', option: generatedOption }
+    return { type: 'chart', option: generatedOption, warning: mapWarning }
   }, [currentSqlResult, currentChartOption, currentChartType, activeType, t])
 
   const renderInnerContent = () => {
@@ -469,8 +481,20 @@ export default function RightPanel() {
       case 'table':
         return <DataTable sqlResult={currentSqlResult} onExportCsv={() => {}} />
       case 'chart':
-        return displayConfig.option 
-          ? <EChartsRenderer option={displayConfig.option} /> 
+        return displayConfig.option
+          ? (
+            <div className="flex flex-col h-full">
+              {displayConfig.warning && (
+                <div className="mx-3 mt-2 mb-1 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 flex items-start gap-2 flex-shrink-0">
+                  <span className="flex-shrink-0 mt-0.5">⚠️</span>
+                  <span>{displayConfig.warning}</span>
+                </div>
+              )}
+              <div className="flex-1 min-h-0">
+                <EChartsRenderer option={displayConfig.option} />
+              </div>
+            </div>
+          )
           : <div className="p-8 text-center text-gray-400">{t('panel.unsupported')} {activeType}</div>
       default:
         return null

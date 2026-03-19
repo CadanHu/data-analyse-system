@@ -214,6 +214,39 @@ export async function clearDirtyFlags(ids: { sessionIds: string[]; messageIds: s
   await dbService.hardDeleteSyncedDeleted()
 }
 
+// ==================== Web pull merge (memory Map only) ====================
+
+/**
+ * Merge server-pulled data into the in-memory Maps (web platform).
+ * Does NOT set _sync_dirty so these rows won't be pushed back to server.
+ * Uses last-write-wins: server data overwrites local only if local is not dirty.
+ */
+export function webMergeFromServer(data: {
+  sessions: LocalSession[]
+  messages: LocalMessage[]
+  api_keys: LocalApiKey[]
+}): void {
+  for (const s of data.sessions) {
+    const local = _sessions.get(s.id)
+    if (!local || (local._sync_dirty === 0 && s.updated_at > (local.updated_at || ''))) {
+      _sessions.set(s.id, { ...s, _sync_dirty: 0, _deleted: 0 })
+    }
+  }
+  for (const m of data.messages) {
+    const local = _messages.get(m.id)
+    if (!local || local._sync_dirty === 0) {
+      _messages.set(m.id, { ...m, _sync_dirty: 0, _deleted: 0 })
+    }
+  }
+  for (const k of data.api_keys) {
+    const mapKey = `${k.user_id}:${k.provider}`
+    const local = _apiKeys.get(mapKey)
+    if (!local || (local._sync_dirty === 0 && k.updated_at > (local.updated_at || ''))) {
+      _apiKeys.set(mapKey, { ...k, _sync_dirty: 0, _deleted: 0 })
+    }
+  }
+}
+
 // ==================== User migration ====================
 
 export async function migrateOfflineUserId(toId: number): Promise<void> {

@@ -13,6 +13,7 @@ import {
   localGetApiKeys,
   getDirtyRows,
   clearDirtyFlags,
+  webMergeFromServer,
 } from './localStore'
 import dbService, { isDbInitialized } from './db'
 
@@ -133,15 +134,16 @@ export async function fullSync(): Promise<void> {
 
     const since = localStorage.getItem(LAST_SYNC_TS_KEY) || undefined
 
-    // 2. Pull → merge into local SQLite (native only; web has no local SQLite)
-    if (Capacitor.isNativePlatform()) {
-      const pulled = await pull(since)
-      if (!pulled) {
-        setSyncError('Failed to pull data from server')
-        setConnectionStatus('offline')
-        return
-      }
+    // 2. Pull → merge into local store (pull once, branch on platform)
+    //    Native: merge into SQLite; Web: merge into in-memory Maps as warm cache
+    const pulled = await pull(since)
+    if (!pulled) {
+      setSyncError('Failed to pull data from server')
+      setConnectionStatus('offline')
+      return
+    }
 
+    if (Capacitor.isNativePlatform()) {
       for (const serverSession of pulled.sessions) {
         const local = await dbService.getSession(serverSession.id)
         if (!local || (local._sync_dirty === 0 && serverSession.updated_at > (local.updated_at || ''))) {
@@ -161,10 +163,13 @@ export async function fullSync(): Promise<void> {
           await dbService.upsertApiKey({ ...serverKey, _sync_dirty: 0, _deleted: 0 })
         }
       }
+    } else {
+      // Web platform: populate memory Maps so offline-fallback reads are warm
+      webMergeFromServer(pulled)
+    }
 
-      if (pulled.server_time) {
-        localStorage.setItem(LAST_SYNC_TS_KEY, pulled.server_time)
-      }
+    if (pulled.server_time) {
+      localStorage.setItem(LAST_SYNC_TS_KEY, pulled.server_time)
     }
 
     // 3. Push dirty rows (native only; web has no local dirty rows)
