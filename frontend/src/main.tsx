@@ -1,8 +1,14 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
+import { Capacitor } from '@capacitor/core'
 import App from './App'
 import './index.css'
+
+// 手机端启用 Eruda 调试面板（右下角浮动按钮 → Console/Network/Elements）
+if (Capacitor.isNativePlatform()) {
+  import('eruda').then(({ default: eruda }) => eruda.init())
+}
 
 // 兼容性补丁：针对旧版本 Android WebView (修复 Object.hasOwn 缺失问题)
 if (typeof Object.hasOwn !== 'function') {

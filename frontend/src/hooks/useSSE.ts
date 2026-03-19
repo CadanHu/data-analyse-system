@@ -144,6 +144,9 @@ export function useSSE() {
             aiMessages.unshift({ role: 'system', content: systemPrompt })
           }
 
+          console.log(`🤖 [Offline-AI] provider=${provider} model=${model}`)
+          console.log('📤 [Offline-AI] Prompt messages:', JSON.stringify(aiMessages, null, 2))
+
           await streamDirectAi({
             provider,
             model,
@@ -189,6 +192,8 @@ export function useSSE() {
               }
             },
             onDone: () => {
+              console.log('📥 [Offline-AI] Full response:', assistantContent)
+              if (assistantModelThinking) console.log('💭 [Offline-AI] Thinking:', assistantModelThinking)
               // Persist assistant message locally
               localSaveMessage({
                 id: assistantMessageId,
@@ -227,17 +232,39 @@ export function useSSE() {
                 const parsed = JSON.parse(jsonMatch[0])
                 const rawSql: string = parsed.sql || ''
                 const reasoning: string = parsed.reasoning || parsed.explanation || ''
+                const chartType: string = parsed.chart_type || 'none'
                 if (rawSql.trim()) {
                   const displayContent = reasoning || assistantContent
                   const tableNames = localTables.map(t => t.tableName)
                   const sqliteSQL = convertMySQLToSQLite(rawSql, currentDb, tableNames)
+                  console.log('🔄 [Offline-SQL] MySQL SQL:', rawSql)
+                  console.log('🔄 [Offline-SQL] SQLite SQL:', sqliteSQL)
                   setCurrentSql(rawSql)
                   try {
                     const rows = await executeLocalQuery(sqliteSQL)
                     const cleanRows = (rows as any[]).filter((r: any) => !('ios_columns' in r))
                     const columns = cleanRows.length > 0 ? Object.keys(cleanRows[0]) : []
+                    console.log(`📊 [Offline-SQL] Result: ${cleanRows.length} rows, columns: [${columns.join(', ')}]`)
+                    console.log('📊 [Offline-SQL] First 3 rows:', JSON.stringify(cleanRows.slice(0, 3)))
                     const sqlResult = { columns, rows: cleanRows, total_count: cleanRows.length }
                     setSqlResult(sqlResult)
+                    // 生成图表（对应 AI 返回的 chart_type）
+                    if (cleanRows.length > 0 && chartType !== 'none') {
+                      const xKey = columns[0]
+                      const yKey = columns[1] || columns[0]
+                      const chartOption = {
+                        xAxis: { type: 'category', data: cleanRows.map((r: any) => r[xKey]) },
+                        yAxis: { type: 'value' },
+                        series: [{
+                          data: cleanRows.map((r: any) => r[yKey]),
+                          type: chartType === 'area' ? 'line' : chartType,
+                          ...(chartType === 'area' ? { areaStyle: {} } : {}),
+                          smooth: true,
+                        }],
+                        tooltip: { trigger: 'axis' },
+                      }
+                      setChartOption(chartOption, chartType)
+                    }
                     updateLastMessage({
                       content: displayContent,
                       sql: rawSql,
@@ -250,6 +277,7 @@ export function useSSE() {
                     }).catch(() => {})
                   } catch (execErr) {
                     const errMsg = execErr instanceof Error ? execErr.message : 'SQL执行失败'
+                    console.error('❌ [Offline-SQL] Execution error:', errMsg)
                     updateLastMessage({ content: `${reasoning}\n\n❌ ${errMsg}\n\`\`\`sql\n${rawSql}\n\`\`\`` })
                   }
                 }
@@ -277,7 +305,21 @@ export function useSSE() {
         const apiPath = baseURL.startsWith('http') ? `${baseURL}/chat/stream` : `${window.location.origin}${baseURL}/chat/stream`;
         const finalUrl = apiPath.replace(/([^:])\/\//g, '$1/')
 
+        const onlineBody = {
+          session_id: sessionId,
+          question: question,
+          parent_id: options?.parent_id,
+          enable_thinking: options?.enable_thinking ?? isThinkingMode,
+          enable_rag: options?.enable_rag || false,
+          rag_scope: options?.rag_scope || 'session',
+          rag_engine: options?.rag_engine || 'light',
+          enable_data_science_agent: options?.enable_data_science_agent || false,
+          model_provider: options?.model_provider,
+          model_name: options?.model_name,
+          language: language
+        }
         console.log(`📡 [SSE] 发起流式请求: ${finalUrl}`)
+        console.log('📤 [SSE] Request body:', JSON.stringify(onlineBody, null, 2))
 
         const response = await fetch(finalUrl, {
           method: 'POST',
@@ -411,6 +453,9 @@ export function useSSE() {
                   handlers?.onSummary?.(eventData.content)
                   break
                 case 'done':
+                  console.log('📥 [SSE] Full assistant response:', assistantContent)
+                  if (assistantModelThinking) console.log('💭 [SSE] Model thinking:', assistantModelThinking)
+                  if (assistantSql) console.log('🗄️ [SSE] SQL:', assistantSql)
                   setIsLoading(false)
                   if (eventData.session_title) {
                     console.log('📝 [SSE] 收到新标题，正在更新 UI:', eventData.session_title);

@@ -337,6 +337,56 @@ function fallbackGenerateChart(sqlResult: any, type: string, t: any) {
           }))
         }]
       };
+    case 'map': {
+      // 需要 latitude / longitude 字段
+      const latCol  = columns.find((c: string) => /lat/i.test(c))
+      const lngCol  = columns.find((c: string) => /lon|lng/i.test(c))
+      const nameCol = columns.find((c: string) => /city|name|城市/i.test(c)) || x
+      const valCol  = numericCols.find((c: string) => !/lat|lon|lng/i.test(c)) || y
+
+      if (!latCol || !lngCol) {
+        // 没有坐标列，降级为横向 bar
+        return {
+          title: base.title,
+          tooltip: base.tooltip,
+          grid: { top: 60, bottom: 40, left: 80, right: 50, containLabel: true },
+          xAxis: { type: 'value', axisLabel: { fontSize: 10 } },
+          yAxis: { type: 'category', data: rows.map((r: any) => String(r[nameCol])), axisLabel: { fontSize: 10 } },
+          series: [{ type: 'bar', data: rows.map((r: any) => r[valCol]), itemStyle: { borderRadius: [0, 4, 4, 0] }, barMaxWidth: 28 }]
+        }
+      }
+
+      const maxVal = Math.max(...rows.map((r: any) => Number(r[valCol]) || 0))
+      return {
+        title: { ...base.title, text: 'Geographic Distribution' },
+        tooltip: {
+          trigger: 'item',
+          formatter: (p: any) => `${p.data.name}<br/>${valCol}: ${Number(p.data.value[2]).toLocaleString()}`
+        },
+        xAxis: {
+          name: 'Longitude', min: 73, max: 136,
+          axisLabel: { fontSize: 9 }, splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
+        },
+        yAxis: {
+          name: 'Latitude', min: 18, max: 54,
+          axisLabel: { fontSize: 9 }, splitLine: { lineStyle: { type: 'dashed', color: '#e5e7eb' } }
+        },
+        visualMap: {
+          min: 0, max: maxVal, show: false,
+          inRange: { color: ['#bfdbfe', '#2563eb'] }
+        },
+        series: [{
+          type: 'scatter',
+          symbolSize: (val: any) => Math.max(14, Math.sqrt(val[2] / maxVal) * 60),
+          label: { show: true, formatter: (p: any) => p.data.name, position: 'top', fontSize: 10, color: '#374151' },
+          data: rows.map((r: any) => ({
+            name: String(r[nameCol]),
+            value: [Number(r[lngCol]), Number(r[latCol]), Number(r[valCol]) || 0]
+          })),
+          itemStyle: { opacity: 0.85 }
+        }]
+      }
+    }
     default:
       return null;
   }

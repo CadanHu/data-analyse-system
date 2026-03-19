@@ -18,8 +18,9 @@ import {
   localDeleteSession,
 } from '../services/localStore'
 
-import { Terminal, Monitor, XCircle, LogOut, Database } from 'lucide-react'
+import { Terminal, Monitor, XCircle, LogOut, Database, HardDrive } from 'lucide-react'
 import BizSyncModal from './BizSyncModal'
+import StorageModal from './StorageModal'
 
 interface SessionListProps {
   selectedSessionId: string | null
@@ -42,6 +43,7 @@ export default function SessionList({
   const isOffline = connectionStatus === 'offline' || offlineMode
   const [showUserSettings, setShowUserSettings] = useState(false)
   const [showBizSync, setShowBizSync] = useState(false)
+  const [showStorage, setShowStorage] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const { t } = useTranslation()
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
@@ -181,28 +183,41 @@ export default function SessionList({
     }
   }
 
+  const mapLocalSessions = (localData: any[]) => localData.map(s => ({
+    id: s.id,
+    title: s.title ?? undefined,
+    database_key: s.database_key ?? undefined,
+    status: s.status ?? undefined,
+    enable_data_science_agent: !!s.enable_data_science_agent,
+    enable_thinking: !!s.enable_thinking,
+    enable_rag: !!s.enable_rag,
+    model_provider: s.model_provider ?? undefined,
+    model_name: s.model_name ?? undefined,
+    created_at: s.created_at ?? new Date().toISOString(),
+    updated_at: s.updated_at ?? new Date().toISOString(),
+  })) as Session[]
+
   const loadSessions = async () => {
     try {
       if (isOffline) {
         const userId = localUserId ?? -1
         const localData = await localGetSessions(userId)
-        const mapped = localData.map(s => ({
-          id: s.id,
-          title: s.title ?? undefined,
-          database_key: s.database_key ?? undefined,
-          status: s.status ?? undefined,
-          enable_data_science_agent: !!s.enable_data_science_agent,
-          enable_thinking: !!s.enable_thinking,
-          enable_rag: !!s.enable_rag,
-          model_provider: s.model_provider ?? undefined,
-          model_name: s.model_name ?? undefined,
-          created_at: s.created_at ?? new Date().toISOString(),
-          updated_at: s.updated_at ?? new Date().toISOString(),
-        })) as Session[]
-        setSessions(mapped)
+        setSessions(mapLocalSessions(localData))
         onSessionsUpdated?.()
         return
       }
+
+      // Native: pre-load from local SQLite immediately so the list isn't blank
+      // during the server request (which may take 3-10s to timeout if offline)
+      if (Capacitor.isNativePlatform()) {
+        const userId = localUserId ?? -1
+        const localData = await localGetSessions(userId)
+        if (localData.length > 0) {
+          setSessions(mapLocalSessions(localData))
+          onSessionsUpdated?.()
+        }
+      }
+
       console.log('📡 [SessionList] Fetching sessions...')
       const data = await sessionApi.getSessions()
       console.log('✅ [SessionList] Sessions loaded:', data)
@@ -212,25 +227,12 @@ export default function SessionList({
       }
     } catch (error) {
       console.error('❌ [SessionList] Failed to load sessions:', error)
-      // Server unreachable → fall back to local SQLite on native
+      // Server unreachable and no pre-load was done → fall back to local SQLite
       if (Capacitor.isNativePlatform()) {
         try {
           const userId = localUserId ?? -1
           const localData = await localGetSessions(userId)
-          const mapped = localData.map(s => ({
-            id: s.id,
-            title: s.title ?? undefined,
-            database_key: s.database_key ?? undefined,
-            status: s.status ?? undefined,
-            enable_data_science_agent: !!s.enable_data_science_agent,
-            enable_thinking: !!s.enable_thinking,
-            enable_rag: !!s.enable_rag,
-            model_provider: s.model_provider ?? undefined,
-            model_name: s.model_name ?? undefined,
-            created_at: s.created_at ?? new Date().toISOString(),
-            updated_at: s.updated_at ?? new Date().toISOString(),
-          })) as Session[]
-          setSessions(mapped)
+          setSessions(mapLocalSessions(localData))
           onSessionsUpdated?.()
         } catch { /* ignore */ }
       }
@@ -451,6 +453,9 @@ export default function SessionList({
       {showBizSync && (
         <BizSyncModal onClose={() => setShowBizSync(false)} />
       )}
+      {showStorage && (
+        <StorageModal onClose={() => setShowStorage(false)} localUserId={localUserId ?? -1} />
+      )}
 
       <div className="p-4 border-t border-white/30 bg-white/20 backdrop-blur-md data-[mobile=true]:data-[orientation=landscape]:p-1.5 data-[mobile=true]:data-[orientation=landscape]:px-4">
         <div className="flex items-center justify-between">
@@ -470,13 +475,23 @@ export default function SessionList({
           <div className="flex items-center gap-1 shrink-0">
             <SyncStatusBadge />
             {Capacitor.isNativePlatform() && (
-              <button
-                onClick={() => setShowBizSync(true)}
-                className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all data-[mobile=true]:data-[orientation=landscape]:p-1"
-                title="离线数据同步"
-              >
-                <Database className="w-5 h-5 data-[mobile=true]:data-[orientation=landscape]:w-4 data-[mobile=true]:data-[orientation=landscape]:h-4" />
-              </button>
+              <>
+                <button
+                  onClick={() => setShowBizSync(true)}
+                  className="flex items-center gap-1 px-2 py-1.5 text-blue-500 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all data-[mobile=true]:data-[orientation=landscape]:p-1 data-[mobile=true]:data-[orientation=landscape]:px-1.5"
+                  title="同步业务数据库到本地，离线时 AI 可查询本地数据"
+                >
+                  <Database className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3.5 data-[mobile=true]:data-[orientation=landscape]:h-3.5" />
+                  <span className="text-[11px] font-medium data-[mobile=true]:data-[orientation=landscape]:hidden">离线数据</span>
+                </button>
+                <button
+                  onClick={() => setShowStorage(true)}
+                  className="p-2 text-gray-400 hover:text-purple-500 hover:bg-purple-50 rounded-xl transition-all data-[mobile=true]:data-[orientation=landscape]:p-1"
+                  title="本地存储管理"
+                >
+                  <HardDrive className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3.5 data-[mobile=true]:data-[orientation=landscape]:h-3.5" />
+                </button>
+              </>
             )}
             <button
               onClick={(e) => {

@@ -13,6 +13,7 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loginInfo, setLoginInfo] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
   const navigate = useNavigate()
@@ -66,6 +67,7 @@ export default function Login() {
         navigate('/app')
       }, 100)
     } catch (err: any) {
+      const isNetworkError = !err.response
       // Server unreachable → try local cache
       if (Capacitor.isNativePlatform()) {
         try {
@@ -74,10 +76,17 @@ export default function Login() {
           if (localUser) {
             const fakeToken = buildLocalToken(localUser)
             useAuthStore.getState().setAuth(localUser, fakeToken)
-            navigate('/app')
+            setLoginInfo('当前无网络，已切换本地账号登录')
+            setTimeout(() => navigate('/app'), 1500)
             return
           }
         } catch { /* fall through to show error */ }
+        setError(
+          isNetworkError
+            ? '服务器无法连接，且本地未找到缓存账号。请先在网络正常时登录一次。'
+            : (err.response?.data?.detail || t('login.failed'))
+        )
+        return
       }
       setError(err.response?.data?.detail || t('login.failed'))
     } finally {
@@ -109,6 +118,14 @@ export default function Login() {
 
         <div className="bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 md:p-10 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-6">
+            {loginInfo && (
+              <div className="bg-teal-500/10 border border-teal-500/30 text-teal-300 px-4 py-3 rounded-xl text-sm text-center select-text flex items-center justify-center gap-2">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {loginInfo}
+              </div>
+            )}
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm text-center select-text">
                 {error}
@@ -164,6 +181,9 @@ export default function Login() {
               >
                 {t('login.offlineMode') || '离线使用 / 无需服务器'}
               </button>
+              <p className="text-center text-[11px] text-gray-600 mt-2">
+                无网络但有账号缓存？直接点「登录」，系统会自动切换本地账号
+              </p>
             </div>
           )}
         </div>

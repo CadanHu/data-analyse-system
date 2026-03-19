@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sparkles, KeyRound } from 'lucide-react'
+import { Sparkles, KeyRound, WifiOff } from 'lucide-react'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
@@ -73,8 +73,11 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       // 切换会话时 RAG 重置为 off，sessionHasFiles 也重置
       setRagScope('off')
       setSessionHasFiles(false)
-      setCurrentModelProvider(currentSession.model_provider || null)
-      setCurrentModelNameLocal(currentSession.model_name || null)
+      // 优先用会话自身保存的模型，否则回退全局默认（localStorage）
+      const provider = currentSession.model_provider || localStorage.getItem('DEFAULT_PROVIDER') || null
+      const model    = currentSession.model_name    || localStorage.getItem('DEFAULT_MODEL')    || null
+      setCurrentModelProvider(provider)
+      setCurrentModelNameLocal(model)
     }
   }, [currentSession?.id, sessionId])
 
@@ -512,6 +515,17 @@ const handleStandardUpload = async (file: File) => {
             <div className="text-[11px] font-bold text-purple-700">💎 {t('feature.file.title')} (MinerU)</div>
             <div className="text-[9px] text-gray-500">{t('feature.file.desc')}</div>
           </button>
+        </div>
+      )}
+
+      {/* Offline mode indicator */}
+      {isOffline && (
+        <div className="mb-1.5 px-3 py-1.5 bg-amber-50/90 border border-amber-200/70 rounded-xl text-xs text-amber-700 flex items-center justify-between data-[mobile=true]:data-[orientation=landscape]:py-0.5 data-[mobile=true]:data-[orientation=landscape]:mb-1">
+          <div className="flex items-center gap-1.5">
+            <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>离线模式 · AI 直连{currentModelProvider ? ` · ${currentModelProvider}` : ''}</span>
+          </div>
+          <span className="text-amber-500 text-[10px]">数据本地存储</span>
         </div>
       )}
 

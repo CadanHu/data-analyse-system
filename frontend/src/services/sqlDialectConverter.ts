@@ -59,12 +59,85 @@ export function convertMySQLToSQLite(sql: string, dbKey: string, tableNames: str
   s = s.replace(/GROUP_CONCAT\s*\(\s*([^)]+?)\s+SEPARATOR\s+'([^']*)'\s*\)/gi,
     (_, col, sep) => `GROUP_CONCAT(${col.trim()}, '${sep}')`)
 
-  // 10. Backtick identifiers → double-quote (SQLite prefers double-quotes)
+  // 10. GROUP BY ... WITH ROLLUP → strip WITH ROLLUP (SQLite doesn't support)
+  s = s.replace(/\bGROUP\s+BY\s+([\s\S]+?)\s+WITH\s+ROLLUP\b/gi,
+    (_, groupCols) => `GROUP BY ${groupCols}`)
+
+  // 11. DATEDIFF(d1, d2) → CAST(julianday(d1) - julianday(d2) AS INTEGER)
+  s = s.replace(/\bDATEDIFF\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/gi,
+    (_, d1, d2) => `CAST(julianday(${d1.trim()}) - julianday(${d2.trim()}) AS INTEGER)`)
+
+  // 12. DATE_ADD(date, INTERVAL n unit) → date(date, '+n unit')
+  s = s.replace(/\bDATE_ADD\s*\(\s*([^,]+?)\s*,\s*INTERVAL\s+(-?\d+)\s+(\w+)\s*\)/gi,
+    (_, dt, n, unit) => `date(${dt.trim()}, '+${n} ${unit.toLowerCase()}')`)
+
+  // 13. DATE_SUB(date, INTERVAL n unit) → date(date, '-n unit')
+  s = s.replace(/\bDATE_SUB\s*\(\s*([^,]+?)\s*,\s*INTERVAL\s+(-?\d+)\s+(\w+)\s*\)/gi,
+    (_, dt, n, unit) => `date(${dt.trim()}, '-${n} ${unit.toLowerCase()}')`)
+
+  // 14. JSON_ARRAYAGG(col) → json_group_array(col)
+  s = s.replace(/\bJSON_ARRAYAGG\s*\(/gi, 'json_group_array(')
+
+  // 15. JSON_OBJECTAGG(k, v) → json_group_object(k, v)
+  s = s.replace(/\bJSON_OBJECTAGG\s*\(/gi, 'json_group_object(')
+
+  // 16. JSON_EXTRACT(col, path) → json_extract(col, path)  [SQLite already has this, just lowercase]
+  s = s.replace(/\bJSON_EXTRACT\s*\(/gi, 'json_extract(')
+
+  // 17. JSON_UNQUOTE(JSON_EXTRACT(...)) → json_extract(...)  [SQLite returns unquoted natively]
+  s = s.replace(/\bJSON_UNQUOTE\s*\(\s*json_extract\s*\(/gi, 'json_extract(')
+  s = s.replace(/\bJSON_UNQUOTE\s*\(\s*JSON_EXTRACT\s*\(/gi, 'json_extract(')
+
+  // 18. TRUNCATE(num, digits) → ROUND(num, digits)  [close enough for analytics]
+  s = s.replace(/\bTRUNCATE\s*\(\s*([^,]+?)\s*,\s*(\d+)\s*\)/gi,
+    (_, num, digits) => `ROUND(${num.trim()}, ${digits})`)
+
+  // 19. CAST(expr AS SIGNED/UNSIGNED) → CAST(expr AS INTEGER)
+  s = s.replace(/\bCAST\s*\(\s*([^)]+?)\s+AS\s+(?:SIGNED|UNSIGNED)\s*\)/gi,
+    (_, expr) => `CAST(${expr.trim()} AS INTEGER)`)
+
+  // 20. CONVERT(expr, SIGNED/UNSIGNED/CHAR/DECIMAL) → CAST(expr AS ...)
+  s = s.replace(/\bCONVERT\s*\(\s*([^,]+?)\s*,\s*(SIGNED|UNSIGNED|INTEGER|CHAR|DECIMAL|FLOAT)\s*\)/gi,
+    (_, expr, type) => {
+      const sqliteType = /SIGNED|UNSIGNED|INTEGER/.test(type.toUpperCase()) ? 'INTEGER'
+        : /CHAR/.test(type.toUpperCase()) ? 'TEXT' : 'REAL'
+      return `CAST(${expr.trim()} AS ${sqliteType})`
+    })
+
+  // 21. QUARTER(col) → ((CAST(strftime('%m', col) AS INTEGER) - 1) / 4 + 1)
+  s = s.replace(/\bQUARTER\s*\(\s*([^)]+)\s*\)/gi,
+    (_, col) => `((CAST(strftime('%m', ${col.trim()}) AS INTEGER) - 1) / 3 + 1)`)
+
+  // 22. WEEK(col) → strftime('%W', col)
+  s = s.replace(/\bWEEK\s*\(\s*([^),]+?)\s*(?:,\s*\d+\s*)?\)/gi,
+    (_, col) => `CAST(strftime('%W', ${col.trim()}) AS INTEGER)`)
+
+  // 23. WEEKDAY(col) → (strftime('%w', col) + 6) % 7  [MySQL: Mon=0, SQLite: Sun=0]
+  s = s.replace(/\bWEEKDAY\s*\(\s*([^)]+)\s*\)/gi,
+    (_, col) => `((CAST(strftime('%w', ${col.trim()}) AS INTEGER) + 6) % 7)`)
+
+  // 24. DAYOFWEEK(col) → strftime('%w', col) + 1  [MySQL: Sun=1, SQLite: Sun=0]
+  s = s.replace(/\bDAYOFWEEK\s*\(\s*([^)]+)\s*\)/gi,
+    (_, col) => `(CAST(strftime('%w', ${col.trim()}) AS INTEGER) + 1)`)
+
+  // 25. CONCAT(a, b) → (a || b)  [simple 2-arg, no nested functions]
+  s = s.replace(/\bCONCAT\s*\(\s*([^(),]+?)\s*,\s*([^(),]+?)\s*\)/gi,
+    (_, a, b) => `(${a.trim()} || ${b.trim()})`)
+
+  // 26. CONCAT_WS(sep, a, b) → (a || sep || b)
+  s = s.replace(/\bCONCAT_WS\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,\s*([^(),]+?)\s*\)/gi,
+    (_, sep, a, b) => `(${a.trim()} || ${sep.trim()} || ${b.trim()})`)
+
+  // 27. LIMIT offset, count → LIMIT count OFFSET offset  (MySQL shorthand)
+  s = s.replace(/\bLIMIT\s+(\d+)\s*,\s*(\d+)\b/gi,
+    (_, offset, count) => `LIMIT ${count} OFFSET ${offset}`)
+
+  // 28. Backtick identifiers → double-quote (SQLite prefers double-quotes)
   //     But SQLite also accepts backticks, so this is optional.
   //     We do it anyway for cleanliness.
   s = s.replace(/`([^`]+)`/g, '"$1"')
 
-  // 11. Rewrite table names to prefixed biz_ names
+  // 29. Rewrite table names to prefixed biz_ names
   //     Only rewrite bare table names (not schema-qualified ones like db.table)
   if (dbKey && tableNames.length > 0) {
     const prefix = _bizTablePrefix(dbKey)

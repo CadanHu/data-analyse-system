@@ -9,6 +9,7 @@ import {
   localGetApiKeys,
   localSaveApiKey,
   localDeleteApiKey,
+  localUpdateSession,
 } from '@/services/localStore'
 
 // 各供应商的预置模型列表
@@ -84,7 +85,8 @@ function MobileSheet({
   baseUrl, setBaseUrl,
   showKey, setShowKey,
   saving, saveSuccess,
-  handleSaveKey, handleDeleteKey, handleApplyModel,
+  validating, validationResult,
+  handleSaveKey, handleDeleteKey, handleApplyModel, handleValidateKey,
 }: any) {
   const [activeTab, setActiveTab] = useState<'select' | 'config'>('select')
   const currentModels = PROVIDER_MODELS[selectedProvider]?.models || []
@@ -289,17 +291,37 @@ function MobileSheet({
                   />
                 )}
 
-                <button
-                  onClick={handleSaveKey}
-                  disabled={saving || !apiKey.trim()}
-                  className={`w-full py-4 font-semibold rounded-2xl transition-all active:scale-[0.98] text-base ${
-                    saveSuccess
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white disabled:opacity-50 disabled:cursor-not-allowed'
-                  }`}
-                >
-                  {saving ? '保存中...' : saveSuccess ? '✓ 保存成功' : '保存 API Key'}
-                </button>
+                {/* Validation result feedback */}
+                {validationResult && (
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm ${
+                    validationResult === 'ok'
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                      : 'bg-red-50 border border-red-200 text-red-700'
+                  }`}>
+                    <span>{validationResult === 'ok' ? '✅ Key 验证通过，可正常使用' : '❌ Key 验证失败，请检查是否正确'}</span>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleValidateKey}
+                    disabled={validating || saving || !apiKey.trim()}
+                    className="flex-1 py-3.5 font-semibold rounded-2xl border-2 border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] text-sm"
+                  >
+                    {validating ? '验证中…' : '测试 Key'}
+                  </button>
+                  <button
+                    onClick={handleSaveKey}
+                    disabled={saving || !apiKey.trim()}
+                    className={`flex-[2] py-3.5 font-semibold rounded-2xl transition-all active:scale-[0.98] text-base ${
+                      saveSuccess
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white disabled:opacity-50 disabled:cursor-not-allowed'
+                    }`}
+                  >
+                    {saving ? '保存中...' : saveSuccess ? '✓ 已保存' : '保存 Key'}
+                  </button>
+                </div>
               </div>
 
               <p className="text-[11px] text-gray-400 text-center pb-2">
@@ -353,6 +375,8 @@ export default function ModelKeyModal({
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [validating, setValidating] = useState(false)
+  const [validationResult, setValidationResult] = useState<'ok' | 'fail' | null>(null)
   const [activeTab, setActiveTab] = useState<'select' | 'config'>('select')
 
   // Desktop drag/resize state
@@ -456,10 +480,46 @@ export default function ModelKeyModal({
     }
   }
 
+  const handleValidateKey = async () => {
+    if (!apiKey.trim()) return
+    setValidating(true)
+    setValidationResult(null)
+    try {
+      const key = apiKey.trim()
+      const base = baseUrl.trim()
+      let ok = false
+
+      if (selectedProvider === 'deepseek' || selectedProvider === 'openai') {
+        const base_url = base || (selectedProvider === 'deepseek' ? 'https://api.deepseek.com' : 'https://api.openai.com')
+        const url = `${base_url.replace(/\/$/, '')}/v1/models`
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) })
+        ok = res.status === 200 || res.status === 404 // 404 on some proxies is still auth ok
+      } else if (selectedProvider === 'claude') {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+          signal: AbortSignal.timeout(10000),
+        })
+        ok = res.status === 200 || res.status === 529 // 529 = overloaded, but key is valid
+      } else if (selectedProvider === 'gemini') {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`, { signal: AbortSignal.timeout(8000) })
+        ok = res.status === 200
+      }
+
+      setValidationResult(ok ? 'ok' : 'fail')
+    } catch {
+      setValidationResult('fail')
+    } finally {
+      setValidating(false)
+    }
+  }
+
   const handleSaveKey = async () => {
     if (!apiKey.trim()) return
     setSaving(true)
     setSaveSuccess(false)
+    setValidationResult(null)
     try {
       if (isOffline) {
         const userId = localUserId ?? -1
@@ -506,7 +566,18 @@ export default function ModelKeyModal({
 
   const handleApplyModel = async () => {
     if (!selectedProvider || !selectedModel) return
-    if (!isOffline && sessionId) {
+
+    // 全局默认：切换任何对话都自动沿用
+    localStorage.setItem('DEFAULT_PROVIDER', selectedProvider)
+    localStorage.setItem('DEFAULT_MODEL', selectedModel)
+
+    if (isOffline && sessionId) {
+      // 离线模式：同时持久化到当前 session 的 SQLite 记录
+      await localUpdateSession(sessionId, {
+        model_provider: selectedProvider,
+        model_name: selectedModel,
+      }).catch(() => {})
+    } else if (!isOffline && sessionId) {
       try {
         await sessionApi.updateSessionModes(sessionId, {
           model_provider: selectedProvider,
@@ -516,6 +587,7 @@ export default function ModelKeyModal({
         console.error('Failed to save model to session:', e)
       }
     }
+
     onModelChange(selectedProvider, selectedModel)
     handleClose()
   }
@@ -529,7 +601,8 @@ export default function ModelKeyModal({
     baseUrl, setBaseUrl,
     showKey, setShowKey,
     saving, saveSuccess,
-    handleSaveKey, handleDeleteKey, handleApplyModel,
+    validating, validationResult,
+    handleSaveKey, handleDeleteKey, handleApplyModel, handleValidateKey,
   }
 
   // ─── 移动端：底部 Sheet ──────────────────────────────────────────────────────
@@ -735,17 +808,35 @@ export default function ModelKeyModal({
                 />
               )}
 
-              <button
-                onClick={handleSaveKey}
-                disabled={saving || !apiKey.trim()}
-                className={`w-full py-3 font-semibold rounded-xl transition-all shadow-sm ${
-                  saveSuccess
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed'
-                }`}
-              >
-                {saving ? '保存中...' : saveSuccess ? '✓ 保存成功' : '保存 API Key'}
-              </button>
+              {validationResult && (
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${
+                  validationResult === 'ok'
+                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                    : 'bg-red-50 border border-red-200 text-red-700'
+                }`}>
+                  {validationResult === 'ok' ? '✅ Key 验证通过' : '❌ Key 验证失败，请检查'}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleValidateKey}
+                  disabled={validating || saving || !apiKey.trim()}
+                  className="flex-1 py-2.5 font-medium rounded-xl border-2 border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
+                >
+                  {validating ? '验证中…' : '测试 Key'}
+                </button>
+                <button
+                  onClick={handleSaveKey}
+                  disabled={saving || !apiKey.trim()}
+                  className={`flex-[2] py-2.5 font-semibold rounded-xl transition-all shadow-sm text-sm ${
+                    saveSuccess
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  {saving ? '保存中...' : saveSuccess ? '✓ 已保存' : '保存 Key'}
+                </button>
+              </div>
             </div>
 
             <p className="text-[11px] text-gray-400 text-center">
