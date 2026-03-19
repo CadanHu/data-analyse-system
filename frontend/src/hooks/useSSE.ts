@@ -52,6 +52,7 @@ export function useSSE() {
     setCurrentSql,
     setChartOption,
     setSqlResult,
+    setCurrentAnalysis,
     isThinkingMode
   } = useChatStore()
   const { language } = useLanguageStore()
@@ -109,7 +110,12 @@ export function useSSE() {
 
       try {
         // 2a. Offline mode → direct AI
-        const isOffline = connectionStatus === 'offline' || offlineMode
+        // On Native: treat 'checking' as offline too — server must be confirmed online.
+        //   This prevents the ping cycle (checking→offline) from causing race conditions.
+        // On Web: only offlineMode matters — transient ping failures must not bypass the
+        //   backend (otherwise PLAN_GENERATION two-step flow breaks).
+        const isNative = Capacitor.isNativePlatform()
+        const isOffline = offlineMode || (isNative && connectionStatus !== 'online')
         if (isOffline) {
           const provider = options?.model_provider || 'openai'
           const model = options?.model_name || ''
@@ -121,12 +127,19 @@ export function useSSE() {
             return
           }
 
-          // Build messages with full conversation history for context
-          const historyMessages = messages
+          // Build messages with full conversation history for context.
+          // Use getState() to avoid stale closure — messages is not in useCallback deps.
+          const currentMessages = useSessionStore.getState().messages
+          const historyMessages = currentMessages
             .filter(m => m.role === 'user' || m.role === 'assistant')
-            .filter(m => m.id !== userMessageId) // exclude the just-added user msg (will be appended below)
+            .filter(m => m.id !== userMessageId) // exclude the just-added user msg
             .slice(-20) // keep last 20 messages to avoid token overflow
-            .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content || '' }))
+            .map(m => {
+              let content = m.content || ''
+              // Include previously generated SQL so the model knows what was accomplished
+              if (m.sql) content += `\n\n已生成并执行SQL：\n\`\`\`sql\n${m.sql}\n\`\`\``
+              return { role: m.role as 'user' | 'assistant', content }
+            })
           const aiMessages: { role: string; content: string }[] = [
             ...historyMessages,
             { role: 'user', content: question },
@@ -140,7 +153,25 @@ export function useSSE() {
           }
           if (localTables.length > 0) {
             const schemaLines = localTables.map(t => `${t.tableName}(${t.columns.join(', ')})`).join('\n')
-            const systemPrompt = `你是数据分析助手。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n请根据用户问题生成 SQL 查询。必须以 JSON 格式回复，格式：\n{"sql":"SELECT ...","chart_type":"bar|line|pie|none","reasoning":"分析思路"}\n若不需要 SQL 则 sql 字段为空字符串。SQL 使用 MySQL 语法。`
+
+            // Detect whether we're in "waiting for confirmation" state:
+            // last assistant message proposed a plan (no SQL) and asked for confirmation.
+            const recentMsgs = currentMessages.filter(m => m.role === 'user' || m.role === 'assistant')
+            const lastAssistant = [...recentMsgs].reverse().find(m => m.role === 'assistant')
+            const planKeywords = ['这个分析方案是否可以', '是否可以', '分析方案', 'Is this plan OK', 'shall I proceed']
+            const lastMsgIsProposal = lastAssistant && !lastAssistant.sql &&
+              planKeywords.some(kw => (lastAssistant.content || '').includes(kw))
+            const confirmWords = /^(可以|好的|行|ok|确认|执行|开始|是|yes|继续|同意|没问题|好|对|嗯)[\s\S]{0,10}$/i
+            const isConfirmation = lastMsgIsProposal && confirmWords.test(question.trim())
+
+            let systemPrompt: string
+            if (isConfirmation) {
+              // Step 2: user confirmed the plan → generate SQL
+              systemPrompt = `你是数据分析助手。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n用户已确认上一轮你提出的分析方案，现在请生成完整的 SQL 查询并执行。\n必须以 JSON 格式回复：\n{"sql":"SELECT ...","chart_type":"bar|line|pie|area|scatter|table|none","reasoning":"执行说明"}\nSQL 使用 MySQL 语法，chart_type 根据数据特征选择最合适的图表类型。`
+            } else {
+              // Step 1: new question → propose plan, ask for confirmation, NO SQL yet
+              systemPrompt = `你是专业的数据分析顾问。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n用户提出了分析需求，请按以下格式提出分析方案供用户确认，不要生成 SQL：\n必须以 JSON 格式回复：\n{"sql":"","chart_type":"none","reasoning":"【分析方案】\\n1. 涉及的数据表及作用：...\\n2. 分析思路：...\\n3. 推荐图表类型：...\\n\\n这个分析方案是否可以？如果确认，我将为您生成数据并分析。"}\n\n注意：sql 字段必须为空字符串，等用户确认后再生成 SQL。`
+            }
             aiMessages.unshift({ role: 'system', content: systemPrompt })
           }
 
@@ -233,7 +264,13 @@ export function useSSE() {
                 const rawSql: string = parsed.sql || ''
                 const reasoning: string = parsed.reasoning || parsed.explanation || ''
                 const chartType: string = parsed.chart_type || 'none'
-                if (rawSql.trim()) {
+                if (!rawSql.trim()) {
+                  // Plan proposal (step 1): show reasoning text only, not raw JSON
+                  if (reasoning) {
+                    updateLastMessage({ content: reasoning })
+                    await localUpdateMessage(assistantMessageId, { content: reasoning }).catch(() => {})
+                  }
+                } else if (rawSql.trim()) {
                   const displayContent = reasoning || assistantContent
                   const tableNames = localTables.map(t => t.tableName)
                   const sqliteSQL = convertMySQLToSQLite(rawSql, currentDb, tableNames)
@@ -247,12 +284,13 @@ export function useSSE() {
                     console.log(`📊 [Offline-SQL] Result: ${cleanRows.length} rows, columns: [${columns.join(', ')}]`)
                     console.log('📊 [Offline-SQL] First 3 rows:', JSON.stringify(cleanRows.slice(0, 3)))
                     const sqlResult = { columns, rows: cleanRows, total_count: cleanRows.length }
-                    setSqlResult(sqlResult)
-                    // 生成图表（对应 AI 返回的 chart_type）
+                    // Build chart option if data exists
+                    let offlineChartOption = null
+                    const effectiveChartType = cleanRows.length > 0 && chartType !== 'none' ? chartType : 'table'
                     if (cleanRows.length > 0 && chartType !== 'none') {
                       const xKey = columns[0]
                       const yKey = columns[1] || columns[0]
-                      const chartOption = {
+                      offlineChartOption = {
                         xAxis: { type: 'category', data: cleanRows.map((r: any) => r[xKey]) },
                         yAxis: { type: 'value' },
                         series: [{
@@ -263,17 +301,27 @@ export function useSSE() {
                         }],
                         tooltip: { trigger: 'axis' },
                       }
-                      setChartOption(chartOption, chartType)
+                    }
+                    // Open right panel — only if the user hasn't switched to a different session
+                    // while the async SQL execution was running (prevents chart bleed).
+                    const activeSessionId = useSessionStore.getState().currentSession?.id
+                    if (activeSessionId === sessionId) {
+                      setCurrentAnalysis(rawSql, sqlResult, effectiveChartType, offlineChartOption)
                     }
                     updateLastMessage({
                       content: displayContent,
                       sql: rawSql,
                       sql_result: JSON.stringify(sqlResult),
+                      // Required for visualization button: message.chart_cfg && message.data
+                      chart_cfg: offlineChartOption ? JSON.stringify(offlineChartOption) : undefined,
+                      data: sqlResult,
                     })
                     await localUpdateMessage(assistantMessageId, {
                       content: displayContent,
                       sql: rawSql,
                       sql_result: JSON.stringify(sqlResult),
+                      chart_cfg: offlineChartOption ? JSON.stringify(offlineChartOption) : undefined,
+                      data: JSON.stringify(sqlResult),
                     }).catch(() => {})
                   } catch (execErr) {
                     const errMsg = execErr instanceof Error ? execErr.message : 'SQL执行失败'

@@ -28,7 +28,10 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   const { isLoading } = useChatStore()
   const { offlineMode } = useAuthStore()
   const { connectionStatus } = useSyncStore()
-  const isOffline = connectionStatus === 'offline' || offlineMode
+  // On native: treat 'checking' as offline too — ping sets 'checking' before 'offline',
+  // which would otherwise briefly flip isOffline to false and trigger remote API calls.
+  const isNativePlatform = Capacitor.isNativePlatform()
+  const isOffline = offlineMode || (isNativePlatform ? connectionStatus !== 'online' : connectionStatus === 'offline')
   const { connect } = useSSE()
   const { t } = useTranslation()
   const listRef = useRef<HTMLDivElement>(null)
@@ -60,12 +63,14 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       const sessionDbKey = (currentSession as any).database_key
       console.log(`🎯 [Session] 会话切换，同步数据库为: ${sessionDbKey}`)
       setCurrentDb(sessionDbKey)
+      setShowDbSelector(false) // 已知数据库，关闭选择器
       // 🚀 核心修复：会话切换时，必须强制后端同步切换到该会话绑定的库
       if (!isOffline) switchDatabase(sessionDbKey, false)
     } else {
       // 🚀 优化：新建对话默认不选择数据库，强制用户手动触发
       setCurrentDb(null)
-      if (!isOffline) setShowDbSelector(true) // 自动弹出选择器提示用户
+      setShowDbSelector(false) // 重置，避免上一个会话的选择器状态残留
+      if (!isOffline) setShowDbSelector(true) // 仅在线模式下自动弹出
     }
   }, [currentSession?.id])
 

@@ -117,24 +117,64 @@ navigate()          ↓
          1.5s后跳转
 ```
 
-### 4.2 发消息流程（离线模式）
+### 4.2 isOffline 判断规则（跨平台）
+
+离线判断在 `useSSE`、`ChatArea`、`InputBar`、`App` 中统一为：
+
+```ts
+const isNative = Capacitor.isNativePlatform()
+const isOffline = offlineMode || (isNative ? connectionStatus !== 'online' : connectionStatus === 'offline')
+```
+
+**关键区别：**
+- **Native（iOS/Android）**：`connectionStatus = 'checking'`（ping 进行中）也视为离线，防止 60 秒 ping 周期中 checking→offline 过渡期触发远程 API 调用。
+- **Web（浏览器）**：只有 `offlineMode = true` 才走离线路径，transient ping 失败不影响在线流程，确保 PLAN_GENERATION 两步交互流程正常工作。
+
+### 4.3 发消息流程（离线模式，两步 PLAN_GENERATION）
 
 ```
 用户输入 → useSSE.connect()
                ↓
-    connectionStatus === 'offline' ?
+    isOffline ? (平台感知判断，见 4.2)
                ↓ Yes
-    从本地 SQLite 取最近20条消息作上下文
+    从 SQLite getState().messages 取最近20条消息（快照，避免 stale closure）
     从 biz_sync_meta 取已同步表的 schema
                ↓
-    directAiService.streamDirectAi()
-    → 直连 AI Provider (OpenAI/Claude/Gemini/DeepSeek)
+    检测对话状态：
+    上一条 assistant 消息包含「这个分析方案是否可以」且无 SQL？
+    + 当前用户输入匹配确认词（可以/好的/ok/确认/执行 等）？
                ↓
-    AI 返回 SQL → sqlDialectConverter → SQLite 执行
+    ┌──────────────────┬────────────────────────────┐
+    │ 否（新问题）      │ 是（确认执行）              │
+    │  Step 1 Prompt   │  Step 2 Prompt              │
+    │  要求：           │  要求：                     │
+    │  - 不生成 SQL     │  - 生成完整 SQL             │
+    │  - 提出分析方案   │  - 返回 chart_type          │
+    │  - 以「这个分析方 │  - JSON: {sql, chart_type,  │
+    │    案是否可以」结尾│    reasoning}               │
+    └──────────────────┴────────────────────────────┘
                ↓
-    结果写入 messages 表 (_sync_dirty=1)
+    directAiService.streamDirectAi() → 流式输出
+               ↓
+    流完成后解析 JSON：
+    ┌──────────────────────────────────────────┐
+    │ sql 为空（Step 1）                        │
+    │  → 提取 reasoning 替换聊天气泡中的原始 JSON│
+    │  → 等待用户确认                           │
+    ├──────────────────────────────────────────┤
+    │ sql 非空（Step 2）                        │
+    │  → sqlDialectConverter → SQLite 执行     │
+    │  → 构建 ECharts option                   │
+    │  → setCurrentAnalysis() 打开右侧图表面板  │
+    │  → updateLastMessage 写入 chart_cfg/data  │
+    │    （供可视化按钮使用）                   │
+    └──────────────────────────────────────────┘
+               ↓
+    消息写入 SQLite messages 表 (_sync_dirty=1)
     → 联网后自动推送到服务器
 ```
+
+**注意**：`reasoning` 文本替换必须在流完成后执行（`onDone` 回调后的后处理阶段），流中途用户看到原始 JSON 是正常现象（brief flash）。
 
 ### 4.3 业务数据同步流程
 
@@ -196,7 +236,10 @@ upsertBizSyncMeta() → 记录同步时间和行数
 - **本地登录**：bcryptjs 本地验证，网络失败自动降级并提示
 - **离线会话列表**：Native 平台先显示本地缓存，再用服务器数据更新
 - **离线 AI 对话**：直连四大 Provider，含思考模式
+- **离线两步 PLAN_GENERATION**：先提方案 → 用户确认 → 再生成 SQL 并执行（与在线模式体验一致）
+- **历史消息上下文**：使用 `getState().messages` 快照，规避 stale closure，AI 能感知历史对话
 - **双向同步**：Pull+Push，LWW 冲突解决，60s 定时 + 可见性触发
+- **会话删除同步**：在线删除立即写服务端，Web 端无感刷新；离线删除标记 `_deleted=1` 待下次同步
 - **业务数据同步**：BizSyncModal 分页下载，写入本地 SQLite
 - **SQL 方言转换**：29 条规则，覆盖常见 MySQL → SQLite 差异
 - **文件本地缓存**：PDF/图片/ECharts JS 离线可访问
@@ -204,6 +247,9 @@ upsertBizSyncMeta() → 记录同步时间和行数
 - **API Key 验证**：保存前可点"测试 Key"验证有效性
 - **存储管理 UI**：StorageModal 查看/清理本地业务数据缓存
 - **离线状态指示**：SyncStatusBadge + InputBar 横幅持续显示当前模式
+- **per-session 图表隔离**：切换历史会话时自动从消息中恢复对应图表，科学家模式消息跳过图表恢复
+- **SQLite 并发初始化保护**：singleton promise + `retrieveConnection` 兜底，防止 "Connection already exists" 崩溃
+- **数据库下拉框行为修正**：切换会话时自动关闭下拉框，不再强制重新选择数据库
 
 ### ⚠️ 待实现
 
@@ -299,3 +345,8 @@ main
 | biz_{key}__{table} 命名前缀 | 避免与系统表冲突，支持多个业务库同时缓存 |
 | 29条 MySQL→SQLite 转换规则 | AI 生成 MySQL 方言，但手机只有 SQLite，需在客户端适配 |
 | 优先显示本地数据（optimistic local load） | 消除因服务器超时导致的 3-10 秒空白列表 |
+| Native 中 `checking` 视为离线 | ping 60s 周期过渡期（checking→offline）不触发远程 API，防止误调用和下拉框闪烁 |
+| Web 中 `checking` 不视为离线 | Web 不存在本地 SQLite 回退，transient ping 失败不能中断在线 PLAN_GENERATION 流程 |
+| 科学家模式不恢复图表 | 科学家模式返回 `is_data_science=true`，数据结构与标准图表不兼容，强行恢复会导致渲染崩溃 |
+| 会话删除不弹二次确认（Web 端） | 删除已在手机端确认过一次；多设备二次确认体验极差；数据一致性由服务端保证，不存在冲突风险 |
+| `getState().messages` 代替闭包中的 `messages` | `useCallback` 不包含 `messages` 依赖时捕获的是旧值（stale closure）；`getState()` 在调用时动态取最新快照 |
