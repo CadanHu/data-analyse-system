@@ -25,13 +25,12 @@ python main.py
 ### 数据库变更验证
 如果修改了数据库结构（如新增了 `thinking` 字段）：
 ```bash
-# 运行专门的验证脚本
 python verify_thinking_db.py
 ```
 
 ### 调试建议
-- 观察终端输出：查看 `📡 [Database]`, `🧠 [DeepSeek Thinking]` 等关键日志。
-- 检查 `.env` 文件中的 `MODEL_NAME` 是否为 `deepseek-reasoner`。
+- 观察终端输出：查看 `📡 [Database]`、`🧠 [Thinking]` 等关键日志。
+- AI 模型与 API Key 在应用内「模型/Key」设置页面动态配置，无需重启后端。
 
 ---
 
@@ -76,15 +75,19 @@ npx cap sync ios
 
 ### 常见问题排除
 - **白屏或内容不更新**: 确保运行了 `npm run build` 和 `npx cap sync ios`。
-- **API 连接失败**: iOS 模拟器通常无法直接访问 `localhost`，请在 `useSSE.ts` 中检查 API 路径，使用 `http://127.0.0.1:8003` 或您的局域网 IP。
+- **API 连接失败**: iOS 模拟器通常无法直接访问 `localhost`，请检查 API 路径，使用 `http://127.0.0.1:8003` 或您的局域网 IP。
+- **离线模式数据不同步**: 确认网络恢复后触发了同步，可在「设置 → 同步状态」查看队列。
 
 ---
 
-## 4. 思考模式 (DeepSeek R1) 测试要点
-1. **确认模型**: `backend/config.py` 中的 `MODEL_NAME` 必须是 `deepseek-reasoner`。
-2. **确认开关**: 前端输入框右侧的 "思考模式" 按钮必须是高亮状态。
-3. **确认流式内容**: 观察是否有 `Thinking Process` 气泡流式出现。
-4. **数据库验证**: 运行 `python backend/verify_thinking_db.py` 确认 `thinking` 字段非空。
+## 4. 思考模式测试要点
+
+支持思考链的模型：DeepSeek R1 (`deepseek-reasoner`)、Claude Opus/Sonnet 系列、Gemini Pro 系列。
+
+1. **切换模型**：在应用内「模型/Key」页面选择支持思考链的模型并点击「应用」。
+2. **确认开关**：前端输入框右侧的「思考模式」按钮必须处于高亮状态。
+3. **确认流式内容**：观察是否有 `Thinking Process` 气泡流式出现。
+4. **数据库验证**：运行 `python backend/verify_thinking_db.py` 确认 `thinking` 字段非空。
 
 ---
 

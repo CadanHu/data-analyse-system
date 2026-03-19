@@ -6,7 +6,30 @@
 
 - Docker 20.10+
 - Docker Compose 2.0+
-- DeepSeek API Key
+- 至少一个支持的 AI 供应商 API Key（见下方[支持的 AI 模型](#支持的-ai-模型)）
+
+### 支持的 AI 模型
+
+本系统支持多个 AI 供应商，**API Key 在应用内通过"模型/Key"设置页面动态配置**，无需写死到环境变量中。
+
+| 供应商 | 模型 | 备注 |
+|--------|------|------|
+| **DeepSeek** | deepseek-chat (V3 标准) | 标准对话 |
+| | deepseek-reasoner (R1) | 带思考链 |
+| **OpenAI** | gpt-5.3 | 旗舰版 |
+| | gpt-5.2 | 标准版 |
+| **Google Gemini** | gemini-3.1-pro-preview | 带思考链 |
+| | gemini-3.1-flash-lite-preview | 超轻量 |
+| | gemini-3.1-flash-image-preview | 图像生成 |
+| | gemini-3-flash-preview | 标准快速版 |
+| **Anthropic Claude** | claude-opus-4-6 | 带思考链，旗舰 |
+| | claude-sonnet-4-6 | 带思考链 |
+| | claude-haiku-4-5-20251001 | 轻量快速 |
+| | claude-opus-4-5 | 带思考链 |
+| | claude-sonnet-4-5 | 带思考链 |
+| | claude-3-7-sonnet-20250219 | 带思考链 |
+
+> **提示**：DeepSeek 和 OpenAI 兼容接口支持自定义 Base URL，可对接任意 OpenAI 兼容的第三方代理服务。
 
 ### 快速开始
 
@@ -20,7 +43,7 @@ cd data-analyse-system
 ```bash
 # 复制根目录的环境变量示例文件
 cp .env.example .env
-# 编辑 .env，填入你的 DEEPSEEK_API_KEY
+# 编辑 .env，填入必要的服务配置（API Key 在应用内配置，无需填入此处）
 ```
 
 3. **启动服务**
@@ -63,7 +86,6 @@ docker-compose down -v
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
-| DEEPSEEK_API_KEY | DeepSeek API 密钥 | - |
 | SECRET_KEY | JWT 签名密钥 (必须修改) | - |
 | ACCESS_TOKEN_EXPIRE_MINUTES | Token 有效期 (分钟) | 10080 (7天) |
 | LOG_LEVEL | 日志级别 | INFO |
@@ -75,9 +97,33 @@ docker-compose down -v
 
 ### 数据持久化
 
-以下目录会持久化到宿主机：
-- `./backend/data` - 数据库文件
-- `./backend/logs` - 日志文件
+数据库数据通过 **Docker Named Volume** 持久化，不随容器销毁而丢失：
+
+| Volume 名称 | 对应数据库 | 说明 |
+|------------|-----------|------|
+| `mysql_data` | MySQL 8.0 | 业务数据库（test / classic_business / global_analysis） |
+| `pg_data` | PostgreSQL 15 | 知识库（knowledge_base） |
+
+日志和上传文件通过 bind mount 持久化到宿主机：
+- `./backend/logs` - 应用日志
+- `./backend/uploads` - 用户上传文件
+
+> **首次启动说明**：`db-seed` 服务会在 MySQL 和 PostgreSQL 健康检查通过后自动运行，
+> 生成约 16 万条业务仿真数据（含订单、客户、行为日志、地理数据、股票K线等），
+> 预计耗时 3～8 分钟，期间后端服务可正常使用但数据库为空。
+
+### 重建数据库（清空所有数据重新初始化）
+
+```bash
+# 停止所有服务并删除 Volume（不可恢复）
+docker-compose down -v
+
+# 重新构建并启动（会重新运行 seed 脚本）
+docker-compose up --build
+```
+
+> **注意**：`down -v` 会永久删除数据库中所有数据，仅在需要全量重置时使用。
+> 如果 Docker Volume 从未创建过（首次部署），直接 `docker-compose up --build` 即可，无需 `down -v`。
 
 ### 健康检查
 
