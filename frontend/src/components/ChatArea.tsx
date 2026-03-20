@@ -25,7 +25,7 @@ interface Database {
 
 export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaProps) {
   const { currentSession, messages, setMessages, updateSession } = useSessionStore()
-  const { isLoading } = useChatStore()
+  const { isLoading, isMobile, orientation, landscapeUiVisible } = useChatStore()
   const { offlineMode } = useAuthStore()
   const { connectionStatus } = useSyncStore()
   // On native: treat 'checking' as offline too — ping sets 'checking' before 'offline',
@@ -100,9 +100,10 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       setCurrentDb(dbKey)
       setShowDbSelector(false)
       
-      // 🚀 核心修复：如果是手动切换，立即更新本地 Store 里的会话信息，确保下次切回来时是对的
+      // 核心修复：如果是手动切换，立即更新本地 Store 和 SQLite，确保 App 重启后仍能记住选择
       if (shouldUpdateSession && selectedSessionId) {
         updateSession(selectedSessionId, { database_key: dbKey })
+        localUpdateSession(selectedSessionId, { database_key: dbKey }).catch(() => {})
       }
       
       await loadDatabases()
@@ -201,7 +202,10 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
         <MessageList onEditMessage={handleEditMessage} />
       </div>
 
-      <div className="flex-none p-4 border-t border-white/30 bg-white/30 backdrop-blur-sm">
+      <div
+        className={`flex-none p-4 border-t border-white/30 bg-white/30 backdrop-blur-sm transition-all duration-200 ${isMobile && orientation === 'landscape' && !landscapeUiVisible ? 'hidden' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <InputBar
           sessionId={selectedSessionId}
           onMessageSent={onMessageSent}

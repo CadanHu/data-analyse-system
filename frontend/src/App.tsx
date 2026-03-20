@@ -36,7 +36,7 @@ export default function App() {
   const { isAuthenticated, user, offlineMode } = useAuthStore()
   const { connectionStatus } = useSyncStore()
   const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
-  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen, isMobile, setIsMobile, orientation, setOrientation } = useChatStore()
+  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen, isMobile, setIsMobile, orientation, setOrientation, landscapeUiVisible, setLandscapeUiVisible, streamingSessionId } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   // On native: treat 'checking' as offline to avoid remote API calls during ping cycle
   const isNativePlatform = Capacitor.isNativePlatform()
@@ -73,6 +73,15 @@ export default function App() {
       window.removeEventListener('orientationchange', checkLayout)
     }
   }, [])
+
+  // 横屏时默认隐藏 UI，竖屏时恢复显示
+  useEffect(() => {
+    if (orientation === 'landscape' && isMobile) {
+      setLandscapeUiVisible(false)
+    } else {
+      setLandscapeUiVisible(true)
+    }
+  }, [orientation, isMobile])
 
   const loadSessions = async (isInitialLoad = false) => {
     try {
@@ -130,8 +139,8 @@ export default function App() {
     console.log('[App] Loading Messages for:', sessionId)
 
     try {
-      // Load from local SQLite when offline
-      if (isOffline) {
+      // Native always uses local AI → messages are in SQLite, not on server
+      if (isOffline || isNativePlatform) {
         const localMsgs = await localGetMessages(sessionId)
         const localAllMsgs = await localGetAllMessages(sessionId)
         const processMsg = (msg: any) => {
@@ -214,9 +223,12 @@ export default function App() {
     setSelectedSessionId(sessionId)
     const targetSession = session || sessions.find(s => s.id === sessionId)
     if (targetSession) {
-      clearMessages()
       setCurrentSession(targetSession)
       setCurrentSessionId(sessionId)
+      // 如果正在切回的会话就是当前流式生成中的会话，不清空消息也不重新加载
+      // 避免 loadMessages 与 localSaveMessage(assistant) 产生竞态
+      if (streamingSessionId === sessionId) return
+      clearMessages()
       setTimeout(() => {
         loadMessages(sessionId)
       }, 50)
@@ -258,7 +270,10 @@ export default function App() {
                 )}
                 
                 {isMobile ? (
-                  <div className="h-full flex flex-col relative">
+                  <div
+                    className="h-full flex flex-col relative"
+                    onClick={orientation === 'landscape' ? () => setLandscapeUiVisible(!landscapeUiVisible) : undefined}
+                  >
                     <button 
                       onClick={() => navigate('/')}
                       className="absolute left-2 z-[100] p-1 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-gray-700 transition-all shadow-sm data-[mobile=true]:data-[orientation=landscape]:top-1"
@@ -269,7 +284,11 @@ export default function App() {
                       </svg>
                     </button>
 
-                    <div className="flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm data-[mobile=true]:data-[orientation=landscape]:bg-white/60" style={{ paddingTop: 'var(--safe-top)' }}>
+                    <div
+                      className={`flex-none border-b border-white/30 bg-white/40 backdrop-blur-sm data-[mobile=true]:data-[orientation=landscape]:bg-white/60 transition-all duration-200 ${orientation === 'landscape' && !landscapeUiVisible ? 'hidden' : ''}`}
+                      style={{ paddingTop: 'var(--safe-top)' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <div className="flex pl-10 data-[mobile=true]:data-[orientation=landscape]:pl-12">
                         <button
                           onClick={() => setActiveTab('sessions')}
@@ -314,8 +333,10 @@ export default function App() {
                               setSelectedSessionId(id)
                               const targetSession = session || sessions.find(s => s.id === id)
                               if (targetSession) {
-                                clearMessages()
                                 setCurrentSession(targetSession)
+                                // 如果正在切回的会话就是当前流式生成中的会话，不清空消息也不重新加载
+                                if (streamingSessionId === id) return
+                                clearMessages()
                                 loadMessages(id)
                               }
                             }}

@@ -29,10 +29,14 @@ export const useChatStore = create<ChatState & {
   setIsMobile: (isMobile: boolean) => void
   orientation: 'portrait' | 'landscape'
   setOrientation: (orientation: 'portrait' | 'landscape') => void
+  landscapeUiVisible: boolean
+  setLandscapeUiVisible: (visible: boolean) => void
   pendingMessage: string | null
   setPendingMessage: (message: string | null) => void
   showModelKeyModal: boolean
   setShowModelKeyModal: (show: boolean) => void
+  streamingSessionId: string | null
+  setStreamingSessionId: (sessionId: string | null) => void
 }>((set, get) => ({
   messages: [],
   isLoading: false,
@@ -50,14 +54,18 @@ export const useChatStore = create<ChatState & {
   isFullScreen: false,
   isMobile: false,
   orientation: 'portrait',
+  landscapeUiVisible: false,
   pendingMessage: null,
   showModelKeyModal: false,
+  streamingSessionId: null,
 
   setPendingMessage: (message: string | null) => set({ pendingMessage: message }),
   setShowModelKeyModal: (show: boolean) => set({ showModelKeyModal: show }),
+  setStreamingSessionId: (sessionId: string | null) => set({ streamingSessionId: sessionId }),
   setFullScreen: (enabled: boolean) => set({ isFullScreen: enabled }),
   setIsMobile: (isMobile: boolean) => set({ isMobile }),
   setOrientation: (orientation: 'portrait' | 'landscape') => set({ orientation }),
+  setLandscapeUiVisible: (visible: boolean) => set({ landscapeUiVisible: visible }),
 
   setDataScienceMode: (enabled: boolean) => set({ isDataScienceMode: enabled }),
 

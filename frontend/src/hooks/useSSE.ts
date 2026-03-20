@@ -53,7 +53,8 @@ export function useSSE() {
     setChartOption,
     setSqlResult,
     setCurrentAnalysis,
-    isThinkingMode
+    isThinkingMode,
+    setStreamingSessionId
   } = useChatStore()
   const { language } = useLanguageStore()
   const { addMessage, updateLastMessage, updateSession, updateMessageId, messages } = useSessionStore()
@@ -65,6 +66,7 @@ export function useSSE() {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
       }
+      setStreamingSessionId(sessionId)
 
       // 1. 立即反馈 UI
       const userMessageId = generateId()
@@ -107,6 +109,10 @@ export function useSSE() {
       let assistantData: any = null
       let assistantMessageId = generateId()
       let assistantMessageAdded = false
+      let scientistSql = ''
+      let scientistSqliteSQL = ''   // 带 biz 前缀的 SQLite 版本，用于报告重新执行
+      let scientistQueryResults: any[] = []
+      let scientistQueryColumns: string[] = []
 
       try {
         // 2a. Offline mode → direct AI
@@ -147,11 +153,100 @@ export function useSSE() {
 
           // Get local database schema for offline SQL generation
           const currentDb = useSessionStore.getState().sessions.find(s => s.id === sessionId)?.database_key ?? null
-          let localTables: { tableName: string; columns: string[] }[] = []
+          let localTables: { tableName: string; fullTableName: string; columns: string[] }[] = []
           if (currentDb && Capacitor.isNativePlatform()) {
             try { localTables = await getLocalBizTables(currentDb) } catch { /* ignore */ }
           }
-          if (localTables.length > 0) {
+          if (options?.enable_data_science_agent) {
+            // 科学家模式：两步调用
+            // Step 1: 采集 schema + 样本 → AI 静默生成 SQL → 本地执行
+            // Step 2: 把真实查询结果喂给 AI → 流式输出分析 + ECharts 图表
+
+            // 1a. 采集每张表 5 行样本（用于给 AI 理解表结构）
+            const tableSamples: { tableName: string; rows: any[] }[] = []
+            if (currentDb && localTables.length > 0) {
+              for (const table of localTables) {
+                try {
+                  const sampleRows = await executeLocalQuery(`SELECT * FROM "${table.fullTableName}" LIMIT 5`)
+                  const cleanSample = (sampleRows as any[]).filter((r: any) => !('ios_columns' in r))
+                  if (cleanSample.length > 0) {
+                    tableSamples.push({ tableName: table.tableName, rows: cleanSample })
+                  }
+                } catch { /* ignore */ }
+              }
+            }
+
+            const schemaInfo = tableSamples.length > 0
+              ? tableSamples.map(t =>
+                  `表：${t.tableName}\n列：${Object.keys(t.rows[0]).join(', ')}\n样本：${JSON.stringify(t.rows, null, 2)}`
+                ).join('\n\n')
+              : localTables.map(t => `${t.tableName}(${t.columns.join(', ')})`).join('\n')
+
+            // 1b. AI 静默生成 SQL（非流式收集，不展示给用户）
+            if (localTables.length > 0 && currentDb) {
+              setThinkingContent('🔍 正在分析数据查询方案...')
+              const sqlPrompt: { role: 'system' | 'user'; content: string }[] = [
+                {
+                  role: 'system',
+                  content: `你是数据科学分析师，工作在 SQLite 数据库上。数据库结构及样本如下：\n${schemaInfo}\n\n请生成一条 SQLite 兼容的 SQL 查询来回答用户问题。\nSQLite 注意：用 strftime('%Y-%m', date_col) 代替 DATE_TRUNC，用 date('now','-1 year') 代替 DATE_SUB，不支持 INTERVAL 关键字。\n地理坐标注意：latitude/longitude 是每条记录（如客户）各自的精确坐标，不是城市/地区的代表坐标。当按城市、省份等地理区域分组时，必须用 AVG(latitude) 和 AVG(longitude) 计算区域中心点，绝不能将 latitude/longitude 放入 GROUP BY，否则每条记录会成为独立分组导致聚合失效。\n以 JSON 格式回复：{"sql":"SELECT ...","plan":"分析思路"}\n如不需要查询数据库则 sql 为空字符串。`,
+                },
+                { role: 'user', content: question },
+              ]
+
+              let sqlGenContent = ''
+              await new Promise<void>((resolve) => {
+                streamDirectAi({
+                  provider, model, messages: sqlPrompt, apiKey,
+                  signal: controller.signal,
+                  onSummary: (chunk) => { sqlGenContent += chunk },
+                  onDone: () => resolve(),
+                  onError: () => resolve(),
+                })
+              })
+              console.log('🔬 [Scientist-SQL] Gen response:', sqlGenContent)
+
+              // 1c. 解析并执行 SQL
+              try {
+                const jsonMatch = sqlGenContent.match(/\{[\s\S]*\}/)
+                if (jsonMatch) {
+                  const parsed = JSON.parse(jsonMatch[0])
+                  const rawSql: string = parsed.sql || ''
+                  if (rawSql.trim()) {
+                    const tableNames = localTables.map(t => t.tableName)
+                    const sqliteSQL = convertMySQLToSQLite(rawSql, currentDb, tableNames)
+                    console.log('🔬 [Scientist-SQL] MySQL:', rawSql)
+                    console.log('🔬 [Scientist-SQL] SQLite:', sqliteSQL)
+                    scientistSql = rawSql
+                    scientistSqliteSQL = sqliteSQL
+                    setCurrentSql(rawSql)
+                    setThinkingContent('⚡ 正在执行查询...')
+                    const rows = await executeLocalQuery(sqliteSQL)
+                    scientistQueryResults = (rows as any[]).filter((r: any) => !('ios_columns' in r))
+                    scientistQueryColumns = scientistQueryResults.length > 0 ? Object.keys(scientistQueryResults[0]) : []
+                    console.log(`🔬 [Scientist-SQL] Result: ${scientistQueryResults.length} rows, cols: [${scientistQueryColumns.join(', ')}]`)
+                  }
+                }
+              } catch (e) {
+                console.log('🔬 [Scientist-SQL] Error:', e)
+              }
+            }
+
+            // 1d. 构建给 Step 2 AI 的数据上下文
+            let dataContext: string
+            if (scientistQueryResults.length > 0) {
+              dataContext = `SQL执行结果（共 ${scientistQueryResults.length} 行，列：${scientistQueryColumns.join(', ')}）：\n${JSON.stringify(scientistQueryResults.slice(0, 200), null, 2)}`
+            } else {
+              dataContext = `数据库结构（仅 Schema）：\n${schemaInfo}`
+            }
+
+            setThinkingContent('📊 正在生成分析报告...')
+
+            // Step 2: AI 基于真实数据生成分析 + ECharts 图表（流式）
+            aiMessages.unshift({
+              role: 'system',
+              content: `你是数据科学分析师。以下是用户问题对应的真实查询数据：\n${dataContext}\n\n请基于以上数据进行深度分析，生成 ECharts 图表配置。必须以严格的 JSON 格式回复（不能包含 JavaScript 函数，tooltip 中不要写 formatter 函数）：\n{"analysis":"详细分析文字...","chart_type":"bar|line|pie|area|scatter|table|none","chart_option":{"xAxis":{...},"yAxis":{...},"series":[...],"tooltip":{"trigger":"axis"}}}\n如无合适数据则 chart_type 为 "none"，chart_option 为 null。\nECharts 约束：visualMap 只允许 type 为 "continuous" 或 "piecewise"，禁止使用 type:"size"（该类型不存在）；如需按数值映射气泡大小，请用 type:"continuous" 并设置 inRange.symbolSize。`,
+            })
+          } else if (localTables.length > 0) {
             const schemaLines = localTables.map(t => `${t.tableName}(${t.columns.join(', ')})`).join('\n')
 
             // Detect whether we're in "waiting for confirmation" state:
@@ -173,6 +268,14 @@ export function useSSE() {
               systemPrompt = `你是专业的数据分析顾问。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n用户提出了分析需求，请按以下格式提出分析方案供用户确认，不要生成 SQL：\n必须以 JSON 格式回复：\n{"sql":"","chart_type":"none","reasoning":"【分析方案】\\n1. 涉及的数据表及作用：...\\n2. 分析思路：...\\n3. 推荐图表类型：...\\n\\n这个分析方案是否可以？如果确认，我将为您生成数据并分析。"}\n\n注意：sql 字段必须为空字符串，等用户确认后再生成 SQL。`
             }
             aiMessages.unshift({ role: 'system', content: systemPrompt })
+          }
+
+          // RAG 模式：手机本地无向量库，注入 system prompt 让模型参考对话历史中的文档内容
+          if (!options?.enable_data_science_agent && options?.enable_rag) {
+            aiMessages.unshift({
+              role: 'system',
+              content: '你处于知识库模式。请优先参考对话历史中已有的文档内容、文件摘要和知识信息来回答问题，如历史中无相关内容则据实说明。'
+            })
           }
 
           console.log(`🤖 [Offline-AI] provider=${provider} model=${model}`)
@@ -207,24 +310,39 @@ export function useSSE() {
             onSummary: (chunk) => {
               assistantContent += chunk
               handlers?.onSummary?.(chunk)
+              let displayContent = assistantContent
+              if (options?.enable_data_science_agent) {
+                // 科学家模式：从部分 JSON 中渐进提取 analysis 字段实时显示
+                // 避免把整个 JSON/代码块渲染成 markdown 造成闪烁
+                const analysisMatch = assistantContent.match(/"analysis"\s*:\s*"((?:[^"\\]|\\.)*)"?/)
+                if (analysisMatch) {
+                  displayContent = analysisMatch[1]
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\')
+                } else {
+                  displayContent = ''
+                }
+              }
               if (!assistantMessageAdded) {
                 addMessage({
                   id: assistantMessageId,
                   session_id: sessionId,
                   parent_id: userMessageId,
                   role: 'assistant',
-                  content: assistantContent,
+                  content: displayContent,
                   thinking: assistantModelThinking,
                   created_at: new Date().toISOString()
                 })
                 assistantMessageAdded = true
               } else {
-                updateLastMessage({ content: assistantContent, thinking: assistantModelThinking })
+                updateLastMessage({ content: displayContent, thinking: assistantModelThinking })
               }
             },
             onDone: () => {
               console.log('📥 [Offline-AI] Full response:', assistantContent)
               if (assistantModelThinking) console.log('💭 [Offline-AI] Thinking:', assistantModelThinking)
+              setStreamingSessionId(null)
               // Persist assistant message locally
               localSaveMessage({
                 id: assistantMessageId,
@@ -255,8 +373,59 @@ export function useSSE() {
             },
           })
 
+          // After streaming: 科学家模式解析 analysis + chart_option
+          if (options?.enable_data_science_agent && assistantContent) {
+            const jsonMatch = assistantContent.match(/\{[\s\S]*\}/)
+            if (jsonMatch) {
+              try {
+                // 剥离 AI 可能写入的 JS 函数字面量（不合法 JSON）
+                // 支持单层和双层花括号嵌套的函数体，例如 formatter: function(p){ p.forEach(function(i){...}) }
+                const cleanJson = jsonMatch[0].replace(
+                  /:\s*function\s*\([^)]*\)\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g,
+                  ': null'
+                )
+                const parsed = JSON.parse(cleanJson)
+                const analysisText: string = parsed.analysis || assistantContent
+                const chartOption = parsed.chart_option || null
+                const chartType: string = parsed.chart_type || 'none'
+                if (chartOption && chartType !== 'none') {
+                  const activeSessionId = useSessionStore.getState().currentSession?.id
+                  if (activeSessionId === sessionId) {
+                    setChartOption(chartOption, chartType)
+                  }
+                }
+                // 若有执行过 SQL，也将结果挂到右侧面板
+                if (scientistSql && scientistQueryResults.length > 0) {
+                  const sqlResult = { columns: scientistQueryColumns, rows: scientistQueryResults, total_count: scientistQueryResults.length }
+                  const activeSessionId = useSessionStore.getState().currentSession?.id
+                  if (activeSessionId === sessionId) {
+                    setCurrentAnalysis(scientistSql, sqlResult, chartType !== 'none' ? chartType : 'table', chartOption)
+                  }
+                }
+                const sciData = JSON.stringify({
+                  is_data_science: true,
+                  can_generate_report: true,
+                  ...(scientistQueryResults.length > 0 ? { total_count: scientistQueryResults.length } : {}),
+                  ...(scientistSqliteSQL ? { sqlite_sql: scientistSqliteSQL } : {}),
+                })
+                updateLastMessage({
+                  content: analysisText,
+                  sql: scientistSql || undefined,
+                  chart_cfg: chartOption ? JSON.stringify(chartOption) : undefined,
+                  data: sciData,
+                })
+                await localUpdateMessage(assistantMessageId, {
+                  content: analysisText,
+                  sql: scientistSql || undefined,
+                  chart_cfg: chartOption ? JSON.stringify(chartOption) : undefined,
+                  data: sciData,
+                }).catch(() => {})
+              } catch { /* not valid JSON, keep plain text */ }
+            }
+          }
+
           // After streaming: parse SQL from response and execute locally
-          if (currentDb && localTables.length > 0 && assistantContent) {
+          if (!options?.enable_data_science_agent && currentDb && localTables.length > 0 && assistantContent) {
             const jsonMatch = assistantContent.match(/\{[\s\S]*\}/)
             if (jsonMatch) {
               try {
@@ -322,20 +491,24 @@ export function useSSE() {
                     if (activeSessionId === sessionId) {
                       setCurrentAnalysis(rawSql, sqlResult, effectiveChartType, offlineChartOption)
                     }
+                    // 数据量 >= 3 行时显示"生成深度报告"按钮
+                    const offlineData = {
+                      ...sqlResult,
+                      ...(cleanRows.length >= 3 ? { can_generate_report: true } : {})
+                    }
                     updateLastMessage({
                       content: displayContent,
                       sql: rawSql,
                       sql_result: JSON.stringify(sqlResult),
-                      // Required for visualization button: message.chart_cfg && message.data
                       chart_cfg: offlineChartOption ? JSON.stringify(offlineChartOption) : undefined,
-                      data: sqlResult,
+                      data: offlineData,
                     })
                     await localUpdateMessage(assistantMessageId, {
                       content: displayContent,
                       sql: rawSql,
                       sql_result: JSON.stringify(sqlResult),
                       chart_cfg: offlineChartOption ? JSON.stringify(offlineChartOption) : undefined,
-                      data: JSON.stringify(sqlResult),
+                      data: JSON.stringify(offlineData),
                     }).catch(() => {})
                   } catch (execErr) {
                     const errMsg = execErr instanceof Error ? execErr.message : 'SQL执行失败'
@@ -482,6 +655,11 @@ export function useSSE() {
                   setSqlResult(eventData)
                   handlers?.onSqlResult?.(eventData)
                   break
+                case 'execution_result':
+                  // 科学家模式专用：包含 plot_image_base64 / is_data_science / can_generate_report
+                  assistantData = eventData
+                  updateLastMessage({ data: JSON.stringify(eventData) })
+                  break
                 case 'chart_ready':
                   assistantChartCfg = JSON.stringify(eventData.option)
                   setChartOption(eventData.option, eventData.chart_type || 'bar')
@@ -575,9 +753,10 @@ export function useSSE() {
         // 🛡️ 防御性兜底：无论如何都确保 loading 状态被清除
         // （防止 done 事件未被正常接收时 loading 永久卡死）
         setIsLoading(false)
+        setStreamingSessionId(null)
       }
     },
-    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage, isThinkingMode, connectionStatus, offlineMode, localUserId]
+    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage, isThinkingMode, connectionStatus, offlineMode, localUserId, setStreamingSessionId]
   )
 
   const disconnect = useCallback(() => {
@@ -586,7 +765,8 @@ export function useSSE() {
       abortControllerRef.current = null
     }
     setIsLoading(false)
-  }, [setIsLoading])
+    setStreamingSessionId(null)
+  }, [setIsLoading, setStreamingSessionId])
 
   return { connect, disconnect }
 }
