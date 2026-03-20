@@ -30,8 +30,11 @@ export function convertMySQLToSQLite(sql: string, dbKey: string, tableNames: str
   let s = sql
 
   // 1. DATE_FORMAT(col, '%Y-%m') → strftime('%Y-%m', col)
-  s = s.replace(/DATE_FORMAT\s*\(\s*([^,]+?)\s*,\s*'([^']+)'\s*\)/gi, (_, col, fmt) => {
-    return `strftime('${fmt}', ${col.trim()})`
+  //    Uses balanced-paren parser to handle nested function calls in first arg.
+  s = replaceTopLevelFuncCalls(s, 'DATE_FORMAT', ([col, fmt]) => {
+    if (!col || !fmt) return `DATE_FORMAT(${col ?? ''}, ${fmt ?? ''})`
+    const sqliteFmt = fmt.trim().replace(/^'|'$/g, '')
+    return `strftime('${sqliteFmt}', ${col.trim()})`
   })
 
   // 2. YEAR(col) → strftime('%Y', col)
@@ -68,12 +71,20 @@ export function convertMySQLToSQLite(sql: string, dbKey: string, tableNames: str
     (_, d1, d2) => `CAST(julianday(${d1.trim()}) - julianday(${d2.trim()}) AS INTEGER)`)
 
   // 12. DATE_ADD(date, INTERVAL n unit) → date(date, '+n unit')
-  s = s.replace(/\bDATE_ADD\s*\(\s*([^,]+?)\s*,\s*INTERVAL\s+(-?\d+)\s+(\w+)\s*\)/gi,
-    (_, dt, n, unit) => `date(${dt.trim()}, '+${n} ${unit.toLowerCase()}')`)
+  //    Uses balanced-paren parser so first arg can be a nested function call.
+  s = replaceTopLevelFuncCalls(s, 'DATE_ADD', ([dt, intervalExpr]) => {
+    const m = intervalExpr?.match(/INTERVAL\s+(-?\d+)\s+(\w+)/i)
+    if (!m) return `DATE_ADD(${dt ?? ''}, ${intervalExpr ?? ''})`
+    return `date(${(dt ?? '').trim()}, '+${m[1]} ${m[2].toLowerCase()}')`
+  })
 
   // 13. DATE_SUB(date, INTERVAL n unit) → date(date, '-n unit')
-  s = s.replace(/\bDATE_SUB\s*\(\s*([^,]+?)\s*,\s*INTERVAL\s+(-?\d+)\s+(\w+)\s*\)/gi,
-    (_, dt, n, unit) => `date(${dt.trim()}, '-${n} ${unit.toLowerCase()}')`)
+  //    Uses balanced-paren parser so first arg can be a nested function call.
+  s = replaceTopLevelFuncCalls(s, 'DATE_SUB', ([dt, intervalExpr]) => {
+    const m = intervalExpr?.match(/INTERVAL\s+(-?\d+)\s+(\w+)/i)
+    if (!m) return `DATE_SUB(${dt ?? ''}, ${intervalExpr ?? ''})`
+    return `date(${(dt ?? '').trim()}, '-${m[1]} ${m[2].toLowerCase()}')`
+  })
 
   // 14. JSON_ARRAYAGG(col) → json_group_array(col)
   s = s.replace(/\bJSON_ARRAYAGG\s*\(/gi, 'json_group_array(')
@@ -120,13 +131,37 @@ export function convertMySQLToSQLite(sql: string, dbKey: string, tableNames: str
   s = s.replace(/\bDAYOFWEEK\s*\(\s*([^)]+)\s*\)/gi,
     (_, col) => `(CAST(strftime('%w', ${col.trim()}) AS INTEGER) + 1)`)
 
-  // 25. CONCAT(a, b) → (a || b)  [simple 2-arg, no nested functions]
-  s = s.replace(/\bCONCAT\s*\(\s*([^(),]+?)\s*,\s*([^(),]+?)\s*\)/gi,
-    (_, a, b) => `(${a.trim()} || ${b.trim()})`)
+  // 25. CONCAT(a, b, ...) → (a || b || ...)  [handles nested function args]
+  s = replaceTopLevelFuncCalls(s, 'CONCAT', (args) => `(${args.join(' || ')})`)
 
-  // 26. CONCAT_WS(sep, a, b) → (a || sep || b)
-  s = s.replace(/\bCONCAT_WS\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,\s*([^(),]+?)\s*\)/gi,
-    (_, sep, a, b) => `(${a.trim()} || ${sep.trim()} || ${b.trim()})`)
+  // 26. CONCAT_WS(sep, a, b, ...) → (a || sep || b || ...)
+  s = replaceTopLevelFuncCalls(s, 'CONCAT_WS', ([sep, ...rest]) =>
+    `(${rest.join(` || ${sep ?? ''} || `)})`)
+
+  // 29b. STR_TO_DATE(expr, format) → expr
+  //     SQLite reads ISO date strings natively; the expr is already a valid date string.
+  s = replaceTopLevelFuncCalls(s, 'STR_TO_DATE', ([expr]) => expr?.trim() ?? '')
+
+  // 29c. TIMESTAMPDIFF(unit, d1, d2) → SQLite equivalent
+  s = replaceTopLevelFuncCalls(s, 'TIMESTAMPDIFF', ([unit, d1, d2]) => {
+    const u = (unit ?? '').replace(/['"]/g, '').trim().toUpperCase()
+    const a = (d1 ?? '').trim()
+    const b = (d2 ?? '').trim()
+    switch (u) {
+      case 'MONTH':
+        return `(CAST(strftime('%Y', ${b}) AS INTEGER) * 12 + CAST(strftime('%m', ${b}) AS INTEGER) - CAST(strftime('%Y', ${a}) AS INTEGER) * 12 - CAST(strftime('%m', ${a}) AS INTEGER))`
+      case 'YEAR':
+        return `(CAST(strftime('%Y', ${b}) AS INTEGER) - CAST(strftime('%Y', ${a}) AS INTEGER))`
+      case 'HOUR':
+        return `CAST((julianday(${b}) - julianday(${a})) * 24 AS INTEGER)`
+      case 'MINUTE':
+        return `CAST((julianday(${b}) - julianday(${a})) * 1440 AS INTEGER)`
+      case 'SECOND':
+        return `CAST((julianday(${b}) - julianday(${a})) * 86400 AS INTEGER)`
+      default: // DAY and fallback
+        return `CAST(julianday(${b}) - julianday(${a}) AS INTEGER)`
+    }
+  })
 
   // 27. LIMIT offset, count → LIMIT count OFFSET offset  (MySQL shorthand)
   s = s.replace(/\bLIMIT\s+(\d+)\s*,\s*(\d+)\b/gi,
@@ -166,4 +201,83 @@ function _bizTablePrefix(dbKey: string): string {
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// ==================== Balanced-paren helpers ====================
+
+/**
+ * Find every top-level call to `funcName(...)` in `sql`, extract the
+ * arguments (split on top-level commas), and replace the whole call with
+ * the string returned by `replacer`.  Handles arbitrary nesting depth and
+ * quoted strings containing parens/commas.
+ */
+function replaceTopLevelFuncCalls(
+  sql: string,
+  funcName: string,
+  replacer: (args: string[]) => string
+): string {
+  const re = new RegExp(`\\b${escapeRegex(funcName)}\\s*\\(`, 'gi')
+  let result = ''
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = re.exec(sql)) !== null) {
+    result += sql.slice(lastIndex, match.index)
+    const start = match.index + match[0].length // position right after '('
+    let depth = 1
+    let inSingleQuote = false
+    let i = start
+    while (i < sql.length && depth > 0) {
+      const c = sql[i]
+      if (c === "'" && !inSingleQuote) {
+        inSingleQuote = true
+      } else if (c === "'" && inSingleQuote) {
+        inSingleQuote = false
+      } else if (!inSingleQuote) {
+        if (c === '(') depth++
+        else if (c === ')') depth--
+      }
+      i++
+    }
+    const argsStr = sql.slice(start, i - 1) // content between outer parens
+    const args = splitTopLevelArgs(argsStr)
+    result += replacer(args)
+    lastIndex = i
+    re.lastIndex = lastIndex
+  }
+  result += sql.slice(lastIndex)
+  return result
+}
+
+/**
+ * Split a function's argument string on top-level commas (ignoring commas
+ * inside nested parens or single-quoted strings).
+ */
+function splitTopLevelArgs(argsStr: string): string[] {
+  const args: string[] = []
+  let depth = 0
+  let inSingleQuote = false
+  let current = ''
+  for (let i = 0; i < argsStr.length; i++) {
+    const c = argsStr[i]
+    if (c === "'" && !inSingleQuote) {
+      inSingleQuote = true
+      current += c
+    } else if (c === "'" && inSingleQuote) {
+      inSingleQuote = false
+      current += c
+    } else if (!inSingleQuote && (c === '(' || c === '[')) {
+      depth++
+      current += c
+    } else if (!inSingleQuote && (c === ')' || c === ']')) {
+      depth--
+      current += c
+    } else if (!inSingleQuote && c === ',' && depth === 0) {
+      args.push(current.trim())
+      current = ''
+    } else {
+      current += c
+    }
+  }
+  if (current.trim()) args.push(current.trim())
+  return args
 }
