@@ -40,7 +40,7 @@ def main():
     print("🎉 系统环境一键就绪！")
     print("   - 默认账号: demo@example.com")
     print("   - 默认密码: password123")
-    print("   - MySQL: test, classic_business, global_analysis")
+    print("   - MySQL: classic_business, global_analysis")
 
 if __name__ == "__main__":
     main()

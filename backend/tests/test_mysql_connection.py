@@ -17,11 +17,11 @@ async def test_mysql():
     print("=" * 60)
 
     # 检查 MySQL 配置
-    if "mysql_example" not in DATABASES:
-        print("❌ 未找到 mysql_example 数据库配置")
+    if "classic_business" not in DATABASES:
+        print("❌ 未找到 classic_business 数据库配置")
         return
 
-    mysql_config = DATABASES["mysql_example"]
+    mysql_config = DATABASES["classic_business"]
     print(f"📋 配置信息:")
     print(f"   Host: {mysql_config.get('host')}")
     print(f"   Port: {mysql_config.get('port')}")
@@ -31,11 +31,11 @@ async def test_mysql():
     print()
 
     # 注册数据库
-    DatabaseManager.register_database("mysql_example", mysql_config)
+    DatabaseManager.register_database("classic_business", mysql_config)
 
     # 尝试连接
     print("🔌 尝试连接 MySQL...")
-    adapter = DatabaseManager.get_adapter("mysql_example")
+    adapter = DatabaseManager.get_adapter("classic_business")
 
     if not adapter:
         print("❌ 无法获取 MySQL 适配器")
@@ -58,7 +58,7 @@ async def test_mysql():
             print("✅ 测试完成！")
             print()
             print("💡 提示:")
-            print("   1. 在前端可以选择 'mysql_example' 数据库")
+            print("   1. 在前端可以选择 'classic_business' 数据库")
             print("   2. 确保 MySQL 数据库中有表和数据")
             print("   3. 可以使用现有的 SQLite 数据库作为测试数据")
         else:

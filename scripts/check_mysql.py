@@ -7,11 +7,11 @@ from databases.database_manager import DatabaseManager
 
 async def check_data():
     try:
-        db_config = DATABASES['mysql_example']
+        db_config = DATABASES['classic_business']
         print(f'📊 检查 MySQL 数据库 {db_config["name"]}')
         
-        DatabaseManager.register_database('mysql_example', db_config)
-        adapter = DatabaseManager.get_adapter('mysql_example')
+        DatabaseManager.register_database('classic_business', db_config)
+        adapter = DatabaseManager.get_adapter('classic_business')
         await adapter.connect()
         
         print(f'✅ 已连接')

@@ -5,9 +5,19 @@ import type { EChartsOption } from 'echarts'
 interface EChartsRendererProps {
   option: EChartsOption | null
   style?: React.CSSProperties
+  onChartReady?: (instance: echarts.ECharts) => void
 }
 
-export default function EChartsRenderer({ option, style }: EChartsRendererProps) {
+// Remove invalid visualMap types (only "continuous" and "piecewise" are valid in ECharts)
+function sanitizeOption(option: EChartsOption): EChartsOption {
+  if (!option.visualMap) return option
+  const maps = Array.isArray(option.visualMap) ? option.visualMap : [option.visualMap]
+  const valid = maps.filter((vm: any) => vm.type === 'continuous' || vm.type === 'piecewise')
+  if (valid.length === maps.length) return option
+  return { ...option, visualMap: valid.length === 1 ? valid[0] : valid.length === 0 ? undefined : valid }
+}
+
+export default function EChartsRenderer({ option, style, onChartReady }: EChartsRendererProps) {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
 
@@ -15,6 +25,7 @@ export default function EChartsRenderer({ option, style }: EChartsRendererProps)
     if (!chartRef.current) return
 
     chartInstanceRef.current = echarts.init(chartRef.current)
+    onChartReady?.(chartInstanceRef.current)
 
     const handleResize = () => {
       chartInstanceRef.current?.resize()
@@ -38,7 +49,8 @@ export default function EChartsRenderer({ option, style }: EChartsRendererProps)
 
   useEffect(() => {
     if (chartInstanceRef.current && option) {
-      chartInstanceRef.current.setOption(option, true)
+      const safeOption = sanitizeOption(option)
+      chartInstanceRef.current.setOption(safeOption, true)
     }
   }, [option])
 

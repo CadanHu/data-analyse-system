@@ -371,6 +371,50 @@ export async function upsertMessage(msg: Partial<LocalMessage> & { id: string })
   )
 }
 
+/**
+ * Pull 专用：只有当本地消息 _sync_dirty=0（无未推送改动）时才覆盖，
+ * 防止服务器旧版本覆盖手机刚写入的新版本。
+ */
+export async function upsertMessageFromServer(msg: Partial<LocalMessage> & { id: string }): Promise<void> {
+  const now = new Date().toISOString()
+  await requireDb().run(
+    `INSERT INTO messages (id, session_id, parent_id, role, content, sql, chart_cfg, thinking, data,
+       is_current, feedback, feedback_text, tokens_prompt, tokens_completion, created_at, _sync_dirty, _deleted)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET
+       content=excluded.content,
+       sql=excluded.sql,
+       chart_cfg=excluded.chart_cfg,
+       thinking=excluded.thinking,
+       data=excluded.data,
+       is_current=excluded.is_current,
+       feedback=excluded.feedback,
+       feedback_text=excluded.feedback_text,
+       _sync_dirty=excluded._sync_dirty,
+       _deleted=excluded._deleted
+     WHERE messages._sync_dirty = 0`,
+    [
+      msg.id,
+      msg.session_id ?? '',
+      msg.parent_id ?? null,
+      msg.role ?? 'user',
+      msg.content ?? '',
+      msg.sql ?? null,
+      msg.chart_cfg ?? null,
+      msg.thinking ?? null,
+      typeof msg.data === 'object' ? JSON.stringify(msg.data) : (msg.data ?? null),
+      msg.is_current ?? 1,
+      msg.feedback ?? 0,
+      msg.feedback_text ?? null,
+      msg.tokens_prompt ?? 0,
+      msg.tokens_completion ?? 0,
+      msg.created_at ?? now,
+      msg._sync_dirty ?? 0,
+      msg._deleted ?? 0,
+    ]
+  )
+}
+
 export async function updateMessageContent(id: string, updates: Partial<LocalMessage>): Promise<void> {
   const sets: string[] = []
   const vals: any[] = []
@@ -616,7 +660,7 @@ export async function upsertBizSyncMeta(meta: BizSyncMeta): Promise<void> {
   )
 }
 
-export async function getLocalBizTables(dbKey: string): Promise<{ tableName: string; columns: string[] }[]> {
+export async function getLocalBizTables(dbKey: string): Promise<{ tableName: string; fullTableName: string; columns: string[] }[]> {
   if (!initialized) return []
   const safeKey = dbKey.replace(/[^a-zA-Z0-9]/g, '_')
   const prefix = `biz_${safeKey}__`
@@ -624,7 +668,7 @@ export async function getLocalBizTables(dbKey: string): Promise<{ tableName: str
     const tables = await executeLocalQuery(
       `SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '${prefix}%' ORDER BY name`
     )
-    const result: { tableName: string; columns: string[] }[] = []
+    const result: { tableName: string; fullTableName: string; columns: string[] }[] = []
     for (const t of tables) {
       const fullName = t.name as string
       const tableName = fullName.slice(prefix.length)
@@ -633,7 +677,7 @@ export async function getLocalBizTables(dbKey: string): Promise<{ tableName: str
         const columns = (cols as any[])
           .map((c: any) => c.name as string)
           .filter(n => !n.startsWith('_'))
-        result.push({ tableName, columns })
+        result.push({ tableName, fullTableName: fullName, columns })
       } catch { /* skip */ }
     }
     return result
@@ -657,6 +701,7 @@ export const dbService = {
   getMessages,
   getAllMessages,
   upsertMessage,
+  upsertMessageFromServer,
   updateMessageContent,
   getDirtyMessages,
   clearMessageDirty,

@@ -78,15 +78,6 @@ MYSQL_SESSION_DATABASE = os.getenv("MYSQL_SESSION_DATABASE", "data_pulse_session
 
 # 多数据库配置 (移除 SQLite)
 DATABASES = {
-    "mysql_example": {
-        "type": "mysql",
-        "host": MYSQL_HOST,
-        "port": MYSQL_PORT,
-        "database": os.getenv("MYSQL_DATABASE", "test"),
-        "user": MYSQL_USER,
-        "password": MYSQL_PASSWORD,
-        "name": "test"
-    },
     "classic_business": {
         "type": "mysql",
         "host": MYSQL_HOST,

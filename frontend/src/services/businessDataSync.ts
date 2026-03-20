@@ -14,10 +14,10 @@
 import { Capacitor } from '@capacitor/core'
 import { getBaseURL } from '../api'
 import { useAuthStore } from '../stores/authStore'
-import dbService, { BizSyncMeta } from './db'
+import dbService, { BizSyncMeta, executeLocalQuery } from './db'
 import { mysqlTypeToSQLite, bizTableName } from './sqlDialectConverter'
 
-const PAGE_SIZE = 500
+const PAGE_SIZE = 2000
 
 export interface BizDbInfo {
   key: string
@@ -78,16 +78,50 @@ export async function getAllSyncStatus(): Promise<BizSyncMeta[]> {
 /**
  * Sync all tables of a business database to local SQLite.
  * Native only — throws if called on web.
+ *
+ * @param force  true = 强制全量（drop+recreate 所有表）
+ *               false (默认) = 增量：只同步新增或行数有变化的表
  */
 export async function syncBusinessDatabase(
   dbKey: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  force = false
 ): Promise<void> {
   if (!Capacitor.isNativePlatform()) {
     throw new Error('业务数据同步仅支持 iOS / Android 原生平台')
   }
 
-  // 1. Fetch schema
+  interface ServerTableMeta {
+    row_count: number
+    update_time: string | null  // ISO string from information_schema, null if unavailable
+  }
+
+  // 1. 获取服务端每张表的元数据（行数 + UPDATE_TIME）
+  let serverMeta: Record<string, ServerTableMeta> = {}
+  if (!force) {
+    try {
+      const metaResp = await apiFetch<{
+        db_key: string
+        tables: Array<{ table: string; row_count: number; update_time: string | null }>
+      }>(`/biz-sync/meta/${dbKey}`)
+      serverMeta = Object.fromEntries(
+        metaResp.tables.map(t => [t.table, { row_count: t.row_count, update_time: t.update_time }])
+      )
+    } catch {
+      // 若 meta 接口不可用则退化为全量
+      force = true
+    }
+  }
+
+  // 2. 获取本地已缓存的元数据
+  const localMetaList = await dbService.getAllBizSyncMeta()
+  const localMeta: Record<string, { row_count: number; synced_at: string | null }> = Object.fromEntries(
+    localMetaList
+      .filter(m => m.db_key === dbKey)
+      .map(m => [m.table_name, { row_count: m.row_count ?? -1, synced_at: m.synced_at ?? null }])
+  )
+
+  // 3. Fetch schema
   const schemaResp = await apiFetch<{
     db_key: string
     tables: Array<{
@@ -97,24 +131,91 @@ export async function syncBusinessDatabase(
   }>(`/biz-sync/schema/${dbKey}`)
   const tables = schemaResp.tables
 
-  // Clear old meta
-  await dbService.clearBizSyncMeta(dbKey)
+  // 增量模式下过滤出需要同步的表
+  let tablesToSync: typeof tables
+  if (force) {
+    tablesToSync = tables
+  } else {
+    tablesToSync = []
+    for (const t of tables) {
+      const local = localMeta[t.name]
+
+      // 未曾同步过 → 必须同步
+      if (!local || local.row_count === -1) {
+        tablesToSync.push(t)
+        continue
+      }
+
+      const serverInfo = serverMeta[t.name]
+      const serverUpdateTime = serverInfo?.update_time ?? null
+      const localSyncedAt = local.synced_at
+
+      if (serverUpdateTime && localSyncedAt) {
+        // 优先用 UPDATE_TIME 判断：服务端有新修改则同步
+        if (new Date(serverUpdateTime) > new Date(localSyncedAt)) {
+          tablesToSync.push(t)
+          continue
+        }
+        // UPDATE_TIME 未变，但还要检查列结构
+      } else {
+        // UPDATE_TIME 不可用 → fallback 到行数对比
+        const serverCount = serverInfo?.row_count ?? -1
+        if (serverCount !== local.row_count) {
+          tablesToSync.push(t)
+          continue
+        }
+      }
+
+      // 最后检查列结构是否变化（ALTER TABLE ADD COLUMN）
+      try {
+        const localTableName = bizTableName(dbKey, t.name)
+        const pragmaRows = await executeLocalQuery(`PRAGMA table_info("${localTableName}")`)
+        const localCols = (pragmaRows as any[]).map(r => r.name as string).sort().join(',')
+        const serverCols = t.columns.map(c => c.name).sort().join(',')
+        if (localCols !== serverCols) {
+          tablesToSync.push(t) // 列结构不同 → 需要重建
+        }
+      } catch {
+        tablesToSync.push(t) // 无法读取本地表 → 保守起见同步
+      }
+    }
+  }
+
+  if (!force) {
+    const skipped = tables.length - tablesToSync.length
+    if (skipped > 0) {
+      onProgress?.({
+        db_key: dbKey,
+        table: '',
+        tableIndex: 0,
+        totalTables: tables.length,
+        rowsDone: 0,
+        rowsTotal: 0,
+        percent: 0,
+        message: `增量检测：跳过 ${skipped} 张未变化的表，同步 ${tablesToSync.length} 张`,
+      })
+    }
+    if (tablesToSync.length === 0) return
+  } else {
+    // 全量时清除旧 meta
+    await dbService.clearBizSyncMeta(dbKey)
+  }
 
   let tableIdx = 0
-  for (const tableInfo of tables) {
+  for (const tableInfo of tablesToSync) {
     tableIdx++
     const localTableName = bizTableName(dbKey, tableInfo.name)
 
-    // 2. Map columns to SQLite types
+    // 4. Map columns to SQLite types
     const cols = tableInfo.columns.map(c => ({
       name: c.name,
       sqliteType: mysqlTypeToSQLite(c.type),
     }))
 
-    // 3. Create local table (drop + recreate for full sync)
+    // 5. Create local table (drop + recreate)
     await dbService.createBusinessTable(localTableName, cols)
 
-    // 4. Paginate + insert
+    // 6. Paginate + insert
     let offset = 0
     let total = 0
     let done = 0
@@ -145,14 +246,14 @@ export async function syncBusinessDatabase(
       offset += PAGE_SIZE
 
       const pct = total > 0
-        ? Math.round(((tableIdx - 1) / tables.length + (done / total) / tables.length) * 100)
-        : Math.round((tableIdx / tables.length) * 100)
+        ? Math.round(((tableIdx - 1) / tablesToSync.length + (done / total) / tablesToSync.length) * 100)
+        : Math.round((tableIdx / tablesToSync.length) * 100)
 
       onProgress?.({
         db_key: dbKey,
         table: tableInfo.name,
         tableIndex: tableIdx,
-        totalTables: tables.length,
+        totalTables: tablesToSync.length,
         rowsDone: done,
         rowsTotal: total,
         percent: pct,
@@ -162,7 +263,7 @@ export async function syncBusinessDatabase(
       if (!pageResp.has_more) break
     }
 
-    // 5. Update meta
+    // 7. Update meta
     await dbService.upsertBizSyncMeta({
       db_key: dbKey,
       table_name: tableInfo.name,

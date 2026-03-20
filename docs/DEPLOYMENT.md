@@ -101,7 +101,7 @@ docker-compose down -v
 
 | Volume 名称 | 对应数据库 | 说明 |
 |------------|-----------|------|
-| `mysql_data` | MySQL 8.0 | 业务数据库（test / classic_business / global_analysis） |
+| `mysql_data` | MySQL 8.0 | 业务数据库（classic_business / global_analysis） |
 | `pg_data` | PostgreSQL 15 | 知识库（knowledge_base） |
 
 日志和上传文件通过 bind mount 持久化到宿主机：

@@ -130,13 +130,25 @@ python3 scripts/init_classic_business.py
 ### 2. 全场景商业分析库 (Global Analysis)
 包含 15+ 种可视化图表（雷达图、桑基图、甘特图、箱线图等）所需的进阶测试数据。
 ```bash
-# 初始化基础库
+# 1. 初始化基础库（daily_metrics / user_activity_heatmap / ad_attribution）
 python3 scripts/init_global_analysis.py
-# 注入进阶图表数据 (桑基、甘特等)
+# 2. 注入进阶图表数据（桑基、甘特等）
 python3 scripts/inject_test_data.py
-# 注入 2024 年度销售趋势数据 (用于对比分析)
+# 3. 注入 2024 年度销售趋势数据（用于对比分析）
 python3 scripts/inject_2024_data.py
+# 4. 添加组织机构与用户行为日志（organizations / user_behavior_logs）
+python3 scripts/upgrade_to_enterprise_db.py
+# 5. 添加销售预测表（sales_forecast）
+python3 scripts/ultimate_db_optimization.py
+# 6. 添加产品多维性能表（product_performance，用于雷达图）
+python3 scripts/add_product_performance.py
+# 7. 添加跨表外键关联列（org_id / product_id / touchpoint_date）
+#    幂等操作，可重复执行
+python3 scripts/migrate_add_fk_columns.py
 ```
+
+> **说明**：步骤 4–7 是后续增量扩展，仅需在初次搭建或接手旧库时执行一次。
+> `migrate_add_fk_columns.py` 幂等安全，重复执行不会破坏数据。
 
 ---
 

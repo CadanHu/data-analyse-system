@@ -25,6 +25,7 @@ export type TranslationKey =
   | 'login.backToHome' | 'login.failed' | 'login.formatError'
   | 'register.title' | 'register.username' | 'register.confirmPassword'
   | 'register.submit' | 'register.loading' | 'register.haveAccount' | 'register.login'
+  | 'localRegister.title' | 'localRegister.subtitle' | 'localRegister.success'
   // Session List
   | 'session.listTitle' | 'session.new' | 'session.search' | 'session.notFound'
   | 'session.empty' | 'session.delete' | 'session.deleteConfirm' | 'session.logout' | 'session.logoutConfirm'
@@ -40,6 +41,7 @@ export type TranslationKey =
   | 'panel.funnel' | 'panel.gauge' | 'panel.candlestick' | 'panel.heatmap' | 'panel.treemap' | 'panel.sankey'
   | 'panel.boxplot' | 'panel.waterfall' | 'panel.map' | 'panel.gantt' | 'panel.table'
   | 'panel.noData' | 'panel.unsupported' | 'panel.executedSql' | 'panel.export' | 'panel.filter'
+  | 'panel.shareChart'
   // Features Categories
   | 'feature.core' | 'feature.ai' | 'feature.data' | 'feature.enhanced' | 'feature.ux'
   // Feature Items
@@ -64,6 +66,7 @@ export type TranslationKey =
   | 'alert.analysisFailed' | 'alert.selectSessionFirst' | 'alert.processing' | 'alert.fileTypeNotSupported'
   | 'alert.sessionIdMissing' | 'alert.filePreprocessingFailed' | 'alert.exception' | 'alert.parseFailed'
   | 'alert.mobileProcessFailed' | 'alert.fetchFileFailed' | 'alert.scientistModeHint'
+  | 'alert.csvUseImportInstead'
   // Reports & Dashboards
   | 'report.deepInsight' | 'report.generating' | 'report.fullScreen' | 'report.offline' | 'report.deepAnalyzing'
   | 'report.genBtn' | 'report.processingHint' | 'report.deepInsightHint'
@@ -253,6 +256,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'panel.executedSql': '执行的 SQL',
     'panel.export': '导出',
     'panel.filter': '过滤数据...',
+    'panel.shareChart': '导出图表图片',
     
     // Features Categories
     'feature.core': '核心功能',
@@ -322,7 +326,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'alert.parseFailed': '解析失败',
     'alert.mobileProcessFailed': '手机端处理失败',
     'alert.fetchFileFailed': '从服务器获取文件失败',
-    'alert.scientistModeHint': '💡 当前为“科学家模式”，分析结论与图表已在对话框中直接展示。如需使用“传统可视化看板”，请切换至普通 SQL 模式。',
+    'alert.scientistModeHint': '💡 当前为”科学家模式”，分析结论与图表已在对话框中直接展示。如需使用”传统可视化看板”，请切换至普通 SQL 模式。',
+    'alert.csvUseImportInstead': 'CSV/Excel 文件请通过「数据管理」→「导入本地 CSV」导入为可查询的数据表，而非上传到知识库。',
     
     // Reports & Dashboards
     'report.deepInsight': '深度分析看板',
@@ -378,6 +383,9 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'register.success': '注册成功，请登录',
     'register.failed': '注册失败，请检查填写内容',
     'register.sendFailed': '验证码发送失败',
+    'localRegister.title': '本地注册',
+    'localRegister.subtitle': '数据仅保存在本设备，无需验证',
+    'localRegister.success': '注册成功，请登录',
 
     // Chat Message Items
     'chat.thinkingView': '查看 AI 思考过程',
@@ -610,6 +618,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'panel.executedSql': 'Executed SQL',
     'panel.export': 'Export',
     'panel.filter': 'Filter data...',
+    'panel.shareChart': 'Export Chart Image',
     
     // Features Categories
     'feature.core': 'Core Features',
@@ -680,6 +689,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'alert.mobileProcessFailed': 'Mobile processing failed',
     'alert.fetchFileFailed': 'Failed to fetch file from server',
     'alert.scientistModeHint': '💡 "Scientist Mode" is active. Analysis and charts are shown directly in chat. Switch to SQL Mode for classic dashboards.',
+    'alert.csvUseImportInstead': 'For CSV/Excel files, please use "Data Management" → "Import CSV" to load them as queryable tables instead of uploading to the knowledge base.',
     
     // Reports & Dashboards
     'report.deepInsight': 'Deep Insights Dashboard',
@@ -735,6 +745,9 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'register.success': 'Registration successful, please login',
     'register.failed': 'Registration failed, please check your input',
     'register.sendFailed': 'Failed to send verification code',
+    'localRegister.title': 'Local Register',
+    'localRegister.subtitle': 'Data stays on this device, no verification needed',
+    'localRegister.success': 'Registration successful, please login',
 
     // Chat Message Items
     'chat.thinkingView': 'View AI Thought Process',

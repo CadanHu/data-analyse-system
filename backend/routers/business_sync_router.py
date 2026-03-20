@@ -79,6 +79,44 @@ async def get_schema(db_key: str, current_user: dict = Depends(get_current_user)
     return {"db_key": db_key, "tables": result}
 
 
+@router.get("/meta/{db_key}")
+async def get_meta(db_key: str, current_user: dict = Depends(get_current_user)):
+    """返回每张表的行数 + UPDATE_TIME，供手机端判断哪些表需要增量同步"""
+    adapter = await _ensure_adapter(db_key)
+    cfg = DATABASES.get(db_key, {})
+    db_type = cfg.get("type", "mysql")
+
+    if db_type == "mysql":
+        db_name = cfg.get("database", db_key)
+        rows = await adapter.execute_query(
+            "SELECT TABLE_NAME, TABLE_ROWS, UPDATE_TIME "
+            "FROM information_schema.TABLES "
+            "WHERE TABLE_SCHEMA = :db_name",
+            {"db_name": db_name},
+        )
+        result = [
+            {
+                "table": r["TABLE_NAME"],
+                "row_count": int(r["TABLE_ROWS"] or 0),
+                "update_time": r["UPDATE_TIME"].isoformat() if r["UPDATE_TIME"] else None,
+            }
+            for r in rows
+        ]
+    else:
+        # PostgreSQL / 其他：fallback 到逐表 COUNT
+        q = '"' if db_type == "postgresql" else "`"
+        tables = await adapter.get_tables()
+        result = []
+        for t in tables:
+            count_res = await adapter.execute_query(
+                f"SELECT COUNT(*) AS cnt FROM {q}{t.name}{q}"
+            )
+            row_count = int(count_res[0]["cnt"]) if count_res else 0
+            result.append({"table": t.name, "row_count": row_count, "update_time": None})
+
+    return {"db_key": db_key, "tables": result}
+
+
 @router.get("/data/{db_key}/{table_name}")
 async def get_table_data(
     db_key: str,

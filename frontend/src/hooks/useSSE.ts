@@ -247,7 +247,42 @@ export function useSSE() {
               content: `你是数据科学分析师。以下是用户问题对应的真实查询数据：\n${dataContext}\n\n请基于以上数据进行深度分析，生成 ECharts 图表配置。必须以严格的 JSON 格式回复（不能包含 JavaScript 函数，tooltip 中不要写 formatter 函数）：\n{"analysis":"详细分析文字...","chart_type":"bar|line|pie|area|scatter|table|none","chart_option":{"xAxis":{...},"yAxis":{...},"series":[...],"tooltip":{"trigger":"axis"}}}\n如无合适数据则 chart_type 为 "none"，chart_option 为 null。\nECharts 约束：visualMap 只允许 type 为 "continuous" 或 "piecewise"，禁止使用 type:"size"（该类型不存在）；如需按数值映射气泡大小，请用 type:"continuous" 并设置 inRange.symbolSize。`,
             })
           } else if (localTables.length > 0) {
-            const schemaLines = localTables.map(t => `${t.tableName}(${t.columns.join(', ')})`).join('\n')
+            // Collect up to 3 sample rows per table so AI knows actual values (e.g. product names)
+            const confirmSamples: { tableName: string; rows: any[] }[] = []
+            if (currentDb && Capacitor.isNativePlatform()) {
+              for (const table of localTables) {
+                try {
+                  const sr = await executeLocalQuery(`SELECT * FROM "${table.fullTableName}" LIMIT 3`)
+                  const clean = (sr as any[]).filter((r: any) => !('ios_columns' in r))
+                  if (clean.length > 0) confirmSamples.push({ tableName: table.tableName, rows: clean })
+                } catch { /* ignore */ }
+              }
+            }
+            const schemaLines = confirmSamples.length > 0
+              ? confirmSamples.map(t =>
+                  `${t.tableName}(${Object.keys(t.rows[0]).join(', ')}) -- 样本: ${JSON.stringify(t.rows[0])}`
+                ).join('\n')
+              : localTables.map(t => `${t.tableName}(${t.columns.join(', ')})`).join('\n')
+
+            // Auto-detect FK relationships from column names present in the synced tables.
+            // This allows the AI to write correct JOINs without guessing.
+            const tableNameSet = new Set(localTables.map(t => t.tableName))
+            const fkHints: string[] = []
+            for (const table of localTables) {
+              const cols = confirmSamples.find(s => s.tableName === table.tableName)
+                ? Object.keys(confirmSamples.find(s => s.tableName === table.tableName)!.rows[0])
+                : table.columns
+              if (cols.includes('org_id') && tableNameSet.has('organizations') && table.tableName !== 'organizations') {
+                fkHints.push(`${table.tableName}.org_id → organizations.org_id（地区/组织归属）`)
+              }
+              if (cols.includes('product_id') && tableNameSet.has('product_performance') && table.tableName !== 'product_performance') {
+                fkHints.push(`${table.tableName}.product_id → product_performance.product_id（关联产品）`)
+              }
+            }
+            const fkSection = fkHints.length > 0
+              ? `\n\n【表关系（可直接 JOIN）】\n${fkHints.map(h => `- ${h}`).join('\n')}`
+              : ''
+            const schemaWithFk = schemaLines + fkSection
 
             // Detect whether we're in "waiting for confirmation" state:
             // last assistant message proposed a plan (no SQL) and asked for confirmation.
@@ -262,10 +297,10 @@ export function useSSE() {
             let systemPrompt: string
             if (isConfirmation) {
               // Step 2: user confirmed the plan → generate SQL
-              systemPrompt = `你是数据分析助手。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n用户已确认上一轮你提出的分析方案，现在请生成完整的 SQL 查询并执行。\n必须以 JSON 格式回复：\n{"sql":"SELECT ...","chart_type":"bar|line|pie|area|scatter|map|table|none","reasoning":"执行说明"}\nSQL 使用 MySQL 语法，chart_type 根据数据特征选择最合适的图表类型。\n【地图类型规则】地理地图选 map，SQL 必须只按 city 分组（GROUP BY c.city），用 AVG(c.latitude) 和 AVG(c.longitude) 取城市平均坐标（同一城市不同客户坐标略有差异，按 city+lat+lng 分组会产生重复点导致地图标签重叠），并 SELECT city, AVG(latitude) AS latitude, AVG(longitude) AS longitude 以及一个数值指标字段。\n状态过滤使用 IN ('Shipped','shipped') 枚举，禁止使用 LOWER(column) LIKE '%value%' 全表扫描写法。`
+              systemPrompt = `你是数据分析助手。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaWithFk}\n\n用户已确认上一轮你提出的分析方案，现在请生成完整的 SQL 查询并执行。\n必须以 JSON 格式回复：\n{"sql":"SELECT ...","chart_type":"bar|line|pie|area|scatter|radar|map|table|none","reasoning":"执行说明"}\n\n【重要】chart_type 是给前端图表库的渲染提示，不需要你生成 ECharts 配置，只需如实填写最适合的图表类型名称即可。用户要求雷达图时填 "radar"，无需担心格式转换问题，前端会自动处理。只有真正无数据可展示时才填 "none"。\n\n【跨表关联规则】只能使用【表关系】中列出的字段做 JOIN，禁止对未列出的字段猜测关联：\n- ad_attribution.touchpoint_id 是自增整数行ID，禁止当日期处理\n- ad_attribution.user_id 是用户ID，不是 org_id / product_id\n- 没有列在【表关系】中的跨表 JOIN 一律禁止\n\nSQL 必须使用 SQLite 语法（禁止使用 MySQL 专有语法）：\n- 禁止 FROM dual，直接写 SELECT expr AS col\n- 日期函数用 strftime('%Y-%m-%d', col)、date('now')、datetime('now')\n- 字符串拼接用 || 而非 CONCAT()\n- 无 IFNULL，用 COALESCE()\n- 无 DATE_FORMAT/DATE_ADD/DATE_SUB，用 strftime()/date()\n- 无 LIMIT x, y 写法，用 LIMIT y OFFSET x\n- 禁止使用数学扩展函数：SQRT/POWER/POW/LOG/LN/EXP/SIN/COS/TAN（运行环境未编译此扩展）\n  - 需要开方时：改为展示方差（VAR）而非标准差，或用 CASE 分箱代替精确计算\n  - 需要相关性时：改为直接输出 (X, Y) 散点数据，由图表展示趋势，不在 SQL 层计算相关系数\nchart_type 根据数据特征和用户需求选择最合适的图表类型。\n【地图类型规则】地理地图选 map，SQL 必须只按 city 分组（GROUP BY c.city），用 AVG(c.latitude) 和 AVG(c.longitude) 取城市平均坐标（同一城市不同客户坐标略有差异，按 city+lat+lng 分组会产生重复点导致地图标签重叠），并 SELECT city, AVG(latitude) AS latitude, AVG(longitude) AS longitude 以及一个数值指标字段。\n状态过滤使用 IN ('Shipped','shipped') 枚举，禁止使用 LOWER(column) LIKE '%value%' 全表扫描写法。`
             } else {
               // Step 1: new question → propose plan, ask for confirmation, NO SQL yet
-              systemPrompt = `你是专业的数据分析顾问。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaLines}\n\n用户提出了分析需求，请按以下格式提出分析方案供用户确认，不要生成 SQL：\n必须以 JSON 格式回复：\n{"sql":"","chart_type":"none","reasoning":"【分析方案】\\n1. 涉及的数据表及作用：...\\n2. 分析思路：...\\n3. 推荐图表类型：...\\n\\n这个分析方案是否可以？如果确认，我将为您生成数据并分析。"}\n\n注意：sql 字段必须为空字符串，等用户确认后再生成 SQL。`
+              systemPrompt = `你是专业的数据分析顾问。用户本地离线数据库"${currentDb}"的表结构如下：\n${schemaWithFk}\n\n用户提出了分析需求，请按以下格式提出分析方案供用户确认，不要生成 SQL：\n必须以 JSON 格式回复：\n{"sql":"","chart_type":"none","reasoning":"【分析方案】\\n1. 涉及的数据表及作用：...\\n2. 分析思路：...\\n3. 推荐图表类型：...\\n\\n这个分析方案是否可以？如果确认，我将为您生成数据并分析。"}\n\n注意：sql 字段必须为空字符串，等用户确认后再生成 SQL。确认后生成的 SQL 须使用 SQLite 语法。\n【跨表关联规则】只能使用【表关系】中列出的字段做 JOIN；ad_attribution.touchpoint_id 是整数ID非日期，ad_attribution.user_id 不等于 org_id/product_id，禁止对未列出字段猜测关联。`
             }
             aiMessages.unshift({ role: 'system', content: systemPrompt })
           }
@@ -432,7 +467,18 @@ export function useSSE() {
                 const parsed = JSON.parse(jsonMatch[0])
                 const rawSql: string = parsed.sql || ''
                 const reasoning: string = parsed.reasoning || parsed.explanation || ''
-                const chartType: string = parsed.chart_type || 'none'
+                let chartType: string = parsed.chart_type || 'none'
+                // Fallback: if model returned 'none' but user explicitly asked for a chart type,
+                // infer it from the original question to avoid hiding the visualisation button.
+                if (chartType === 'none') {
+                  const q = question.toLowerCase()
+                  if (q.includes('雷达') || q.includes('radar')) chartType = 'radar'
+                  else if (q.includes('饼') || q.includes('pie')) chartType = 'pie'
+                  else if (q.includes('折线') || q.includes('line')) chartType = 'line'
+                  else if (q.includes('面积') || q.includes('area')) chartType = 'area'
+                  else if (q.includes('散点') || q.includes('scatter')) chartType = 'scatter'
+                  else if (q.includes('柱') || q.includes('bar')) chartType = 'bar'
+                }
                 if (!rawSql.trim()) {
                   // Plan proposal (step 1): show reasoning text only, not raw JSON
                   if (reasoning) {
@@ -469,18 +515,44 @@ export function useSSE() {
                           series: [{ data: sorted.map((r: any) => r[metricKey] ?? 0), type: 'bar' }],
                           tooltip: { trigger: 'axis' },
                         }
+                      } else if (chartType === 'radar') {
+                        // Radar chart: first column is the series name, rest are numeric dimensions
+                        const nameKey = columns[0]
+                        const dimKeys = columns.slice(1)
+                        const maxVal = dimKeys.reduce((mx: number, k: string) => {
+                          const colMax = Math.max(...cleanRows.map((r: any) => Number(r[k]) || 0))
+                          return Math.max(mx, colMax)
+                        }, 100)
+                        offlineChartOption = {
+                          chart_type: 'radar',
+                          radar: {
+                            indicator: dimKeys.map((k: string) => ({ name: k, max: maxVal })),
+                            shape: 'polygon',
+                          },
+                          series: [{
+                            type: 'radar',
+                            data: cleanRows.map((r: any) => ({
+                              name: String(r[nameKey]),
+                              value: dimKeys.map((k: string) => Number(r[k]) || 0),
+                            })),
+                          }],
+                          tooltip: { trigger: 'item' },
+                          legend: { data: cleanRows.map((r: any) => String(r[nameKey])) },
+                        }
                       } else {
                         const xKey = columns[0]
-                        const yKey = columns[1] || columns[0]
+                        const yKeys = columns.slice(1).length > 0 ? columns.slice(1) : [columns[0]]
                         offlineChartOption = {
                           xAxis: { type: 'category', data: cleanRows.map((r: any) => r[xKey]) },
                           yAxis: { type: 'value' },
-                          series: [{
+                          series: yKeys.map((yKey: string) => ({
+                            name: yKey,
                             data: cleanRows.map((r: any) => r[yKey]),
                             type: chartType === 'area' ? 'line' : chartType,
                             ...(chartType === 'area' ? { areaStyle: {} } : {}),
                             smooth: true,
-                          }],
+                          })),
+                          legend: yKeys.length > 1 ? { data: yKeys } : undefined,
                           tooltip: { trigger: 'axis' },
                         }
                       }

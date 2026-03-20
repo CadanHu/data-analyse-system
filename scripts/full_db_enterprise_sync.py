@@ -28,13 +28,6 @@ def sync_mysql(db_name, user, password, host, port):
     logs = [(random.randint(1, 1000), datetime.now() - timedelta(minutes=random.randint(0, 100000)), random.choice(['view', 'click', 'buy'])) for _ in range(100000)]
     cur.executemany("INSERT INTO user_behavior_logs (user_id, event_time, event_type) VALUES (%s, %s, %s)", logs)
     
-    # --- 针对 'test' 库的特色增强 (模拟财务报表) ---
-    if db_name == 'test':
-        cur.execute("DROP TABLE IF EXISTS financial_records")
-        cur.execute("CREATE TABLE financial_records (id INT PRIMARY KEY AUTO_INCREMENT, type VARCHAR(20), amount DECIMAL(15,2), period VARCHAR(10))")
-        fin_data = [(random.choice(['Income', 'Expense']), random.uniform(10000, 1000000), f"2024-Q{random.randint(1,4)}") for _ in range(500)]
-        cur.executemany("INSERT INTO financial_records (type, amount, period) VALUES (%s, %s, %s)", fin_data)
-        
     conn.close()
 
 def sync_postgresql(db_name, user, password, host, port):
@@ -74,7 +67,7 @@ if __name__ == "__main__":
     mysql_pass = os.getenv("MYSQL_PASSWORD", "root")
     
     # MySQL 增强
-    for db in ['test', 'classic_business', 'global_analysis']:
+    for db in ['classic_business', 'global_analysis']:
         sync_mysql(db, mysql_user, mysql_pass, mysql_host, 3306)
     
     # PG 增强

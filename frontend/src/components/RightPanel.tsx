@@ -1,7 +1,10 @@
 import { useState, useMemo } from 'react'
+import * as echarts from 'echarts'
+import { Capacitor } from '@capacitor/core'
 import EChartsRenderer from './EChartsRenderer'
 import { useChatStore } from '../stores/chatStore'
 import { useTranslation } from '../hooks/useTranslation'
+import { exportChartImage } from '../services/chartExportService'
 
 /**
  * 指标卡片组件 - 用于展示单一核心数值
@@ -395,16 +398,18 @@ function fallbackGenerateChart(sqlResult: any, type: string, t: any): any | null
 
 export default function RightPanel() {
   const { t } = useTranslation()
-  const { 
-    currentChartOption, 
-    currentChartType, 
-    currentSqlResult, 
-    currentSql, 
+  const {
+    currentChartOption,
+    currentChartType,
+    currentSqlResult,
+    currentSql,
     setRightPanelVisible,
     isFullScreen,
     setFullScreen
   } = useChatStore()
-  
+  const [chartInstance, setChartInstance] = useState<echarts.ECharts | null>(null)
+  const isNative = Capacitor.isNativePlatform()
+
   const [activeType, setActiveType] = useState<string>('auto')
 
   const CHART_TYPES = [
@@ -491,7 +496,7 @@ export default function RightPanel() {
                 </div>
               )}
               <div className="flex-1 min-h-0">
-                <EChartsRenderer option={displayConfig.option} />
+                <EChartsRenderer option={displayConfig.option} onChartReady={setChartInstance} />
               </div>
             </div>
           )
@@ -508,11 +513,22 @@ export default function RightPanel() {
           <div className="flex justify-between items-center mb-3">
             <h2 className="text-lg sm:text-xl font-bold text-gray-800 tracking-tight truncate mr-2">{t('panel.dataPivot')}</h2>
             <div className="flex gap-1.5 sm:gap-2 flex-none">
-              <button 
-                onClick={() => setFullScreen(!isFullScreen)} 
+              {isNative && chartInstance && (
+                <button
+                  onClick={() => exportChartImage(chartInstance)}
+                  className="p-2 bg-white text-indigo-500 rounded-xl border border-indigo-100 shadow-sm hover:bg-indigo-50 transition-all"
+                  title={t('panel.shareChart')}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                </button>
+              )}
+              <button
+                onClick={() => setFullScreen(!isFullScreen)}
                 className={`p-2 rounded-xl border transition-all shadow-sm flex items-center justify-center ${
-                  isFullScreen 
-                    ? 'bg-blue-500 text-white border-blue-200' 
+                  isFullScreen
+                    ? 'bg-blue-500 text-white border-blue-200'
                     : 'bg-white text-gray-600 border-gray-100 hover:bg-gray-50'
                 }`}
                 title={isFullScreen ? t('panel.exitFullscreen') : t('panel.fullscreen')}

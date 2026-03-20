@@ -9,6 +9,8 @@ import { cacheFile } from '@/services/fileCache'
 import ModelKeyModal from './ModelKeyModal'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncStore } from '@/stores/syncStore'
+import { localUpdateSession } from '@/services/localStore'
+import { Capacitor } from '@capacitor/core'
 
 // 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
 const THINKING_SUPPORTED_MODELS = new Set([
@@ -81,14 +83,20 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     }
   }, [currentSession?.id, sessionId])
 
-  // 🚀 辅助函数：同步模式到后端
+  // 🚀 辅助函数：同步模式到后端 + 本地 SQLite
   const syncModes = async (updates: { enable_data_science_agent?: boolean, enable_thinking?: boolean, enable_rag?: boolean, rag_scope?: string }) => {
     if (!sessionId) return
+    // 先更新内存 store（立即生效，避免 UI 闪烁）
+    updateSession(sessionId, updates)
+    // 原生端：同步写入本地 SQLite，确保切换会话后状态不丢失
+    if (Capacitor.isNativePlatform()) {
+      localUpdateSession(sessionId, updates).catch(e => console.error('Failed to persist modes locally:', e))
+    }
+    // 后端同步（非原生或联网时）
     try {
       await sessionApi.updateSessionModes(sessionId, updates)
-      updateSession(sessionId, updates) // 更新本地 store
     } catch (e) {
-      console.error('Failed to sync modes:', e)
+      // 离线/原生场景下后端不可达，忽略
     }
   }
   const [isKnowledgeMode, setKnowledgeMode] = useState(false)
@@ -230,12 +238,19 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       const fileName = file.name.trim()
       const isPDF = fileName.toLowerCase().endsWith('.pdf')
       const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName)
-      const isOtherDoc = /\.(txt|md|csv|xlsx|xls)$/i.test(fileName)
-      
-      console.log('文件选择触发:', fileName, '是否PDF:', isPDF, '是否图片:', isImage, '是否其他文档:', isOtherDoc)
+      const isCsvOrExcel = /\.(csv|xlsx|xls)$/i.test(fileName)
+      const isOtherDoc = /\.(txt|md)$/i.test(fileName)
+
+      console.log('文件选择触发:', fileName, '是否PDF:', isPDF, '是否图片:', isImage, '是否其他文档:', isOtherDoc, '是否CSV/Excel:', isCsvOrExcel)
+
+      // CSV/Excel 不适合 RAG 切片，引导用户走数据导入流程
+      if (isCsvOrExcel) {
+        alert(t('alert.csvUseImportInstead'))
+        return
+      }
 
       if (isKnowledgeMode) {
-        // 在“深度”模式下，所有支持的文档都直接进入抽取流程
+        // 在”深度”模式下，所有支持的文档都直接进入抽取流程
         if (isPDF || isOtherDoc || isImage) {
           console.log('Entering startKnowledgeExtraction')
           startKnowledgeExtraction(file)
@@ -576,7 +591,7 @@ const handleStandardUpload = async (file: File) => {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept="image/*,.pdf,.txt,.csv,.xlsx,.xls,.md"
+            accept="image/*,.pdf,.txt,.md"
             onChange={handleFileChange}
           />
           <textarea

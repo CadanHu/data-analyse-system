@@ -9,6 +9,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import Welcome from './components/Welcome'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import LocalRegister from './pages/LocalRegister'
 import ProtectedRoute from './components/ProtectedRoute'
 import About from './components/About'
 import LearnMore from './components/LearnMore'
@@ -241,6 +242,7 @@ export default function App() {
         <Route path="/" element={<Welcome />} />
         <Route path="/login" element={isAuthenticated ? <Navigate to="/app" replace /> : <Login />} />
         <Route path="/register" element={isAuthenticated ? <Navigate to="/app" replace /> : <Register />} />
+        <Route path="/local-register" element={isAuthenticated ? <Navigate to="/app" replace /> : <LocalRegister />} />
         <Route path="/about" element={<About />} />
         <Route path="/learn-more" element={<LearnMore />} />
         <Route path="/tutorial" element={<Tutorial />} />

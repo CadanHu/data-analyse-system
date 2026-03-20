@@ -70,17 +70,35 @@ def setup_enhanced_global_analysis():
         channel VARCHAR(50),
         cost DECIMAL(10, 2),
         is_converted BOOLEAN,
-        revenue_generated DECIMAL(12, 2)
+        revenue_generated DECIMAL(12, 2),
+        org_id INT COMMENT '所属组织 → organizations.org_id',
+        product_id INT COMMENT '推广产品 → product_performance.product_id',
+        touchpoint_date DATE COMMENT '广告触点日期，用于按季度/月度分析'
     )""")
+
+    # 渠道对应推广产品（product_id 1–8）
+    channel_products = {
+        'TikTok': [1, 2], 'Google': [3, 4], 'Facebook': [5, 6], 'Direct': [7, 8]
+    }
     attr_data = []
     channels = [('TikTok', 0.5), ('Google', 1.2), ('Facebook', 0.8), ('Direct', 0.0)]
+    attr_start = datetime(2024, 1, 1)
+    attr_end   = datetime(2025, 12, 31)
+    attr_days  = (attr_end - attr_start).days
     for i in range(1000):
         ch, cost_base = random.choice(channels)
         cost = random.uniform(5, 50) * cost_base
         conv = random.random() < (0.1 * cost_base)
         rev = random.uniform(100, 1000) if conv else 0
-        attr_data.append((i, ch, cost, conv, rev))
-    cur.executemany("INSERT INTO ad_attribution (user_id, channel, cost, is_converted, revenue_generated) VALUES (%s, %s, %s, %s, %s)", attr_data)
+        org_id = (i % 5) + 1
+        pids = channel_products[ch]
+        product_id = pids[i % len(pids)]
+        tp_date = (attr_start + timedelta(days=random.randint(0, attr_days))).date()
+        attr_data.append((i, ch, cost, conv, rev, org_id, product_id, tp_date))
+    cur.executemany(
+        "INSERT INTO ad_attribution (user_id, channel, cost, is_converted, revenue_generated, org_id, product_id, touchpoint_date) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        attr_data
+    )
 
     print("✅ 全场景库 'global_analysis' 增强完毕！")
     conn.close()

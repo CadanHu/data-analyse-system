@@ -92,7 +92,7 @@ async def verify_database(db_id):
 
 async def main():
     # 验证常用的业务数据库
-    target_dbs = ['mysql_example', 'classic_business', 'global_analysis']
+    target_dbs = ['classic_business', 'global_analysis']
     for db_id in target_dbs:
         await verify_database(db_id)
 

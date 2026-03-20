@@ -52,23 +52,6 @@ def optimize_mysql_global(host, user, password):
     cur.executemany("INSERT INTO sales_forecast VALUES (%s, %s, %s, %s, %s)", forecast)
     conn.close()
 
-def optimize_mysql_test(host, user, password):
-    print("📊 正在极致优化 test...")
-    conn = pymysql.connect(host=host, user=user, password=password, database='test', charset='utf8mb4', autocommit=True)
-    cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS budget_vs_actual")
-    cur.execute("""CREATE TABLE budget_vs_actual (
-        department VARCHAR(50) COMMENT '部门名称',
-        fiscal_year INT COMMENT '财年',
-        budget_amount DECIMAL(15, 2) COMMENT '预算金额',
-        actual_amount DECIMAL(15, 2) COMMENT '实际支出',
-        variance DECIMAL(15, 2) COMMENT '偏差值'
-    ) COMMENT='部门预决算差异分析表'""")
-    deps = [('R&D', 2024, 5000000, 4850000), ('Sales', 2024, 3000000, 3200000), ('Marketing', 2024, 2000000, 2100000)]
-    cur.executemany("INSERT INTO budget_vs_actual (department, fiscal_year, budget_amount, actual_amount, variance) VALUES (%s, %s, %s, %s, %s)", 
-                   [(d, y, b, a, a-b) for d, y, b, a in deps])
-    conn.close()
-
 def optimize_postgres(host, port, user, password):
     print("🐘 正在极致优化 postgres...")
     conn = psycopg2.connect(host=host, port=port, user=user, password=password, dbname='postgres')
@@ -99,8 +82,7 @@ if __name__ == "__main__":
     
     optimize_mysql_classic(mysql_host, mysql_user, mysql_pass)
     optimize_mysql_global(mysql_host, mysql_user, mysql_pass)
-    optimize_mysql_test(mysql_host, mysql_user, mysql_pass)
-    
+
     pg_host = os.getenv("POSTGRES_HOST", "localhost")
     pg_user = os.getenv("POSTGRES_USER", "postgres")
     pg_pass = os.getenv("POSTGRES_PASSWORD", "")

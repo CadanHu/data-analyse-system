@@ -34,11 +34,10 @@ docker-compose up
 
 ## 二、数据库总览
 
-系统共维护 4 个数据库，对应 `config.py` 中的 4 个连接 key：
+系统共维护 3 个数据库，对应 `config.py` 中的 3 个连接 key：
 
 | config key | 数据库引擎 | 数据库名 | 定位 |
 |------------|-----------|---------|------|
-| `mysql_example` | MySQL 8.0 | `test` | 财务/预算分析场景 |
 | `classic_business` | MySQL 8.0 | `classic_business` | 电商业务全链路场景 |
 | `global_analysis` | MySQL 8.0 | `global_analysis` | 多维数据分析 + 图表专项场景 |
 | `postgres_example` | PostgreSQL 15 | `knowledge_base` | 地理空间 + 审计日志场景 |
@@ -135,25 +134,7 @@ ORDER BY trade_date
 
 ---
 
-### 3.3 mysql_example / test（财务分析库）
-
-**数据时间范围**：2024-01-01 ~ 2025-12-31
-
-| 表名 | 行数（约） | 说明 |
-|------|-----------|------|
-| `financial_records` | 1,000 | 财务流水，含类型（Income/Expense）、**细分类别**（营业收入/成本/市场费用等）、**`record_date`**（DATE）、季度标签、年份 |
-| `budget_vs_actual` | 7 | 部门预决算对比（R&D/Sales/Marketing/Operations，2024-2025） |
-| `organizations` | 3 | 组织架构（仅在 `upgrade_to_enterprise_db.py` 未运行时创建） |
-| `user_behavior_logs` | 100,000 | 行为日志（view/click/buy），时间范围 2024-01 ~ 2026-03 |
-
-**`financial_records` 关键字段**：
-- `record_date`：具体日期，支持按天/月/季度聚合查询
-- `period`：季度标签（如 `2024-Q1`），供快速分组
-- `category`：细分类别（营业收入/投资收益/其他收入/成本支出/市场费用/研发投入/行政费用/财务费用）
-
----
-
-### 3.4 postgres_example / knowledge_base（PostgreSQL 库）
+### 3.3 postgres_example / knowledge_base（PostgreSQL 库）
 
 | 表名 | 行数（约） | 说明 |
 |------|-----------|------|
@@ -171,7 +152,7 @@ ORDER BY trade_date
 | 图表类型 | 推荐数据源 | 示例问题 |
 |---------|-----------|---------|
 | line / area | `daily_metrics`、`regional_sales_distribution` | "最近半年每日营收趋势" |
-| bar | `budget_vs_actual`、`ad_attribution` | "各部门预算执行情况" |
+| bar | `ad_attribution`、`regional_sales_distribution` | "各部门预算执行情况" |
 | pie | `orders.status`、`ad_attribution.channel` | "各渠道广告转化占比" |
 | scatter | `marketing_bubbles`、`ad_attribution` | "广告投入与ROI关系" |
 | map | `customers`（classic_business）、`geo_market_data` | "各省活跃用户分布" |

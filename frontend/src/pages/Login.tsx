@@ -167,7 +167,10 @@ export default function Login() {
 
           <div className="mt-8 text-center text-sm">
             <span className="text-gray-500">{t('login.noAccount')}</span>
-            <Link to="/register" className="text-[#06d6a0] hover:text-[#05b88a] font-medium ml-1 transition-colors">
+            <Link
+              to={Capacitor.isNativePlatform() ? '/local-register' : '/register'}
+              className="text-[#06d6a0] hover:text-[#05b88a] font-medium ml-1 transition-colors"
+            >
               {t('login.register')}
             </Link>
           </div>

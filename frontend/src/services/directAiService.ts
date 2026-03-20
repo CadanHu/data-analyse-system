@@ -11,6 +11,7 @@ export interface DirectAiOptions {
   model: string
   messages: { role: string; content: string }[]
   enableThinking?: boolean
+  maxTokens?: number
   apiKey: LocalApiKey
   onModelThinking?: (chunk: string) => void
   onSummary?: (chunk: string) => void
@@ -39,6 +40,7 @@ const openaiCompatible = (baseUrl: string): ProviderConfig => ({
     model: opts.model,
     messages: opts.messages,
     stream: true,
+    ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
   }),
   parseChunk: (line, onThinking, onSummary) => {
     if (!line.startsWith('data: ')) return
@@ -70,7 +72,7 @@ const PROVIDER_CONFIGS: Record<string, (apiKey: LocalApiKey) => ProviderConfig> 
         model: opts.model,
         messages: opts.messages.filter(m => m.role !== 'system'),
         system: opts.messages.find(m => m.role === 'system')?.content || undefined,
-        max_tokens: 8000,
+        max_tokens: opts.maxTokens ?? 8000,
         stream: true,
       }
       if (opts.enableThinking) {

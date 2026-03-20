@@ -153,7 +153,7 @@ export async function fullSync(): Promise<void> {
 
       for (const serverMsg of pulled.messages) {
         try {
-          await dbService.upsertMessage({ ...serverMsg, _sync_dirty: 0, _deleted: 0 })
+          await dbService.upsertMessageFromServer({ ...serverMsg, _sync_dirty: 0, _deleted: 0 })
         } catch { /* ignore */ }
       }
 
