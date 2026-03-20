@@ -163,6 +163,12 @@ export function convertMySQLToSQLite(sql: string, dbKey: string, tableNames: str
     }
   })
 
+  // 27a. Fix AI-generated duplicate ORDER BY in window functions.
+  //      AI sometimes emits "ORDER BY x ORDER BY y" inside OVER(...), which is invalid SQL.
+  //      The second ORDER BY is always the intended one; strip the first.
+  //      Pattern: ORDER BY <simple cols/exprs> ORDER BY  →  ORDER BY
+  s = s.replace(/\bORDER\s+BY\s+[\w\s,.()'"%]+?\s+(ORDER\s+BY\b)/gi, '$1')
+
   // 27. LIMIT offset, count → LIMIT count OFFSET offset  (MySQL shorthand)
   s = s.replace(/\bLIMIT\s+(\d+)\s*,\s*(\d+)\b/gi,
     (_, offset, count) => `LIMIT ${count} OFFSET ${offset}`)
