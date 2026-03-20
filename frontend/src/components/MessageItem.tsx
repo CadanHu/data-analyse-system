@@ -7,8 +7,6 @@ import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import 'katex/dist/katex.min.css'
 import { Capacitor } from '@capacitor/core'
-import { Filesystem, Directory } from '@capacitor/filesystem'
-import { Share } from '@capacitor/share'
 
 // Platform isolation: rehypeRaw uses hast-util-from-html-isomorphic which
 // can cause {} errors in Capacitor WKWebView. Disable on native platforms.
@@ -33,14 +31,19 @@ import {
 } from 'lucide-react'
 import type { Message } from '../types/message'
 import SqlBlock from './SqlBlock'
+import EChartsRenderer from './EChartsRenderer'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useAuthStore } from '../stores/authStore'
 import { sessionApi, getBaseURL, messageApi } from '@/api'
 import { resolveUrl, isCached, cacheECharts, resolveEChartsInHtml } from '@/services/fileCache'
-import { upsertMessage } from '@/services/db'
+import { upsertMessage, updateMessageContent, executeLocalQuery } from '@/services/db'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
+import { generateLocalReport } from '@/services/localReportService'
+import { exportReport } from '@/services/pdfExportService'
+import { localGetApiKey } from '@/services/localStore'
+import { useLanguageStore } from '../stores/languageStore'
 
 interface MessageItemProps {
   message: Message
@@ -72,6 +75,14 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
   const handleExportPDF = async () => {
     try {
       setIsExporting(true)
+
+      if (isNativePlatform) {
+        // Native: 直接本地导出，无需后端
+        await exportReport(resolvedHtml, report.title || 'Report')
+        return
+      }
+
+      // Web: 调用后端生成 PDF
       const response = await fetch(`${getBaseURL()}/chat/export/pdf`, {
         method: 'POST',
         headers: {
@@ -85,37 +96,18 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
 
       const blob = await response.blob()
       const fileName = `DataPulse_${report.title || 'Report'}.pdf`
-
-      if (isNativePlatform) {
-        // iOS/Android: blob URLs are blocked in WKWebView — write to cache then share
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onloadend = () => resolve((reader.result as string).split(',')[1])
-          reader.onerror = reject
-          reader.readAsDataURL(blob)
-        })
-        const writeResult = await Filesystem.writeFile({
-          path: fileName,
-          data: base64,
-          directory: Directory.Cache,
-          recursive: true
-        })
-        await Share.share({
-          title: fileName,
-          url: writeResult.uri,
-          dialogTitle: t('session.shareTitle'),
-        })
-      } else {
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = fileName
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        window.URL.revokeObjectURL(url)
-      }
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
     } catch (err) {
+      // 用户取消系统分享面板不是真正的错误，静默忽略
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.toLowerCase().includes('cancel') || msg.toLowerCase().includes('dismissed')) return
       console.error('PDF export error:', err)
       alert(t('report.exportPdfFailed'))
     } finally {
@@ -217,9 +209,10 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
   const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
-  const { token } = useAuthStore()
+  const { token, localUserId } = useAuthStore()
   const { connect } = useSSE()
   const { t } = useTranslation()
+  const { language } = useLanguageStore()
 
   const handleOpenImage = (base64: string) => {
     // On native (iOS/Android), window.open is blocked — show in-app modal instead
@@ -245,9 +238,67 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   const handleManualGenerateReport = async () => {
     if (!currentSession || isGeneratingReport) return
-    
+
     try {
       setIsGeneratingReport(true)
+
+      if (isNativePlatform) {
+        // Native: 本地直接生成，无需后端
+        const provider = currentSession.model_provider || localStorage.getItem('DEFAULT_PROVIDER') || 'openai'
+        const modelName = currentSession.model_name || localStorage.getItem('DEFAULT_MODEL') || ''
+        const userId = localUserId ?? -1
+        const apiKey = await localGetApiKey(userId, provider).catch(() => null)
+
+        if (!apiKey) {
+          alert(t('report.failed'))
+          return
+        }
+
+        // 找父消息（用户提问）
+        const parentMsg = allMessages.find(m => m.id === message.parent_id)
+        const userQuery = parentMsg?.content || message.content
+
+        // 从 parsedData 取 SQL 结果，若不存在则重新执行 SQL（sciData 不再存储行数据）
+        let sqlColumns: string[] = (parsedData?.columns as string[]) || []
+        let sqlRows: any[] = (parsedData?.rows as any[]) || []
+        // sqlite_sql 是带 biz 前缀的实际可执行 SQL，message.sql 是原始 MySQL SQL（无前缀，无法直接执行）
+        const execSql = parsedData?.sqlite_sql || null
+        if (sqlRows.length === 0 && execSql) {
+          try {
+            const reRows = await executeLocalQuery(execSql)
+            if (reRows.length > 0) {
+              sqlColumns = Object.keys(reRows[0])
+              sqlRows = reRows
+            }
+          } catch (e) {
+            console.warn('[Report] Re-execute SQL failed:', e)
+          }
+        }
+        const sqlResult = { columns: sqlColumns, rows: sqlRows }
+
+        const result = await generateLocalReport({
+          userQuery,
+          sqlResult,
+          sql: message.sql || '',
+          language: (language as 'zh' | 'en') || 'zh',
+          provider,
+          model: modelName,
+          apiKey,
+          onProgress: () => {},
+        })
+
+        const updatedData = {
+          ...(parsedData || {}),
+          html_report: result,
+          can_generate_report: false,
+        }
+        updateMessage(message.id, { data: JSON.stringify(updatedData) })
+        // 持久化到本地 SQLite（只更新 data，不覆盖 content/chart_cfg 等字段）
+        await updateMessageContent(message.id, { data: JSON.stringify(updatedData) }).catch(() => {})
+        return
+      }
+
+      // Web: 调用后端异步生成
       const response = await fetch(`${getBaseURL()}/chat/generate_report`, {
         method: 'POST',
         headers: {
@@ -262,19 +313,15 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       })
 
       if (!response.ok) throw new Error('Generation failed')
-      const result = await response.json()
-      
+
       const currentData = parsedData || {}
       const updatedData = {
         ...currentData,
         report_status: 'processing',
         can_generate_report: false
       }
-      
-      updateMessage(message.id, {
-        data: JSON.stringify(updatedData)
-      })
-      alert(t('report.started')) // Changed from report.success to report.started
+      updateMessage(message.id, { data: JSON.stringify(updatedData) })
+      alert(t('report.started'))
     } catch (err) {
       console.error('Report generation error:', err)
       alert(t('report.failed'))
@@ -407,7 +454,10 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   useEffect(() => {
     let pollInterval: any = null;
-    
+
+    // Native 上报告本地同步生成，无需轮询
+    if (isNativePlatform) return
+
     // 如果消息状态是 processing，启动轮询
     if (parsedData?.report_status === 'processing' && currentSession) {
       console.log(`📡 [Poll] Starting poll for message ${message.id}`);
@@ -454,11 +504,6 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   }, [parsedData?.report_status, currentSession?.id, message.id, updateMessage]);
 
   const handleShowChart = () => {
-    if (parsedData?.is_data_science) {
-      alert(t('alert.scientistModeHint'))
-      return
-    }
-
     let chartConfig = (message as any).chartConfig
     if (!chartConfig && message.chart_cfg) {
       try {
@@ -476,7 +521,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
         console.error('Parsing SQL result failed:', e)
       }
     }
-    
+
     if (sqlData) {
       setCurrentAnalysis(
         message.sql || '',
@@ -678,7 +723,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
                 {plotImageBase64 && (
                   <div className="mt-4 space-y-3">
-                    <button 
+                    <button
                       onClick={() => handleOpenImage(plotImageBase64)}
                       className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-200 hover:shadow-indigo-300 active:scale-95 transition-all group"
                     >
@@ -693,9 +738,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                           <span className="tracking-tight">{t('chat.dataInsightThumb')}</span>
                         </div>
                       </div>
-                      <img 
-                        src={`data:image/png;base64,${plotImageBase64}`} 
-                        alt="Data Insight Plot" 
+                      <img
+                        src={`data:image/png;base64,${plotImageBase64}`}
+                        alt="Data Insight Plot"
                         className="w-full h-auto rounded-lg object-contain cursor-zoom-in hover:brightness-95 transition-all"
                         onClick={() => handleOpenImage(plotImageBase64)}
                         loading="lazy"
@@ -703,6 +748,24 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                     </div>
                   </div>
                 )}
+
+                {/* 手机科学模式：内联渲染 ECharts 图表（PC 版用 matplotlib 图片，手机版用 ECharts） */}
+                {!plotImageBase64 && parsedData?.is_data_science && message.chart_cfg && (() => {
+                  try {
+                    const chartOption = JSON.parse(message.chart_cfg)
+                    return (
+                      <div className="mt-4 rounded-2xl overflow-hidden border border-gray-100 shadow-xl bg-white p-3">
+                        <div className="text-[10px] text-gray-400 mb-2 font-bold flex items-center gap-1.5">
+                          <BarChart3 size={12} className="text-indigo-500" />
+                          <span className="tracking-tight">{t('chat.dataInsightThumb')}</span>
+                        </div>
+                        <div style={{ height: 280 }}>
+                          <EChartsRenderer option={chartOption} style={{ height: '100%' }} />
+                        </div>
+                      </div>
+                    )
+                  } catch { return null }
+                })()}
               </>
             )}
           </div>
@@ -837,18 +900,14 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               <div className="relative group/action">
                 <button
                   onClick={handleShowChart}
-                  className={`p-1.5 rounded-lg border transition-all active:scale-95 ${
-                    parsedData?.is_data_science 
-                      ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed' 
-                      : 'bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-500 border-gray-100 hover:border-blue-100'
-                  }`}
+                  className="p-1.5 rounded-lg border transition-all active:scale-95 bg-white hover:bg-blue-50 text-gray-400 hover:text-blue-500 border-gray-100 hover:border-blue-100"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </button>
                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
-                  {parsedData?.is_data_science ? 'N/A' : t('chat.vizBoard')}
+                  {t('chat.vizBoard')}
                 </span>
               </div>
             )}
@@ -894,7 +953,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             )}
           </div>
 
-          {(parsedData?.can_generate_report || isGeneratingReport || parsedData?.report_status === 'processing') && !htmlReport && (
+          {parsedData?.is_data_science && (parsedData?.can_generate_report || isGeneratingReport || parsedData?.report_status === 'processing') && !htmlReport && (
             <div className="mt-4">
               <button
                 onClick={handleManualGenerateReport}
