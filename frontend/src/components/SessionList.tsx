@@ -16,11 +16,54 @@ import {
   localCreateSession,
   localUpdateSession,
   localDeleteSession,
+  localGetMessages,
 } from '../services/localStore'
+import { exportReport } from '../services/pdfExportService'
+import type { LocalMessage } from '../services/db'
 
 import { Terminal, Monitor, XCircle, LogOut, Database, HardDrive } from 'lucide-react'
 import BizSyncModal from './BizSyncModal'
 import StorageModal from './StorageModal'
+
+function esc(text: string) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function buildSessionHtml(messages: LocalMessage[], title: string): string {
+  let chartIdx = 0
+  const scripts: string[] = []
+
+  const blocks = messages.map(msg => {
+    if (msg.role === 'user') {
+      return `<div class="user-msg"><span class="lbl">User</span><p>${esc(msg.content).replace(/\n/g, '<br>')}</p></div>`
+    }
+    let block = `<div class="ai-msg"><span class="lbl">Assistant</span><div class="content">${esc(msg.content).replace(/\n/g, '<br>')}</div>`
+    if (msg.chart_cfg) {
+      const id = `chart-${chartIdx++}`
+      block += `<div id="${id}" style="width:100%;height:400px;margin:16px 0;"></div>`
+      scripts.push(`try{var _c=echarts.init(document.getElementById('${id}'));_c.setOption(${msg.chart_cfg});}catch(e){}`)
+    }
+    if (msg.sql) {
+      block += `<pre class="sql">${esc(msg.sql)}</pre>`
+    }
+    return block + '</div>'
+  }).join('')
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"><\/script>
+<style>
+body{font-family:-apple-system,sans-serif;max-width:900px;margin:0 auto;padding:20px;background:#f9f9f9;color:#333}
+h1{font-size:22px;border-bottom:2px solid #1a5f7a;padding-bottom:8px;color:#1a5f7a;margin-bottom:20px}
+.user-msg{background:#e8f4f8;border-radius:8px;padding:12px 16px;margin:10px 0}
+.ai-msg{background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px 16px;margin:10px 0}
+.lbl{font-size:11px;font-weight:bold;color:#888;display:block;margin-bottom:4px;text-transform:uppercase}
+.content{font-size:14px;line-height:1.6}
+.sql{background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:8px;font-size:12px;overflow-x:auto;white-space:pre-wrap}
+p{margin:4px 0}
+</style></head><body>
+<h1>${esc(title)}</h1>${blocks}
+<script>${scripts.join('\n')}<\/script></body></html>`
+}
 
 interface SessionListProps {
   selectedSessionId: string | null
@@ -106,7 +149,27 @@ export default function SessionList({
     e.stopPropagation()
     setShowExportMenu(null)
     setIsExporting(true)
-    
+
+    // Native PDF: generate locally from SQLite messages (no backend needed)
+    if (Capacitor.isNativePlatform() && format === 'pdf') {
+      try {
+        const session = sessions.find(s => s.id === sessionId)
+        const title = session?.title || t('session.unnamed')
+        const msgs = await localGetMessages(sessionId)
+        const html = buildSessionHtml(msgs, title)
+        await exportReport(html, title)
+      } catch (err: any) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (!msg.toLowerCase().includes('cancel') && !msg.toLowerCase().includes('dismiss')) {
+          console.error('[Export] Native PDF Error:', err)
+          alert(`${t('alert.fetchFileFailed')}: ${msg}`)
+        }
+      } finally {
+        setIsExporting(false)
+      }
+      return
+    }
+
     try {
       console.log(`[Export] Starting export for ${sessionId} as ${format}...`)
       const blob = await sessionApi.exportSession(sessionId, format)

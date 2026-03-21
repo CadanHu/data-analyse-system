@@ -414,7 +414,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'session.export': '导出对话',
     'session.exportTxt': '📄 TXT 文本',
     'session.exportMd': '📝 Markdown',
-    'session.exportPdf': '📕 高清 PDF',
+    'session.exportPdf': '📕 PDF',
     'session.syncing': '正在同步...',
     'session.wait': '请稍候',
     'session.viewLogs': '查看系统日志',
@@ -479,6 +479,15 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'guide.deep.step1': '点击对话框旁边的 “+” 号按钮上传您的 PDF 或图片文件。',
     'guide.deep.step2': '在弹出的选项中选择 “深度模式 (Deep)” 或开启 “RAG 模式”。',
     'guide.deep.step3': '等待系统完成解析后，您可以就文档内容进行深度提问和数据分析。',
+    // Welcome page demo & sections
+    'welcome.demoQuery': '对比过去半年全渠道的销售额趋势，并使用雷达图展示核心产品的多维性能。',
+    'welcome.demoThinking1': '正在解析多表关联 (Orders & Products)...',
+    'welcome.demoThinking2': '检测到时间序列特征，自动选择趋势预测模型...',
+    'welcome.demoThinking3': '匹配最佳可视化:',
+    'welcome.modeGuideTitle': '模式指南 (Mode Guide)',
+    'welcome.modeGuideDesc': '针对不同业务场景，提供三种独立的分析入口，满足从基础查询到深度研究的所有需求。',
+    'feature.hitl.title': 'HITL 人机协同',
+    'feature.hitl.desc': 'AI 先给出分析建议，与用户确认业务口径后再执行，确保分析方向准确。',
   },
   
   en: {
@@ -776,7 +785,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'session.export': 'Export Chat',
     'session.exportTxt': '📄 TXT Text',
     'session.exportMd': '📝 Markdown',
-    'session.exportPdf': '📕 High-Res PDF',
+    'session.exportPdf': '📕 PDF',
     'session.syncing': 'Syncing...',
     'session.wait': 'Please wait',
     'session.viewLogs': 'View System Logs',
@@ -841,6 +850,15 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'guide.deep.step1': 'Click the "+" button next to the input bar to upload your PDF or image.',
     'guide.deep.step2': 'Select "Deep Mode" or enable "RAG Mode" from the popup options.',
     'guide.deep.step3': 'Once parsing is complete, you can ask deep questions and perform data analysis on the document.',
+    // Welcome page demo & sections
+    'welcome.demoQuery': 'Compare all-channel sales trends over the past 6 months and use a radar chart to show multi-dimensional performance of core products.',
+    'welcome.demoThinking1': 'Parsing multi-table joins (Orders & Products)...',
+    'welcome.demoThinking2': 'Time-series feature detected, selecting trend forecast model...',
+    'welcome.demoThinking3': 'Best visualization match:',
+    'welcome.modeGuideTitle': 'Mode Guide',
+    'welcome.modeGuideDesc': 'Three independent analysis modes for different scenarios — from basic queries to deep research.',
+    'feature.hitl.title': 'HITL Human-AI Collaboration',
+    'feature.hitl.desc': 'AI suggests analysis plans and confirms business metrics with users before executing, ensuring accurate analysis direction.',
   },
 }
 

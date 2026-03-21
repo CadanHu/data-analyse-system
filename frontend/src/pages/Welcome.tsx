@@ -57,7 +57,7 @@ function Welcome() {
               onClick={() => window.scrollTo({ top: window.innerHeight, behavior: 'smooth' })}
               className="px-10 py-5 bg-white/5 border border-white/10 text-white rounded-2xl font-bold hover:bg-white/10 transition-all"
             >
-              了解更多
+              {t('welcome.learnMore')}
             </button>
           </div>
         </div>

@@ -14,6 +14,8 @@
  */
 
 import { Capacitor } from '@capacitor/core'
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
+import { Share } from '@capacitor/share'
 import PdfExport from './pdfExportPlugin'
 import { resolveEChartsInHtml, cacheECharts } from './fileCache'
 
@@ -68,13 +70,34 @@ function injectPrintCss(html: string): string {
 export async function exportReport(html: string, title = 'Report'): Promise<void> {
   const safeTitle = title.replace(/[^\w\u4e00-\u9fa5\s-]/g, '').trim() || 'Report'
 
-  if (Capacitor.isNativePlatform()) {
-    // 确保 ECharts 已缓存，然后内联替换 CDN 脚本
-    // 这样 WebView 不需要请求任何外网资源，不会卡死
+  if (Capacitor.getPlatform() === 'android') {
+    // Android：调用系统打印面板，用户选"另存为 PDF"
     await cacheECharts().catch(() => {})
     const inlined = await resolveEChartsInHtml(html)
     const printHtml = injectPrintCss(inlined)
     await PdfExport.printHtml({ html: printHtml, title: safeTitle })
+  } else if (Capacitor.getPlatform() === 'ios') {
+    // iOS：用 WKWebView.createPDF() 生成真正的 PDF，再调用系统分享面板
+    await cacheECharts().catch(() => {})
+    const inlined = await resolveEChartsInHtml(html)
+    const printHtml = injectPrintCss(inlined)
+    try {
+      // 调用 native 插件将 HTML 渲染为 PDF，返回临时文件 URI
+      const { uri } = await PdfExport.createPdf({ html: printHtml, title: safeTitle })
+      await Share.share({ title: safeTitle, files: [uri] })
+    } catch (pdfErr) {
+      console.error('[PDF] createPdf failed, falling back to HTML:', pdfErr)
+      // 降级：分享 HTML 文件（兼容旧版或插件未注册的情况）
+      const fileName = `${safeTitle}_${Date.now()}.html`
+      await Filesystem.writeFile({
+        path: fileName,
+        data: printHtml,
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      })
+      const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache })
+      await Share.share({ title: safeTitle, files: [uri] })
+    }
   } else {
     // Web：触发浏览器下载（HTML 格式，支持 ECharts 交互）
     const filename = `${safeTitle}_${Date.now()}.html`

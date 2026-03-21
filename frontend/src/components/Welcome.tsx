@@ -177,7 +177,7 @@ export default function Welcome() {
                       User Query
                     </div>
                     <div className="text-sm text-gray-200 font-medium leading-relaxed">
-                      对比过去半年全渠道的销售额趋势，并使用雷达图展示核心产品的多维性能。
+                      {t('welcome.demoQuery')}
                     </div>
                   </div>
 
@@ -187,15 +187,15 @@ export default function Welcome() {
                     <div className="text-[11px] text-gray-400 font-mono leading-relaxed space-y-2">
                       <div className="flex items-start gap-2 animate-[fadeIn_0.5s_ease-out_forwards]">
                         <span className="text-[#06d6a0]">&gt;</span>
-                        <p>正在解析多表关联 (Orders &amp; Products)...</p>
+                        <p>{t('welcome.demoThinking1')}</p>
                       </div>
                       <div className="flex items-start gap-2 opacity-80">
                         <span className="text-[#06d6a0]">&gt;</span>
-                        <p>检测到时间序列特征，自动选择趋势预测模型...</p>
+                        <p>{t('welcome.demoThinking2')}</p>
                       </div>
                       <div className="flex items-start gap-2 opacity-60">
                         <span className="text-[#06d6a0]">&gt;</span>
-                        <p>匹配最佳可视化: <span className="text-white font-bold">Radar Chart</span></p>
+                        <p>{t('welcome.demoThinking3')} <span className="text-white font-bold">Radar Chart</span></p>
                       </div>
                     </div>
                   </div>
@@ -303,8 +303,8 @@ export default function Welcome() {
               icon="📱"
             />
             <RealFeatureCard
-              title="HITL 人机协同"
-              desc="AI 先给出分析建议，与用户确认业务口径后再执行，确保分析方向准确。"
+              title={t('feature.hitl.title')}
+              desc={t('feature.hitl.desc')}
               icon="🤝"
             />
           </div>
@@ -329,8 +329,8 @@ export default function Welcome() {
       <section id="guides" className="relative z-10 py-32 px-6 bg-[#050810]/50 border-t border-white/5 backdrop-blur-3xl">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-black mb-4 text-white">模式指南 (Mode Guide)</h2>
-            <p className="text-gray-400 max-w-xl mx-auto">针对不同业务场景，提供三种独立的分析入口，满足从基础查询到深度研究的所有需求。</p>
+            <h2 className="text-4xl font-black mb-4 text-white">{t('welcome.modeGuideTitle')}</h2>
+            <p className="text-gray-400 max-w-xl mx-auto">{t('welcome.modeGuideDesc')}</p>
           </div>
           
           <div className="space-y-20">
