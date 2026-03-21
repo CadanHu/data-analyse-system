@@ -1,4 +1,4 @@
-# DataPulse: AI-Powered Smart Data Analytics Assistant (v3.0)
+# DataPulse: AI-Powered Smart Data Analytics Assistant (v3.1)
 
 [中文](./README_CN.md) | English
 
@@ -20,7 +20,7 @@ An AI-driven intelligent data analysis system, a multi-engine commercial platfor
 
 ---
 
-## 🎯 Core Capabilities (v3.0)
+## 🎯 Core Capabilities (v3.1)
 
 ### 🧪 AI Data Scientist Engine
 - 🐍 **Secure Python Sandbox**: Executes AI-generated Python code in a secure environment with AST auditing. Supports **Pandas, Numpy, Matplotlib, and Seaborn**.
@@ -48,10 +48,29 @@ An AI-driven intelligent data analysis system, a multi-engine commercial platfor
 - 📥 **Bring Your Own Data (BYOD)**: Supports receiving `external_data` via API. Other AI agents can provide their own datasets for DataPulse to analyze and visualize.
 - ⚡ **Streamed Insights**: Provides real-time streaming of analysis strategies, reasoning chains, and final business summaries.
 
-### 📱 Offline-First Mobile Experience
-- 💾 **Local SQLite Persistence**: All sessions, messages, and API keys are stored locally on-device for instant access without a network connection.
-- 🔄 **Background Sync**: Automatically syncs local data to the remote server when connectivity is restored, with conflict resolution.
-- 🔐 **Encrypted Key Storage**: API keys are stored securely in the local database and synced only to the authenticated user's account.
+### 📱 Offline-First Mobile with Local Knowledge Base (v3.1)
+
+Three PDF processing modes, all running **fully on-device** — no backend server required:
+
+| Mode | Technology | Required Keys |
+|------|-----------|---------------|
+| ⚡ Standard | PDF.js local parsing | None |
+| 🧠 Deep | MinerU Cloud API | MinerU Key (free) |
+| 💎 Knowledge Extraction | MinerU + LLM entity extraction + Knowledge Graph | MinerU + LLM Key |
+
+- 💾 **Local SQLite Persistence**: Sessions, messages, API keys, and knowledge chunks all stored on-device.
+- 🔍 **Layered RAG Search**: Semantic vector search when embedding key is configured (Qwen/Zhipu/Jina/Google); automatically falls back to SQLite FTS5 keyword search.
+- 🕸️ **Knowledge Graph Visualization**: After extraction, view entities and relationships as an interactive ECharts force graph.
+- 🔄 **Background Sync**: Automatically syncs local data to the remote server when connectivity is restored.
+- 🇨🇳 **China-Friendly**: DeepSeek, Qwen, MiniMax, MinerU, Zhipu — all accessible without VPN.
+
+### 🔑 Unified Key Management Center (v3.1)
+
+All API keys managed in-app, organized by region:
+
+**No VPN Required**: DeepSeek · Qwen · MiniMax · MinerU · Qwen Embedding · Zhipu Embedding · Jina AI
+
+**VPN Required**: OpenAI · Claude · Google Gemini · Google Embedding
 
 ### 🏗️ Enterprise Architecture
 - ✅ **Dual-Engine Logic**: Seamlessly switch between **SQL Query mode** (for massive datasets) and **Scientist mode** (for deep modeling).

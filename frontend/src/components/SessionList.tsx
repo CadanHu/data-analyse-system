@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Filesystem, Directory } from '@capacitor/filesystem'
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
 import { Capacitor } from '@capacitor/core'
 import { useSessionStore } from '../stores/sessionStore'
@@ -29,6 +29,27 @@ function esc(text: string) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+function fixChartOptionForPdf(optionJson: string): string {
+  try {
+    const option = JSON.parse(optionJson)
+    const vms = Array.isArray(option.visualMap) ? option.visualMap : (option.visualMap ? [option.visualMap] : [])
+    vms.forEach((vm: any) => {
+      // Move horizontal bottom visualMaps to the right side (vertical) to avoid covering x-axis labels
+      if (!vm.orient || vm.orient === 'horizontal') {
+        vm.orient = 'vertical'
+        vm.right = 10
+        vm.top = 'center'
+        delete vm.bottom
+        delete vm.left
+        vm.itemHeight = 100
+      }
+    })
+    return JSON.stringify(option)
+  } catch {
+    return optionJson
+  }
+}
+
 function buildSessionHtml(messages: LocalMessage[], title: string): string {
   let chartIdx = 0
   const scripts: string[] = []
@@ -40,8 +61,9 @@ function buildSessionHtml(messages: LocalMessage[], title: string): string {
     let block = `<div class="ai-msg"><span class="lbl">Assistant</span><div class="content">${esc(msg.content).replace(/\n/g, '<br>')}</div>`
     if (msg.chart_cfg) {
       const id = `chart-${chartIdx++}`
-      block += `<div id="${id}" style="width:100%;height:400px;margin:16px 0;"></div>`
-      scripts.push(`try{var _c=echarts.init(document.getElementById('${id}'));_c.setOption(${msg.chart_cfg});}catch(e){}`)
+      const fixedCfg = fixChartOptionForPdf(msg.chart_cfg)
+      block += `<div id="${id}" style="width:100%;height:460px;margin:16px 0;"></div>`
+      scripts.push(`try{var _c=echarts.init(document.getElementById('${id}'));_c.setOption(${fixedCfg});}catch(e){}`)
     }
     if (msg.sql) {
       block += `<pre class="sql">${esc(msg.sql)}</pre>`
@@ -63,6 +85,37 @@ p{margin:4px 0}
 </style></head><body>
 <h1>${esc(title)}</h1>${blocks}
 <script>${scripts.join('\n')}<\/script></body></html>`
+}
+
+function buildSessionTxt(messages: LocalMessage[], title: string): string {
+  const now = new Date().toISOString()
+  let content = `会话标题: ${title}\n导出时间: ${now}\n` + "=".repeat(30) + "\n\n"
+  for (const msg of messages) {
+    const role = msg.role === "user" ? "用户" : "助手"
+    content += `[${role}]: ${msg.content}\n`
+    if (msg.sql) {
+      content += `[SQL]: ${msg.sql}\n`
+    }
+    content += "-".repeat(10) + "\n"
+  }
+  return content
+}
+
+function buildSessionMd(messages: LocalMessage[], title: string): string {
+  const now = new Date().toISOString()
+  let content = `# ${title}\n\n*导出时间: ${now}*\n\n---\n\n`
+  for (const msg of messages) {
+    const role = msg.role === "user" ? "### 👤 用户" : "### 🤖 助手"
+    content += `${role}\n\n${msg.content}\n\n`
+    if (msg.sql) {
+      content += `\`\`\`sql\n${msg.sql}\n\`\`\`\n\n`
+    }
+    if (msg.thinking) {
+      content += `> **思考过程**:\n> ${msg.thinking}\n\n`
+    }
+    content += "---\n\n"
+  }
+  return content
 }
 
 interface SessionListProps {
@@ -132,17 +185,6 @@ export default function SessionList({
     }
   }, [connectionStatus])
 
-  const blobToBase64 = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        resolve(base64String.split(',')[1]);
-      };
-      reader.onerror = (e) => reject(new Error('File conversion failed: ' + e));
-      reader.readAsDataURL(blob);
-    });
-  };
 
   const handleExport = async (e: React.MouseEvent, sessionId: string, format: 'txt' | 'md' | 'pdf') => {
     e.preventDefault()
@@ -150,18 +192,49 @@ export default function SessionList({
     setShowExportMenu(null)
     setIsExporting(true)
 
-    // Native PDF: generate locally from SQLite messages (no backend needed)
-    if (Capacitor.isNativePlatform() && format === 'pdf') {
+    // Native platform: always generate locally from SQLite messages
+    // This avoids "Session fetch failed" errors on mobile and allows offline export
+    if (Capacitor.isNativePlatform()) {
       try {
         const session = sessions.find(s => s.id === sessionId)
         const title = session?.title || t('session.unnamed')
         const msgs = await localGetMessages(sessionId)
-        const html = buildSessionHtml(msgs, title)
-        await exportReport(html, title)
+        // 清理文件名中的非法字符
+        const safeName = title.replace(/[\/\\?%*:|"<>]/g, '-').slice(0, 80)
+        const fileName = `${safeName}.${format}`
+
+        if (format === 'pdf') {
+          const html = buildSessionHtml(msgs, title)
+          await exportReport(html, title)
+          setIsExporting(false)
+          return
+        }
+
+        const data = format === 'txt'
+          ? buildSessionTxt(msgs, title)
+          : buildSessionMd(msgs, title)
+
+        // 🚀 iOS 修复：
+        //   1. 直接写入 UTF-8 字符串，Filesystem 插件自动处理编码
+        //   2. 使用 Cache 目录（Documents 目录在部分 iOS 版本 share 有权限限制）
+        //   3. 不再使用 text/markdown MIME（iOS 不识别，导致"无法打开"）
+        const writeResult = await Filesystem.writeFile({
+          path: fileName,
+          data: data,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
+          recursive: true,
+        })
+
+        await Share.share({
+          title: `Export: ${fileName}`,
+          url: writeResult.uri,
+          dialogTitle: t('session.shareTitle'),
+        })
       } catch (err: any) {
         const msg = err instanceof Error ? err.message : String(err)
         if (!msg.toLowerCase().includes('cancel') && !msg.toLowerCase().includes('dismiss')) {
-          console.error('[Export] Native PDF Error:', err)
+          console.error('[Export] Native Local Error:', err)
           alert(`${t('alert.fetchFileFailed')}: ${msg}`)
         }
       } finally {
@@ -177,45 +250,18 @@ export default function SessionList({
       const title = session?.title || t('session.unnamed')
       const fileName = `${title.replace(/[\/\\?%*:|"<>]/g, '-')}.${format}`
 
-      if (Capacitor.isNativePlatform()) {
-        try {
-          const base64Data = await blobToBase64(blob);
-          const writeResult = await Filesystem.writeFile({
-            path: fileName,
-            data: base64Data,
-            directory: Directory.Documents,
-            recursive: true
-          });
-          await Share.share({
-            title: `Export: ${fileName}`,
-            url: writeResult.uri,
-            dialogTitle: t('session.shareTitle'),
-          });
-        } catch (innerError: any) {
-          console.error('[Export] Native Error:', innerError);
-          const errCode = innerError?.code || ''
-          const errMsg = innerError?.message || JSON.stringify(innerError) || 'Unknown error'
-          // UNIMPLEMENTED means the native plugin pod is missing — prompt rebuild
-          if (errCode === 'UNIMPLEMENTED') {
-            alert(`${t('alert.mobileProcessFailed')}: Native plugin not linked. Please rebuild the iOS app after running "pod install".`)
-          } else {
-            alert(`${t('alert.mobileProcessFailed')}: ${errMsg}`)
-          }
-        }
+      const url = window.URL.createObjectURL(blob)
+      if (format === 'pdf' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        window.open(url, '_blank');
       } else {
-        const url = window.URL.createObjectURL(blob)
-        if (format === 'pdf' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-          window.open(url, '_blank');
-        } else {
-          const a = document.createElement('a')
-          a.href = url
-          a.download = fileName
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-        }
-        window.URL.revokeObjectURL(url)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
       }
+      window.URL.revokeObjectURL(url)
     } catch (error: any) {
       console.error('[Export] API Error:', error)
       alert(`${t('alert.fetchFileFailed')}: ${error.message || 'Check network'}`);

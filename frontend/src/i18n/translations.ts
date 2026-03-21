@@ -33,7 +33,7 @@ export type TranslationKey =
   // Chat Area
   | 'chat.placeholder' | 'chat.noSession' | 'chat.upload' | 'chat.send'
   | 'chat.thinkingMode' | 'chat.ragMode' | 'chat.lightMode' | 'chat.proMode'
-  | 'chat.pdfModeTitle' | 'chat.pdfModeDesc'
+  | 'chat.pdfModeTitle' | 'chat.pdfModeDesc' | 'chat.fileProcessingDesc'
   // Right Panel
   | 'panel.dataPivot' | 'panel.chartType' | 'panel.sqlQuery' | 'panel.viewChart'
   | 'panel.copySQL' | 'panel.fullscreen' | 'panel.exitFullscreen'
@@ -113,6 +113,9 @@ export type TranslationKey =
   | 'guide.deep.rag' | 'guide.deep.ragDesc' | 'guide.deep.ocr'
   | 'guide.deep.ocrDesc' | 'guide.deep.quickStart' | 'guide.deep.step1'
   | 'guide.deep.step2' | 'guide.deep.step3'
+  // Welcome page extra
+  | 'welcome.demoQuery' | 'welcome.demoThinking1' | 'welcome.demoThinking2' | 'welcome.demoThinking3'
+  | 'welcome.modeGuideTitle' | 'welcome.modeGuideDesc' | 'feature.hitl.title' | 'feature.hitl.desc'
 
 export interface Translation {
   [key: string]: string
@@ -162,7 +165,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'tutorial.step4': '交互式可视化探索',
     'tutorial.step4Desc': '分析结果生成后，点击"查看可视化图表"。您可以在右侧面板手动切换雷达图、漏斗图等 15+ 种类型。',
     'tutorial.step5': 'RAG 知识库增强分析',
-    'tutorial.step5Desc': '上传业务 PDF 或 Excel，AI 将结合文档内容进行指标解读，确保分析口径与业务文档一致。',
+    'tutorial.step5Desc': '上传业务 PDF、MD、TXT 或图片，AI 会结合文档内容进行指标解读，确保分析口径与业务对齐。',
     
     // About
     'about.title': '关于',
@@ -222,8 +225,9 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.ragMode': 'RAG 模式',
     'chat.lightMode': '标准模式',
     'chat.proMode': '深度模式',
-    'chat.pdfModeTitle': '选择 PDF 解析模式',
-    'chat.pdfModeDesc': '快速、适合纯文字',
+    'chat.pdfModeTitle': '选择解析模式',
+    'chat.pdfModeDesc': '快速、适合纯文字 PDF',
+    'chat.fileProcessingDesc': '正在处理您的文档，请选择分析引擎',
     
     // Right Panel
     'panel.dataPivot': '数据透视',
@@ -278,8 +282,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'feature.database.desc': '原生兼容 MySQL 与 PostgreSQL，支持复杂业务逻辑查询。',
     'feature.schema.title': '动态 Schema 感知',
     'feature.schema.desc': '自动提取并同步最新的数据库元数据，确保 AI 始终掌握最新的数据结构。',
-    'feature.file.title': '文件上传与分析',
-    'feature.file.desc': '支持上传业务文档， AI 将结合私有文档内容进行专业口径解读。',
+    'feature.file.title': '文件上传与知识抽取',
+    'feature.file.desc': '支持 PDF、MD、图片等文档上传，AI 结合私有文档内容进行专业指标解读与逻辑溯源。',
     'feature.stream.title': 'Streamable HTTP 协议',
     'feature.stream.desc': '采用流式 HTTP 响应技术，支持 POST 请求下的高性能异步数据传输。',
     'feature.session.title': '会话管理与同步',
@@ -476,7 +480,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'guide.deep.ocr': '智能 OCR 识别',
     'guide.deep.ocrDesc': '支持图片和扫描件的文字识别，即使是手写或低清晰度的文档也能精准转化为可分析的文本数据。',
     'guide.deep.quickStart': '快速开始',
-    'guide.deep.step1': '点击对话框旁边的 “+” 号按钮上传您的 PDF 或图片文件。',
+    'guide.deep.step1': '点击对话框旁边的 “+” 号按钮上传您的 PDF、图片或 MD 文档。',
     'guide.deep.step2': '在弹出的选项中选择 “深度模式 (Deep)” 或开启 “RAG 模式”。',
     'guide.deep.step3': '等待系统完成解析后，您可以就文档内容进行深度提问和数据分析。',
     // Welcome page demo & sections
@@ -533,7 +537,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'tutorial.step4': 'Interactive Visualization',
     'tutorial.step4Desc': 'After analysis results are generated, click "View Visualization Charts". You can manually switch between 15+ chart types like radar charts, funnel charts on the right panel.',
     'tutorial.step5': 'RAG Knowledge Base Enhancement',
-    'tutorial.step5Desc': 'Upload business PDF or Excel, AI will interpret metrics based on document content, ensuring analysis aligns with business definitions.',
+    'tutorial.step5Desc': 'Upload business PDF, MD, TXT, or Image, AI will interpret metrics based on document content, ensuring analysis aligns with business definitions.',
     
     // About
     'about.title': 'About',
@@ -593,8 +597,9 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.ragMode': 'RAG Mode',
     'chat.lightMode': 'Standard',
     'chat.proMode': 'Deep',
-    'chat.pdfModeTitle': 'Select PDF Parsing Mode',
-    'chat.pdfModeDesc': 'Fast, suitable for plain text',
+    'chat.pdfModeTitle': 'Select Parsing Mode',
+    'chat.pdfModeDesc': 'Fast, suitable for plain text PDFs',
+    'chat.fileProcessingDesc': 'Processing your document, please select an engine',
     
     // Right Panel
     'panel.dataPivot': 'Data Pivot',
@@ -649,8 +654,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'feature.database.desc': 'Native MySQL and PostgreSQL compatibility, supports complex business logic queries.',
     'feature.schema.title': 'Dynamic Schema Awareness',
     'feature.schema.desc': 'Automatically extract and sync latest database metadata, ensuring AI always has latest data structure.',
-    'feature.file.title': 'File Upload & Analysis',
-    'feature.file.desc': 'Support uploading business documents, AI interprets based on private document content for professional metric analysis.',
+    'feature.file.title': 'File Upload & Knowledge Extraction',
+    'feature.file.desc': 'Support uploading PDF, MD, and images; AI interprets professional metrics with logical traceability based on private docs.',
     'feature.stream.title': 'Streamable HTTP Protocol',
     'feature.stream.desc': 'Uses streaming HTTP response technology, supports high-performance async data transmission under POST requests.',
     'feature.session.title': 'Session Management & Sync',
@@ -847,7 +852,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'guide.deep.ocr': 'Intelligent OCR',
     'guide.deep.ocrDesc': 'Support image and scan recognition, accurately converting handwritten or low-res docs into analyzable text data.',
     'guide.deep.quickStart': 'Quick Start',
-    'guide.deep.step1': 'Click the "+" button next to the input bar to upload your PDF or image.',
+    'guide.deep.step1': 'Click the "+" button next to the dialog to upload your PDF, Image, or MD documents.',
     'guide.deep.step2': 'Select "Deep Mode" or enable "RAG Mode" from the popup options.',
     'guide.deep.step3': 'Once parsing is complete, you can ask deep questions and perform data analysis on the document.',
     // Welcome page demo & sections

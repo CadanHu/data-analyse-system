@@ -11,6 +11,8 @@ import { useAuthStore } from '@/stores/authStore'
 import { useSyncStore } from '@/stores/syncStore'
 import { localUpdateSession } from '@/services/localStore'
 import { Capacitor } from '@capacitor/core'
+import { processDocument, loadKnowledgeGraph } from '@/services/mobileKnowledgeService'
+import KnowledgeGraphModal from './KnowledgeGraphModal'
 
 // 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
 const THINKING_SUPPORTED_MODELS = new Set([
@@ -52,9 +54,10 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     setShowModelKeyModal,
   } = useChatStore()
   const { messages, addMessage, currentSession, updateSession } = useSessionStore()
-  const { offlineMode } = useAuthStore()
+  const { offlineMode, localUserId } = useAuthStore()
   const { connectionStatus } = useSyncStore()
   const isOffline = connectionStatus === 'offline' || offlineMode
+  const isMobileNative = Capacitor.isNativePlatform()
   // RAG 三档状态: off → session（当前会话文件）→ global（全用户文件）→ off
   type RagScope = 'off' | 'session' | 'global'
   const [ragScope, setRagScope] = useState<RagScope>('off')
@@ -90,7 +93,13 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
     updateSession(sessionId, updates)
     // 原生端：同步写入本地 SQLite，确保切换会话后状态不丢失
     if (Capacitor.isNativePlatform()) {
-      localUpdateSession(sessionId, updates).catch(e => console.error('Failed to persist modes locally:', e))
+      // 🚀 核心修复：LocalSession 使用 number (0/1) 而不是 boolean
+      const localUpdates: any = { ...updates }
+      if (typeof updates.enable_data_science_agent === 'boolean') localUpdates.enable_data_science_agent = updates.enable_data_science_agent ? 1 : 0
+      if (typeof updates.enable_thinking === 'boolean') localUpdates.enable_thinking = updates.enable_thinking ? 1 : 0
+      if (typeof updates.enable_rag === 'boolean') localUpdates.enable_rag = updates.enable_rag ? 1 : 0
+      
+      localUpdateSession(sessionId, localUpdates).catch(e => console.error('Failed to persist modes locally:', e))
     }
     // 后端同步（非原生或联网时）
     try {
@@ -103,6 +112,14 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [useHighPrecision, setUseHighPrecision] = useState(false) // 🚀 高精度 OCR 开关
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
   const [showEngineSelect, setShowEngineSelect] = useState(false)
+  const [knowledgeGraphDoc, setKnowledgeGraphDoc] = useState<string | null>(null)
+
+  // 注册全局方法供 MessageItem 调用（避免 prop drilling）
+  useEffect(() => {
+    (window as any).__showKnowledgeGraph = (docName: string) => setKnowledgeGraphDoc(docName)
+    return () => { delete (window as any).__showKnowledgeGraph }
+  }, [])
+
   const { connect, disconnect } = useSSE()
   const { t, language } = useTranslation()
 
@@ -220,7 +237,17 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       alert(t('alert.selectSessionFirst'))
       return
     }
-    fileInputRef.current?.click()
+    // 🚀 iOS Capacitor 的 UIDocumentPickerViewController 不识别 text/markdown MIME
+    // 在原生平台上设为 */* ，允许用户选择任意文件，再靠扩展名过滤
+    if (fileInputRef.current) {
+      if (isMobileNative) {
+        // 在 iOS 上放开 MIME 过滤，JS 层再验证扩展名
+        fileInputRef.current.accept = '*/*'
+      } else {
+        fileInputRef.current.accept = '.pdf,.txt,.md,.markdown,image/*,application/pdf,text/plain,text/markdown,text/x-markdown'
+      }
+      fileInputRef.current.click()
+    }
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -239,7 +266,14 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       const isPDF = fileName.toLowerCase().endsWith('.pdf')
       const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName)
       const isCsvOrExcel = /\.(csv|xlsx|xls)$/i.test(fileName)
-      const isOtherDoc = /\.(txt|md)$/i.test(fileName)
+      // 🚀 iOS 上 .md 文件的 MIME 类型可能为空字符串，统一靠扩展名判断
+      const isOtherDoc = /\.(txt|md|markdown)$/i.test(fileName)
+      // 非已知类型，且不是图片 CSV–拒绝（仅在原生平台全文件模式下才会出现）
+      if (isMobileNative && !isPDF && !isImage && !isCsvOrExcel && !isOtherDoc) {
+        alert(t('alert.fileTypeNotSupported'))
+        e.target.value = ''
+        return
+      }
 
       console.log('文件选择触发:', fileName, '是否PDF:', isPDF, '是否图片:', isImage, '是否其他文档:', isOtherDoc, '是否CSV/Excel:', isCsvOrExcel)
 
@@ -250,20 +284,23 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       }
 
       if (isKnowledgeMode) {
-        // 在”深度”模式下，所有支持的文档都直接进入抽取流程
         if (isPDF || isOtherDoc || isImage) {
-          console.log('Entering startKnowledgeExtraction')
-          startKnowledgeExtraction(file)
+          if (isMobileNative || isOffline) {
+            await handleMobileLocalProcess(file, 'knowledge')
+          } else {
+            startKnowledgeExtraction(file)
+          }
         } else {
           alert(t('alert.fileTypeNotSupported'))
         }
       } else {
-        // 普通模式逻辑：如果是 PDF 或 图片，弹出引擎选择框
-        if (isPDF || isImage) {
+        // 普通模式逻辑：如果是 PDF、图片、文本或 MD，弹出引擎选择框以供深度分析
+        if (isPDF || isImage || isOtherDoc) {
           console.log('Showing engine select modal for:', fileName)
           setPendingFile(file)
           setShowEngineSelect(true)
-        } else if (isOtherDoc) {
+        } else {
+          // 其他格式暂不支持深度引擎，仅限标准上传 (虽然目前 isOtherDoc 已覆盖 txt/md)
           handleStandardUpload(file)
         }
       }
@@ -441,6 +478,65 @@ const handleStandardUpload = async (file: File) => {
     }
   }
 
+  /** 手机端 / 离线：全本地知识处理流程 */
+  const handleMobileLocalProcess = async (file: File, engine: 'light' | 'pro' | 'knowledge') => {
+    const messageId = `local_kb_${Date.now()}`
+    try {
+      setIsLoading(true)
+      setShowEngineSelect(false)
+
+      const modeLabel = engine === 'light' ? '标准模式（本地解析）'
+        : engine === 'pro' ? '深度模式（MinerU）'
+        : '知识抽取（MinerU）'
+
+      addMessage({
+        id: messageId,
+        session_id: sessionId!,
+        role: 'user',
+        content: `【${modeLabel}】正在处理：${file.name}...`,
+        created_at: new Date().toISOString(),
+      })
+
+      const preview = await processDocument(file, {
+        engine,
+        userId: localUserId ?? -1,
+        sessionId,
+        onProgress: (msg) => {
+          useSessionStore.getState().updateMessage(messageId, {
+            content: `【${modeLabel}】${file.name}\n\n⏳ ${msg}`,
+          })
+        },
+      })
+
+      setSessionHasFiles(true)
+      setRagScope('session')
+
+      const hasGraph = engine === 'knowledge' && !!loadKnowledgeGraph(file.name, localUserId ?? -1)
+      const graphHint = hasGraph ? '\n\n💡 点击下方「知识图谱」按钮可查看抽取的实体关系图' : ''
+
+      addMessage({
+        id: `resp_kb_${Date.now()}`,
+        session_id: sessionId!,
+        role: 'assistant',
+        content: `✅ 已完成本地知识索引\n文件：《${file.name}》\n\n**内容预览：**\n> ${preview.slice(0, 200)}...${graphHint}\n\n文档已索引到本地知识库，后续对话将自动检索相关内容。`,
+        data: hasGraph ? JSON.stringify({ is_knowledge_extraction: true, doc_name: file.name, has_graph: true }) : undefined,
+        created_at: new Date().toISOString(),
+      })
+
+      useSessionStore.getState().updateMessage(messageId, {
+        content: `【${modeLabel}】✅ ${file.name} 已完成索引`,
+      })
+    } catch (e: any) {
+      useSessionStore.getState().updateMessage(messageId, {
+        content: `❌ 处理失败：${e.message}`,
+      })
+      alert(e.message)
+    } finally {
+      setIsLoading(false)
+      setPendingFile(null)
+    }
+  }
+
   const selectEngine = async (engine: 'light' | 'pro' | 'knowledge') => {
     const file = pendingFile
     if (!file) {
@@ -448,24 +544,31 @@ const handleStandardUpload = async (file: File) => {
       return
     }
 
+    // 手机端或离线模式：走本地知识处理，不依赖后端
+    if (isMobileNative || isOffline) {
+      await handleMobileLocalProcess(file, engine)
+      setShowEngineSelect(false)
+      setPendingFile(null)
+      return
+    }
+
+    // 电脑端 + 在线：保持原有后端流程
     if (engine === 'knowledge') {
       startKnowledgeExtraction(file)
     } else {
-      // 普通 PDF 模式：先上传解析
       setRagEngine(engine as any)
       try {
         setIsLoading(true)
         await uploadApi.upload(file, sessionId!, engine)
         setSessionHasFiles(true)
         setRagScope('session')
-        console.log('PDF已索引:', file.name)
       } catch (e: any) {
         alert(`${t('alert.parseFailed')}: ${e.message}`)
       } finally {
         setIsLoading(false)
       }
     }
-    
+
     setShowEngineSelect(false)
     setPendingFile(null)
   }
@@ -492,6 +595,14 @@ const handleStandardUpload = async (file: File) => {
         </div>
       )}
 
+      {/* Knowledge Graph Modal */}
+      {knowledgeGraphDoc && (() => {
+        const graph = loadKnowledgeGraph(knowledgeGraphDoc, localUserId ?? -1)
+        return graph ? (
+          <KnowledgeGraphModal graph={graph} onClose={() => setKnowledgeGraphDoc(null)} />
+        ) : null
+      })()}
+
       {/* Model Key Modal */}
       {showModelKeyModal && (
         <ModelKeyModal
@@ -505,8 +616,11 @@ const handleStandardUpload = async (file: File) => {
 
       {showEngineSelect && (
         <div className="absolute bottom-full left-0 mb-2 p-3 bg-white/90 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl z-50 w-64 data-[mobile=true]:data-[orientation=landscape]:w-80 data-[mobile=true]:data-[orientation=landscape]:grid data-[mobile=true]:data-[orientation=landscape]:grid-cols-2 data-[mobile=true]:data-[orientation=landscape]:gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <h3 className="text-sm font-bold text-gray-800 mb-2 data-[mobile=true]:data-[orientation=landscape]:col-span-2">{t('chat.pdfModeTitle')}</h3>
-
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-xl">📄</span>
+            <h3 className="text-sm font-bold text-gray-800">{t('chat.pdfModeTitle')}</h3>
+          </div>
+          <p className="text-xs text-gray-500 mb-4">{t('chat.fileProcessingDesc') || t('chat.pdfModeDesc')}</p>
           <button
             onClick={() => selectEngine('light')}
             className="w-full text-left p-2 rounded-xl hover:bg-green-50 transition-colors border border-transparent hover:border-green-200"
@@ -591,7 +705,7 @@ const handleStandardUpload = async (file: File) => {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept="image/*,.pdf,.txt,.md"
+            accept=".pdf,.txt,.md,.markdown,image/*,application/pdf,text/plain,text/markdown,text/x-markdown"
             onChange={handleFileChange}
           />
           <textarea
@@ -639,7 +753,10 @@ const handleStandardUpload = async (file: File) => {
               onClick={() => {
                 if (isLoading) return
                 setKnowledgeMode(!isKnowledgeMode)
-                if (!isKnowledgeMode) setRAGMode(false)
+                if (!isKnowledgeMode) {
+                  setRagScope('off')
+                  syncModes({ enable_rag: false })
+                }
               }}
               disabled={isLoading}
               className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${

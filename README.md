@@ -1,4 +1,4 @@
-# DataPulse AI Data Analysis System (v3.0)
+# DataPulse AI Data Analysis System (v3.1)
 
 DataPulse is an open-source, full-stack AI data analysis platform designed for building automated data pipelines, professional visualization workflows, and intelligent business insights.
 
@@ -13,18 +13,19 @@ Choose your language:
 
 - **[English Documentation](./docs/README_EN.md)**: Full project guide, setup, and features.
 - **[中文说明文档](./docs/README_CN.md)**: 核心功能介绍、快速部署与 AI 数据科学家模式指南。
+- **[移动端知识库规格](./docs/MOBILE_KNOWLEDGE_SPEC.md)**: 本地 PDF 解析、RAG 检索、知识图谱完整规格。
 
 ---
 
-## 🌟 Key Features (v3.0)
+## 🌟 Key Features (v3.1)
 
-- **Multi-Provider AI Models**: Bring your own API key — supports DeepSeek, OpenAI, Google Gemini, and Anthropic Claude with in-app key management. No `.env` changes required.
-- **Extended Thinking**: First-class reasoning chain support for DeepSeek R1, Claude Opus/Sonnet, and Gemini Pro models.
+- **Multi-Provider AI Models**: Bring your own API key — DeepSeek, Qwen, MiniMax, OpenAI, Gemini, Claude. Organized by region (VPN / No-VPN).
+- **Extended Thinking**: First-class reasoning chain support for DeepSeek R1, Claude Opus/Sonnet, QwQ-32B, and Gemini Pro.
 - **AI Data Scientist Agent**: Secure Python sandbox for complex modeling, multi-table analysis, and Matplotlib/Seaborn chart capturing.
 - **Map Chart & 16+ Visualizations**: Geographic heatmaps, ECharts dynamic dashboards, and professional chart types.
-- **Offline-First Mobile**: Local SQLite persistence with background sync to remote server when connectivity is restored.
+- **Mobile Local Knowledge Base** *(v3.1 New)*: Three PDF modes fully on-device — PDF.js local parse / MinerU deep parse / LLM knowledge graph extraction. Layered RAG: vector search → FTS5 fallback.
+- **Knowledge Graph Visualization** *(v3.1 New)*: Interactive ECharts force graph of entities and relations extracted from documents.
 - **Bring Your Own Data (BYOD)**: External agents can provide private datasets via API for instant analysis.
-- **Deep Knowledge Extraction**: Integrated MinerU and OCR for structured parsing of complex PDFs and images.
 - **Enterprise-Ready**: Automated database initialization with massive simulation datasets (160k+ records).
 
 ## 🚀 Quick Start (Docker)

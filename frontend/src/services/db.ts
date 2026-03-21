@@ -59,6 +59,19 @@ export interface LocalAccount {
   server_id: number | null
 }
 
+export interface KnowledgeChunk {
+  id: string
+  user_id: number
+  session_id: string | null
+  doc_name: string
+  chunk_index: number
+  content: string
+  embedding: string | null      // JSON float array, null if no embedding
+  embedding_provider: string | null
+  metadata: string | null       // JSON: {page?, section?}
+  created_at: string
+}
+
 export interface LocalApiKey {
   id: string
   user_id: number
@@ -172,6 +185,30 @@ CREATE TABLE IF NOT EXISTS local_accounts (
   server_id     INTEGER NULL
 );
 
+-- 知识块存储（mobile 本地知识抽取）
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+  id                 TEXT    NOT NULL PRIMARY KEY,
+  user_id            INTEGER NOT NULL,
+  session_id         TEXT    NULL,
+  doc_name           TEXT    NOT NULL,
+  chunk_index        INTEGER NOT NULL DEFAULT 0,
+  content            TEXT    NOT NULL,
+  embedding          TEXT    NULL,
+  embedding_provider TEXT    NULL,
+  metadata           TEXT    NULL,
+  created_at         TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_kc_user_session ON knowledge_chunks(user_id, session_id);
+CREATE INDEX IF NOT EXISTS idx_kc_doc ON knowledge_chunks(doc_name);
+
+-- FTS5 全文检索（无 embedding 时降级用）
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+  content,
+  content='knowledge_chunks',
+  content_rowid='rowid',
+  tokenize='unicode61'
+);
+
 CREATE TABLE IF NOT EXISTS biz_sync_meta (
   db_key     TEXT NOT NULL,
   table_name TEXT NOT NULL,
@@ -184,8 +221,7 @@ CREATE TABLE IF NOT EXISTS biz_sync_meta (
 // ==================== DB Service ====================
 
 const DB_NAME = 'datapulse_local'
-const DB_VERSION_KEY = 'dp_db_version'
-const CURRENT_DB_VERSION = 1
+const CURRENT_DB_VERSION = 2
 
 let sqlite: SQLiteConnection | null = null
 let db: SQLiteDBConnection | null = null
@@ -504,6 +540,95 @@ export async function getDirtyApiKeys(): Promise<LocalApiKey[]> {
 
 export async function clearApiKeyDirty(id: string): Promise<void> {
   await requireDb().run('UPDATE user_api_keys SET _sync_dirty = 0 WHERE id = ?', [id])
+}
+
+// ==================== User ID Migration ====================
+
+// ==================== Knowledge Chunks ====================
+
+export async function insertKnowledgeChunk(chunk: KnowledgeChunk): Promise<void> {
+  const d = requireDb()
+  await d.run(
+    `INSERT OR REPLACE INTO knowledge_chunks
+       (id, user_id, session_id, doc_name, chunk_index, content, embedding, embedding_provider, metadata, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    [
+      chunk.id, chunk.user_id, chunk.session_id ?? null, chunk.doc_name,
+      chunk.chunk_index, chunk.content,
+      chunk.embedding ?? null, chunk.embedding_provider ?? null,
+      chunk.metadata ?? null, chunk.created_at,
+    ]
+  )
+  // Keep FTS in sync (insert)
+  await d.run(
+    `INSERT INTO knowledge_fts(rowid, content)
+     SELECT rowid, content FROM knowledge_chunks WHERE id = ?`,
+    [chunk.id]
+  )
+}
+
+/** FTS5 关键词搜索，返回最相关的 topK 块 */
+export async function searchKnowledgeFTS(
+  userId: number, sessionId: string | null, query: string, topK = 5
+): Promise<KnowledgeChunk[]> {
+  const d = requireDb()
+  // Escape FTS special chars
+  const escaped = query.replace(/['"*^]/g, ' ')
+  const res = await d.query(
+    `SELECT kc.*
+     FROM knowledge_chunks kc
+     JOIN knowledge_fts fts ON kc.rowid = fts.rowid
+     WHERE fts.content MATCH ?
+       AND kc.user_id = ?
+       ${sessionId != null ? 'AND kc.session_id = ?' : ''}
+     ORDER BY fts.rank
+     LIMIT ?`,
+    sessionId != null ? [escaped, userId, sessionId, topK] : [escaped, userId, topK]
+  )
+  return (res.values || []) as KnowledgeChunk[]
+}
+
+/** 获取有 embedding 的所有块（用于 JS 侧余弦相似度计算） */
+export async function getChunksWithEmbeddings(
+  userId: number, sessionId: string | null
+): Promise<KnowledgeChunk[]> {
+  const d = requireDb()
+  const res = await d.query(
+    `SELECT * FROM knowledge_chunks
+     WHERE user_id = ? AND embedding IS NOT NULL
+     ${sessionId != null ? 'AND session_id = ?' : ''}`,
+    sessionId != null ? [userId, sessionId] : [userId]
+  )
+  return (res.values || []) as KnowledgeChunk[]
+}
+
+/** 删除某文档的所有块（覆盖导入时用） */
+export async function deleteDocChunks(userId: number, docName: string): Promise<void> {
+  const d = requireDb()
+  // Remove from FTS first
+  await d.run(
+    `INSERT INTO knowledge_fts(knowledge_fts, rowid, content)
+     SELECT 'delete', rowid, content FROM knowledge_chunks
+     WHERE user_id = ? AND doc_name = ?`,
+    [userId, docName]
+  )
+  await d.run(
+    'DELETE FROM knowledge_chunks WHERE user_id = ? AND doc_name = ?',
+    [userId, docName]
+  )
+}
+
+/** 列出某用户/会话已导入的文档 */
+export async function listKnowledgeDocs(userId: number, sessionId: string | null): Promise<string[]> {
+  const d = requireDb()
+  const res = await d.query(
+    `SELECT DISTINCT doc_name FROM knowledge_chunks
+     WHERE user_id = ?
+     ${sessionId != null ? 'AND session_id = ?' : ''}
+     ORDER BY doc_name`,
+    sessionId != null ? [userId, sessionId] : [userId]
+  )
+  return ((res.values || []) as any[]).map(r => r.doc_name)
 }
 
 // ==================== User ID Migration ====================

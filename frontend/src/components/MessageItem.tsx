@@ -206,6 +206,8 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   // Native: in-app image viewer (window.open is blocked in Capacitor WKWebView)
   const [imageModal, setImageModal] = useState<string | null>(null)
+  // Native: in-app ECharts fullscreen viewer
+  const [chartModal, setChartModal] = useState<object | null>(null)
 
   const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
   const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
@@ -754,12 +756,21 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                   try {
                     const chartOption = JSON.parse(message.chart_cfg)
                     return (
-                      <div className="mt-4 rounded-2xl overflow-hidden border border-gray-100 shadow-xl bg-white p-3">
-                        <div className="text-[10px] text-gray-400 mb-2 font-bold flex items-center gap-1.5">
-                          <BarChart3 size={12} className="text-indigo-500" />
-                          <span className="tracking-tight">{t('chat.dataInsightThumb')}</span>
+                      <div
+                        className="mt-4 rounded-2xl overflow-hidden border border-gray-100 shadow-xl bg-white p-3 cursor-zoom-in active:brightness-95 transition-all"
+                        onClick={() => setChartModal(chartOption)}
+                      >
+                        <div className="text-[10px] text-gray-400 mb-2 font-bold flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <BarChart3 size={12} className="text-indigo-500" />
+                            <span className="tracking-tight">{t('chat.dataInsightThumb')}</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-indigo-400">
+                            <Maximize2 size={10} />
+                            <span className="text-[9px]">{t('chat.tapToEnlarge') || '点击放大'}</span>
+                          </div>
                         </div>
-                        <div style={{ height: 280 }}>
+                        <div style={{ height: 280 }} className="pointer-events-none">
                           <EChartsRenderer option={chartOption} style={{ height: '100%' }} />
                         </div>
                       </div>
@@ -951,6 +962,28 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 </span>
               </div>
             )}
+
+            {/* 知识图谱按钮（本地知识抽取模式） */}
+            {isKnowledgeExtraction && parsedData?.has_graph && (
+              <div className="relative group/action">
+                <button
+                  onClick={() => {
+                    const docName = parsedData?.doc_name
+                    if (docName && (window as any).__showKnowledgeGraph) {
+                      (window as any).__showKnowledgeGraph(docName)
+                    }
+                  }}
+                  className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg border border-indigo-100 transition-all active:scale-95"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                </button>
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-[10px] rounded pointer-events-none opacity-0 group-hover/action:opacity-100 transition-opacity whitespace-nowrap">
+                  知识图谱
+                </span>
+              </div>
+            )}
           </div>
 
           {parsedData?.is_data_science && (parsedData?.can_generate_report || isGeneratingReport || parsedData?.report_status === 'processing') && !htmlReport && (
@@ -1060,6 +1093,31 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             </div>
           </div>
         </div>
+      )}
+
+      {/* ECharts fullscreen modal — tap to enlarge ECharts on native */}
+      {chartModal && createPortal(
+        <div className="fixed inset-0 z-[10002] bg-white flex flex-col animate-in fade-in duration-200">
+          <div
+            className="flex items-center justify-between px-4 shrink-0 border-b border-gray-100"
+            style={{ paddingTop: 'calc(var(--safe-top) + 0.5rem)', paddingBottom: '0.75rem' }}
+          >
+            <div className="flex items-center gap-2 text-gray-600">
+              <BarChart3 size={16} className="text-indigo-500" />
+              <span className="text-sm font-semibold">{t('chat.dataInsightThumb')}</span>
+            </div>
+            <button
+              onClick={() => setChartModal(null)}
+              className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors active:scale-95"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="flex-1 p-2">
+            <EChartsRenderer option={chartModal} style={{ height: '100%', width: '100%' }} />
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Native image viewer modal — replaces window.open on iOS/Android */}

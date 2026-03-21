@@ -58,7 +58,7 @@ export const useAuthStore = create<AuthState>()(
 
       setAuth: (user, token) => {
         const prev = get()
-        const needsMigration = (prev.offlineMode || prev.localUserId < 0) && user.id > 0
+        const needsMigration = prev.offlineMode && user.id > 0
         if (needsMigration) {
           set({ user, token, isAuthenticated: true, offlineMode: false, localUserId: user.id, migrationReady: false })
           migrateOfflineUserId(user.id)

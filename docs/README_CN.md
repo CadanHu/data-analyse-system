@@ -1,4 +1,4 @@
-# DataPulse AI 数据分析系统 (v3.0)
+# DataPulse AI 数据分析系统 (v3.1)
 
 [![GitHub Topics](https://img.shields.io/badge/数据分析-Python%20%7C%20AI%20Agent%20%7C%20可视化-blue)](https://github.com/CadanHu/data-analyse-system)
 
@@ -23,7 +23,29 @@ DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它
 *   **多模态文档处理**：支持扫描版 PDF、复杂图片、Excel 报表的高精度识别。
 *   **知识库增强 (RAG)**：通过语义检索（Vector Store）将非结构化文档内容注入分析上下文。
 
-### 4. 🌐 移动端与开发者友好
+### 4. 📱 移动端完全本地知识库（v3.1 新增）
+
+手机端无需后端服务器，三种 PDF 处理模式，全部在设备本地完成：
+
+| 模式 | 技术 | 依赖 |
+|------|------|------|
+| ⚡ 标准模式 | PDF.js 本地解析 | 无需 Key |
+| 🧠 深度模式 | MinerU Cloud API | MinerU Key（免费）|
+| 💎 知识抽取 | MinerU + LLM 实体抽取 + 知识图谱 | MinerU Key + LLM Key |
+
+*   **本地向量搜索**：支持 Qwen/智谱/Jina/Google 四家 Embedding，有 Key 则语义搜索，无 Key 自动降级到 SQLite FTS5 关键词搜索。
+*   **知识图谱可视化**：知识抽取完成后自动提取实体和关系，展示可交互的 ECharts 图谱。
+*   **完全无需 VPN 可用**：DeepSeek / Qwen / MiniMax / MinerU / 智谱均可国内直连。
+*   详见：[MOBILE_KNOWLEDGE_SPEC.md](./MOBILE_KNOWLEDGE_SPEC.md)
+
+### 5. 🔑 统一 Key 配置中心（v3.1 新增）
+
+所有 API Key 在应用内统一管理，分为「国内直连」和「需要 VPN」两个分区，涵盖：
+*   大语言模型：DeepSeek、通义千问、MiniMax、OpenAI、Claude、Gemini
+*   PDF 解析：MinerU
+*   向量搜索：Qwen Embedding、智谱、Jina AI、Google Embedding
+
+### 6. 🌐 移动端与开发者友好
 *   **全平台适配**：针对移动端手势与视口（dvh）进行精准优化。
 *   **实时日志流 (SSE)**：后端状态、AI 思考过程与系统日志实时推送到前端。
 

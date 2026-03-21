@@ -82,8 +82,10 @@ messages          -- 聊天消息，含 thinking / sql / chart_cfg / data 字段
 users             -- 用户信息缓存（从服务器同步）
 user_api_keys     -- API Key（按 user_id + provider 唯一）
 local_accounts    -- 本地账号（password_hash bcrypt），支持离线注册
-knowledge_entities    -- RAG 知识图谱实体（表已建，离线提取待实现）
-knowledge_relationships -- RAG 知识图谱关系
+knowledge_chunks      -- 本地知识块（含可选 embedding 向量 JSON）
+knowledge_fts         -- FTS5 虚表，knowledge_chunks 全文检索降级方案
+knowledge_entities    -- RAG 知识图谱实体（表已建，知识抽取模式自动填充）
+knowledge_relationships -- RAG 知识图谱关系（同上）
 biz_sync_meta     -- 业务库同步元数据（db_key, table_name, synced_at, row_count）
 biz_{key}__{table}    -- 动态创建：每个同步的业务表
 ```
@@ -257,7 +259,7 @@ upsertBizSyncMeta() → 记录同步时间和行数
 |--------|------|------|
 | P2 | 增量同步 | 当前全量 Pull，需后端 `/sync/pull?since=` 配合游标 |
 | P3 | SQLite 加密 | 需接入 SQLCipher（`@capacitor-community/sqlite` 支持，需重新构建） |
-| P3 | 离线 RAG | 知识图谱表已建，缺离线向量检索实现 |
+| ✅ | 离线 RAG | 本地 knowledge_chunks + FTS5；有 Embedding Key 则向量搜索，否则关键词降级。详见 [MOBILE_KNOWLEDGE_SPEC.md](./MOBILE_KNOWLEDGE_SPEC.md) |
 | P3 | 存储配额管理 | 业务库数据量大时无提示，缺 SQLite 文件大小查询 |
 
 ---

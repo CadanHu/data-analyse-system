@@ -5,6 +5,7 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useSyncStore } from '../stores/syncStore'
 import { useAuthStore } from '../stores/authStore'
 import { streamDirectAi } from '../services/directAiService'
+import { searchKnowledge } from '../services/mobileKnowledgeService'
 import { localGetApiKey, localSaveMessage, localUpdateMessage, localUpdateSession } from '../services/localStore'
 import { getLocalBizTables, executeLocalQuery } from '../services/db'
 import { convertMySQLToSQLite } from '../services/sqlDialectConverter'
@@ -305,12 +306,28 @@ export function useSSE() {
             aiMessages.unshift({ role: 'system', content: systemPrompt })
           }
 
-          // RAG 模式：手机本地无向量库，注入 system prompt 让模型参考对话历史中的文档内容
+          // RAG 模式：从本地 SQLite 知识库检索相关内容注入上下文
+          // 优先语义向量搜索，无 embedding key 时降级 FTS5 关键词搜索
           if (!options?.enable_data_science_agent && options?.enable_rag) {
-            aiMessages.unshift({
-              role: 'system',
-              content: '你处于知识库模式。请优先参考对话历史中已有的文档内容、文件摘要和知识信息来回答问题，如历史中无相关内容则据实说明。'
-            })
+            try {
+              const localKnowledge = await searchKnowledge(userId, sessionId, question)
+              if (localKnowledge) {
+                aiMessages.unshift({
+                  role: 'system',
+                  content: `你处于知识库模式，以下是从用户本地知识库检索到的相关内容，请优先参考：\n\n${localKnowledge}\n\n如以上内容不足以回答问题，请据实说明。`,
+                })
+              } else {
+                aiMessages.unshift({
+                  role: 'system',
+                  content: '你处于知识库模式。请优先参考对话历史中已有的文档内容、文件摘要和知识信息来回答问题，如历史中无相关内容则据实说明。',
+                })
+              }
+            } catch {
+              aiMessages.unshift({
+                role: 'system',
+                content: '你处于知识库模式。请优先参考对话历史中已有的文档内容、文件摘要和知识信息来回答问题，如历史中无相关内容则据实说明。',
+              })
+            }
           }
 
           console.log(`🤖 [Offline-AI] provider=${provider} model=${model}`)
