@@ -4,6 +4,7 @@
  * 输出事件格式与后端 SSE 完全一致：model_thinking / summary / done / error
  */
 
+import { Capacitor } from '@capacitor/core'
 import { LocalApiKey } from './db'
 
 export interface DirectAiOptions {
@@ -95,11 +96,20 @@ const PROVIDER_CONFIGS: Record<string, (apiKey: LocalApiKey) => ProviderConfig> 
     },
   }),
   gemini: (k) => ({
-    buildUrl: (model, apiKey) =>
-      `${k.base_url || 'https://generativelanguage.googleapis.com'}/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`,
+    buildUrl: (model, apiKey) => {
+      const isNative = Capacitor.isNativePlatform()
+      const base = k.base_url || 'https://generativelanguage.googleapis.com'
+      if (isNative) {
+        // iOS WKWebView 的 fetch 对 SSE 流式响应有已知 bug，会抛 "Load failed"
+        // 改用非流式端点，拿到完整响应后一次性 emit
+        return `${base}/v1beta/models/${model}:generateContent?key=${apiKey}`
+      }
+      return `${base}/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`
+    },
     buildHeaders: () => ({ 'Content-Type': 'application/json' }),
     buildBody: (opts) => {
-      const systemMsg = opts.messages.find(m => m.role === 'system')
+      const systemMsgs = opts.messages.filter(m => m.role === 'system')
+      const systemText = systemMsgs.map(m => m.content).join('\n\n')
       const body: any = {
         contents: opts.messages
           .filter(m => m.role !== 'system')
@@ -108,8 +118,8 @@ const PROVIDER_CONFIGS: Record<string, (apiKey: LocalApiKey) => ProviderConfig> 
             parts: [{ text: m.content }],
           })),
       }
-      if (systemMsg) {
-        body.systemInstruction = { parts: [{ text: systemMsg.content }] }
+      if (systemText) {
+        body.systemInstruction = { parts: [{ text: systemText }] }
       }
       return body
     },
@@ -155,6 +165,16 @@ export async function streamDirectAi(opts: DirectAiOptions): Promise<void> {
     if (!response.ok) {
       const errText = await response.text()
       opts.onError?.(`HTTP ${response.status}: ${errText}`)
+      return
+    }
+
+    // iOS native: Gemini uses non-streaming generateContent endpoint
+    // Parse the single JSON response directly instead of streaming
+    if (opts.provider === 'gemini' && Capacitor.isNativePlatform()) {
+      const json = await response.json()
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text
+      if (text) opts.onSummary?.(text)
+      opts.onDone?.()
       return
     }
 
