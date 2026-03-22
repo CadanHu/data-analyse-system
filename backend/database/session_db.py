@@ -109,11 +109,14 @@ class SessionDatabase:
 
     async def init_db(self):
         """初始化表结构 (含自动迁移)"""
-        await self._ensure_db_exists()
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        await self._migrate_db()
-        print(f"✅ 会话数据库初始化完成: {MYSQL_SESSION_DATABASE}")
+        try:
+            await self._ensure_db_exists()
+            async with self.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            await self._migrate_db()
+            print(f"✅ 会话数据库初始化完成: {MYSQL_SESSION_DATABASE}")
+        except Exception as e:
+            print(f"⚠️ [数据库警告] 初始化会话数据库失败，MySQL可能未启动。应用将继续运行，但相关功能可能受限: {e}")
 
     async def _migrate_db(self):
         """自动迁移：为已存在的表补充新列 (幂等，重复执行安全)"""

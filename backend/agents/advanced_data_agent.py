@@ -62,6 +62,7 @@ class AdvancedDataAgent:
    - **注意**：图表标题 (Title)、轴标签 (Axis Labels)、图例 (Legend) **必须使用英文**，以防字体缺失导致方块。
 3. **代码实现**：将分析代码放在唯一的 ```python ... ``` 块中。
    - **语法要求**：严禁使用中文全角引号（如 ‘, ’, “, ”），所有 Python 字符串必须使用标准 ASCII 引号 (' 或 ")。
+   - **Pandas 版本约束**：我们使用的是 Pandas 2.2.0+。**严禁使用废弃的频率别名 (如 'M', 'Q', 'Y')**。对于月末、季末、年末，**强制使用 'ME', 'QE', 'YE' 等新型 offsets 特性**。
    - 必须使用 `df_xxx` 变量。
    - 最终数据 -> `result_data`。
    - 可视化配置 (ECharts) -> `viz_config` (标题和标签也必须是英文)。
@@ -81,6 +82,7 @@ class AdvancedDataAgent:
 2. **Mandatory Plotting**: Whenever trend, comparison, or distribution analysis is involved, you **MUST** write Matplotlib/Seaborn plotting code and explicitly call `plt.show()`. Do not just provide a config dictionary.
 3. **Code Implementation**: Put the analysis code in a unique ```python ... ``` block.
    - **Syntax**: Use standard ASCII quotes (' or ") for Python strings.
+   - **Pandas Version Constraint**: We use Pandas 2.2.0+. **DO NOT** use deprecated frequency aliases like 'M', 'Q', or 'Y'. You **MUST** use 'ME' (Month End), 'QE' (Quarter End), 'YE' (Year End) instead.
    - Must use `df_xxx` variables.
    - Final data -> `result_data`.
    - Visualization config (ECharts) -> `viz_config`.
@@ -106,26 +108,57 @@ class AdvancedDataAgent:
         full_response = ""
         print("📡 [Agent] 发起流式请求...")
         
-        # 🚀 恢复流式输出：让用户第一时间看到 AI 的分析方案
-        async for chunk in llm.astream(messages):
-            content = chunk.content if hasattr(chunk, "content") else str(chunk)
-            full_response += content
-            yield {"event": "summary", "data": {"content": content}}
+        MAX_RETRIES = 1
+        exec_result = None
+        ai_code = None
+        
+        for attempt in range(MAX_RETRIES + 1):
+            full_response = ""
+            if attempt > 0:
+                print(f"📡 [Agent] 发起重试请求自我修复 (Attempt {attempt})...")
+                
+            # 🚀流式输出：仅初次生成方案时让前端展示
+            async for chunk in llm.astream(messages):
+                content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                full_response += content
+                if attempt == 0:
+                    yield {"event": "summary", "data": {"content": content}}
 
-        # 提取并执行代码
-        code_match = re.search(r"```python\n([\s\S]*?)```", full_response)
-        ai_code = code_match.group(1).strip() if code_match else None
+            # 提取执行代码
+            code_match = re.search(r"```python\n([\s\S]*?)```", full_response)
+            ai_code = code_match.group(1).strip() if code_match else None
 
-        if ai_code:
+            if not ai_code:
+                if attempt == MAX_RETRIES:
+                    yield {"event": "done", "data": {}}
+                    return
+                continue
+
             exec_msg = "方案制定完成，正在执行深度计算..." if language == "zh" else "Plan completed, executing complex calculations..."
+            if attempt > 0:
+                exec_msg = "正在执行修复后的代码..." if language == "zh" else "Executing fixed code..."
             yield {"event": "thinking", "data": {"content": exec_msg}}
+            
             exec_result = python_executor.execute_analysis(df_input, ai_code)
             
-            if not exec_result["success"]:
-                err_msg = f"执行出错: {exec_result['error']}" if language == "zh" else f"Execution Error: {exec_result['error']}"
-                yield {"event": "error", "data": {"message": err_msg}}
-                return
+            if exec_result["success"]:
+                break  # 运行成功，跳出重试循环
+            else:
+                if attempt < MAX_RETRIES:
+                    err_msg = exec_result['error']
+                    warn_msg = f"代码运行出错，正在进行自我修复 ({attempt+1}/{MAX_RETRIES})..." if language == "zh" else f"Execution failed, self-correcting ({attempt+1}/{MAX_RETRIES})..."
+                    yield {"event": "thinking", "data": {"content": warn_msg}}
+                    
+                    # 告知大模型前一次执行报错，要求修复
+                    messages.append({"role": "assistant", "content": full_response})
+                    error_prompt = f"The code execution failed with this Python error:\n{err_msg}\nPlease fix the bug and output the complete corrected python code in a ```python\n...\n``` block."
+                    messages.append({"role": "user", "content": error_prompt})
+                else:
+                    err_msg = f"执行出错: {exec_result['error']}" if language == "zh" else f"Execution Error: {exec_result['error']}"
+                    yield {"event": "error", "data": {"message": err_msg}}
+                    return
 
+        if exec_result and exec_result["success"]:
             # 发送图表
             if exec_result["plot_image"]:
                 yield {"event": "plot_ready", "data": {"image": exec_result["plot_image"]}}
@@ -140,6 +173,7 @@ class AdvancedDataAgent:
                 report_text = re.sub(r'!\[.*?\]\(data:image\/.*?;base64,.*?\)', '', report_text)
                 discovery_tag = "**💡 核心发现：**" if language == "zh" else "**💡 Key Findings:**"
                 yield {"event": "summary", "data": {"content": f"\n\n---\n{discovery_tag}\n{report_text}"}}
+            
             payload = {
                 "rows": exec_result["data"], 
                 "code": ai_code,
@@ -151,8 +185,6 @@ class AdvancedDataAgent:
             yield {"event": "execution_result", "data": payload}
             # done 结束任务
             yield {"event": "done", "data": payload}
-        else:
-            yield {"event": "done", "data": {}}
 
     async def generate_ai_title(self, question: str, provider: str = None, model_name: str = None, language: str = "zh") -> str:
         """生成极简的会话标题"""

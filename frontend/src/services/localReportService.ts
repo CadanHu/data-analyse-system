@@ -54,7 +54,7 @@ const REPORT_PROMPT_ZH = `你是资深财务与数据分析专家。请基于需
 - **字体兼容要求 (非常关键)**：所有图表的 title、legend、xAxis.name、yAxis.name、series.name **必须且只能使用英文**。
 - **严禁**使用占位符！如果没有数据，请在文字中说明，不要生成空的图表容器。
 - 确保 JavaScript 中的引号正确转义，防止破坏 JSON 结构。
-- **输出长度限制**：最多生成 2 个图表模块，报告保持简洁，HTML 总长度控制在合理范围内。
+- **输出长度与图表数量**：请根据数据维度，有逻辑地生成 3-5 个不同类型的专业图表模块，报告应详实具有深度，但需保证 HTML 结构合法。
 
 输入：
 - 需求：{user_query}
@@ -78,6 +78,7 @@ Layout Standards:
 - Each section MUST have: <h2> heading, textual analysis, chart div, data table.
 - Use JavaScript in <script> tags at end of body to initialize ECharts with REAL data.
 - NO placeholders. All chart labels must be in English.
+- **Output Length**: Please generate 3-5 different types of professional charts based on the data. The report should be comprehensive and deep.
 
 Input:
 - Query: {user_query}
@@ -86,8 +87,8 @@ Input:
 function buildPrompt(opts: LocalReportOptions): string {
   const template = opts.language === 'zh' ? REPORT_PROMPT_ZH : REPORT_PROMPT_EN
 
-  // 构建数据上下文：SQL + 前20行数据（紧凑格式，控制 token 用量）
-  const previewRows = opts.sqlResult.rows.slice(0, 20)
+  // 构建数据上下文：SQL + 前50行数据（适当放宽限制，以便模型挖掘更多洞察）
+  const previewRows = opts.sqlResult.rows.slice(0, 50)
   const knowledgeBase = [
     `SQL: ${opts.sql}`,
     `Columns: ${opts.sqlResult.columns.join(', ')}`,
