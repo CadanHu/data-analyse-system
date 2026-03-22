@@ -18,6 +18,10 @@ An AI-driven intelligent data analysis system, a multi-engine commercial platfor
 | ![Mobile Portrait](./assets/mobile_mockup.svg) | ![iOS Landscape](./assets/ios_mockup.svg) |
 *Capacitor 6 native adaptation · Notch screen compatible · Touch-optimized · Safe Area support*
 
+### 🗄️ Local Data Management
+![Data Management](./assets/storage_mockup.svg)
+*SQLite stats · Cache clearing · Biz data sync status · Storage optimization*
+
 ---
 
 ## 🎯 Core Capabilities (v3.1)

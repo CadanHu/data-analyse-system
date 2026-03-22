@@ -2,7 +2,25 @@
 
 [![GitHub Topics](https://img.shields.io/badge/数据分析-Python%20%7C%20AI%20Agent%20%7C%20可视化-blue)](https://github.com/CadanHu/data-analyse-system)
 
-DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它不仅支持传统的 SQL 查询，更引入了革命性的 **AI 数据科学家模式 (v3.0)**，通过 Python 沙盒环境实现复杂的数学建模、自动化清洗与高清图表渲染。
+DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它不仅支持传统的 SQL 查询，更引入了 **AI 数据科学家模式 (v3.0)**，通过 Python 沙盒环境实现复杂的数学建模、自动化清洗与高清图表渲染。
+
+---
+
+## 📸 界面预览
+
+### 🖥️ 桌面端控制台
+![Desktop Dashboard](./assets/web_mockup.svg)
+*三栏式布局 · 实时推理流 · Python 沙盒 · 多图表动态切换 · SQL 预览*
+
+### 📱 移动端原生适配
+| 竖屏模式 | 横屏模式 |
+| :---: | :---: |
+| ![Mobile Portrait](./assets/mobile_mockup.svg) | ![iOS Landscape](./assets/ios_mockup.svg) |
+*Capacitor 6 原生适配  · 触控优化 · Safe Area 支持*
+
+### 🗄️ 本地数据管理
+![Data Management](./assets/storage_mockup.svg)
+*SQLite 数据统计 · 缓存一键清理 · 业务数据同步状态 · 存储优化*
 
 ---
 
@@ -40,7 +58,7 @@ DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它
 
 ### 5. 🔑 统一 Key 配置中心（v3.1 新增）
 
-所有 API Key 在应用内统一管理，分为「国内直连」和「需要 VPN」两个分区，涵盖：
+所有 API Key 在应用内统一管理，涵盖：
 *   大语言模型：DeepSeek、通义千问、MiniMax、OpenAI、Claude、Gemini
 *   PDF 解析：MinerU
 *   向量搜索：Qwen Embedding、智谱、Jina AI、Google Embedding
@@ -117,8 +135,3 @@ response = requests.post(url, json=payload, stream=True)
 - [ ] **多租户 API Key 管理**：支持 M2M 调用的鉴权与频率限制。
 - [ ] **MCP 协议支持**：实现 Model Context Protocol 接口。
 - [ ] **自动化 PPT 生成**：将分析看板一键导出为演示文稿。
-
----
-
-## 📄 开源协议
-本项目采用 [MIT License](LICENSE) 开源协议。
