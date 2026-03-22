@@ -18,6 +18,7 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
 import PdfExport from './pdfExportPlugin'
 import { resolveEChartsInHtml, cacheECharts } from './fileCache'
+import { saveFile } from './fileSaverService'
 
 /**
  * 注入打印专用 CSS：确保图表和内容铺满 A4 宽度
@@ -99,14 +100,9 @@ export async function exportReport(html: string, title = 'Report'): Promise<void
       await Share.share({ title: safeTitle, files: [uri] })
     }
   } else {
-    // Web：触发浏览器下载（HTML 格式，支持 ECharts 交互）
+    // Web：弹出"另存为"对话框（Chrome/Edge），Safari/Firefox 降级到默认下载目录
     const filename = `${safeTitle}_${Date.now()}.html`
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
+    await saveFile({ blob, suggestedName: filename, mimeType: 'text/html', description: 'HTML 报告' })
   }
 }

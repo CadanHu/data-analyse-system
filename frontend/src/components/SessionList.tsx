@@ -19,6 +19,7 @@ import {
   localGetMessages,
 } from '../services/localStore'
 import { exportReport } from '../services/pdfExportService'
+import { saveFile } from '../services/fileSaverService'
 import type { LocalMessage } from '../services/db'
 
 import { Terminal, Monitor, XCircle, LogOut, Database, HardDrive } from 'lucide-react'
@@ -214,14 +215,10 @@ export default function SessionList({
           ? buildSessionTxt(msgs, title)
           : buildSessionMd(msgs, title)
 
-        // 🚀 iOS 修复：
-        //   1. 直接写入 UTF-8 字符串，Filesystem 插件自动处理编码
-        //   2. 使用 Cache 目录（Documents 目录在部分 iOS 版本 share 有权限限制）
-        //   3. 不再使用 text/markdown MIME（iOS 不识别，导致"无法打开"）
         const writeResult = await Filesystem.writeFile({
           path: fileName,
           data: data,
-          directory: Directory.Cache,
+          directory: Directory.Documents,
           encoding: Encoding.UTF8,
           recursive: true,
         })
@@ -248,20 +245,14 @@ export default function SessionList({
       const blob = await sessionApi.exportSession(sessionId, format)
       const session = sessions.find(s => s.id === sessionId)
       const title = session?.title || t('session.unnamed')
-      const fileName = `${title.replace(/[\/\\?%*:|"<>]/g, '-')}.${format}`
+      const fileName = `${title.replace(/[\/\\?%*:"<>]/g, '-')}.${format}`
 
-      const url = window.URL.createObjectURL(blob)
-      if (format === 'pdf' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        window.open(url, '_blank');
-      } else {
-        const a = document.createElement('a')
-        a.href = url
-        a.download = fileName
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
+      const mimeMap: Record<string, string> = {
+        txt: 'text/plain',
+        md: 'text/markdown',
+        pdf: 'application/pdf',
       }
-      window.URL.revokeObjectURL(url)
+      await saveFile({ blob, suggestedName: fileName, mimeType: mimeMap[format] || 'application/octet-stream', description: `导出会话 (${format.toUpperCase()})` })
     } catch (error: any) {
       console.error('[Export] API Error:', error)
       alert(`${t('alert.fetchFileFailed')}: ${error.message || 'Check network'}`);

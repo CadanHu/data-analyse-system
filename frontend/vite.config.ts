@@ -57,7 +57,11 @@ export default defineConfig(({ mode }) => {
       'window.__DEV_API_URL__': JSON.stringify(apiBaseUrl)
     },
     build: {
-      target: 'es2015',
+      // es2020：iOS 14+ WKWebView（Safari 14）原生支持，无需 esbuild 把
+      // generator/for-of 编译成依赖 Symbol.iterator polyfill 的 ES2015 辅助函数。
+      // pdfjs-dist v5 内部大量使用 generator，必须原生执行，否则在 iOS JavaScriptCore
+      // 中报 "t[Symbol.iterator] is not a function"。
+      target: 'es2020',
     },
     resolve: {
       alias: {

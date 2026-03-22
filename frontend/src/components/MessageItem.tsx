@@ -42,6 +42,7 @@ import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
 import { generateLocalReport } from '@/services/localReportService'
 import { exportReport } from '@/services/pdfExportService'
+import { saveFile } from '@/services/fileSaverService'
 import { localGetApiKey } from '@/services/localStore'
 import { useLanguageStore } from '../stores/languageStore'
 
@@ -96,14 +97,7 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
 
       const blob = await response.blob()
       const fileName = `DataPulse_${report.title || 'Report'}.pdf`
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = fileName
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      window.URL.revokeObjectURL(url)
+      await saveFile({ blob, suggestedName: fileName, mimeType: 'application/pdf', description: 'PDF 深度报告' })
     } catch (err) {
       // 用户取消系统分享面板不是真正的错误，静默忽略
       const msg = err instanceof Error ? err.message : String(err)

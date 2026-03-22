@@ -237,17 +237,9 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       alert(t('alert.selectSessionFirst'))
       return
     }
-    // 🚀 iOS Capacitor 的 UIDocumentPickerViewController 不识别 text/markdown MIME
-    // 在原生平台上设为 */* ，允许用户选择任意文件，再靠扩展名过滤
-    if (fileInputRef.current) {
-      if (isMobileNative) {
-        // 在 iOS 上放开 MIME 过滤，JS 层再验证扩展名
-        fileInputRef.current.accept = '*/*'
-      } else {
-        fileInputRef.current.accept = '.pdf,.txt,.md,.markdown,image/*,application/pdf,text/plain,text/markdown,text/x-markdown'
-      }
-      fileInputRef.current.click()
-    }
+    // 🚀 直接点击，不动态修改 accept
+    // iOS UIDocumentPickerViewController 对 MIME 类型不敏感，直接用扩展名
+    fileInputRef.current?.click()
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -266,14 +258,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       const isPDF = fileName.toLowerCase().endsWith('.pdf')
       const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(fileName)
       const isCsvOrExcel = /\.(csv|xlsx|xls)$/i.test(fileName)
-      // 🚀 iOS 上 .md 文件的 MIME 类型可能为空字符串，统一靠扩展名判断
       const isOtherDoc = /\.(txt|md|markdown)$/i.test(fileName)
-      // 非已知类型，且不是图片 CSV–拒绝（仅在原生平台全文件模式下才会出现）
-      if (isMobileNative && !isPDF && !isImage && !isCsvOrExcel && !isOtherDoc) {
-        alert(t('alert.fileTypeNotSupported'))
-        e.target.value = ''
-        return
-      }
 
       console.log('文件选择触发:', fileName, '是否PDF:', isPDF, '是否图片:', isImage, '是否其他文档:', isOtherDoc, '是否CSV/Excel:', isCsvOrExcel)
 
@@ -705,7 +690,7 @@ const handleStandardUpload = async (file: File) => {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept=".pdf,.txt,.md,.markdown,image/*,application/pdf,text/plain,text/markdown,text/x-markdown"
+            accept=".pdf,.txt,.md,.markdown,.jpg,.jpeg,.png,.gif,.webp,.bmp"
             onChange={handleFileChange}
           />
           <textarea

@@ -11,6 +11,9 @@
  */
 
 import * as pdfjsLib from 'pdfjs-dist'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — pdfjs worker entry, used for main-thread fake-worker setup
+import { WorkerMessageHandler } from 'pdfjs-dist/build/pdf.worker.min.mjs'
 import { generateEmbeddings, cosineSimilarity } from './embeddingService'
 import {
   insertKnowledgeChunk,
@@ -44,11 +47,29 @@ export interface KnowledgeGraph {
   extracted_at: string
 }
 
-// ─── pdfjs worker 配置（Vite 会自动处理 URL）──────────────────────────────────
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).href
+// ─── pdfjs worker 配置 ────────────────────────────────────────────────────────
+//
+// Capacitor WKWebView 无法通过 XPC 初始化 Web Worker（NSCocoaErrorDomain 4099）。
+// 解决方案：用 MessageChannel 在主线程内运行 WorkerMessageHandler，
+// 完全绕过 Web Worker 创建，pdfjs 通过 workerPort 与"假 Worker"通信。
+//
+// 参考：https://github.com/mozilla/pdf.js/wiki/Frequently-Asked-Questions#faq-workerthread
+;(function setupPdfjsFakeWorker() {
+  try {
+    // initializeFromPort 是 pdfjs worker 的正规入口：
+    //   1. 内部创建 MessageHandler("worker", "main", port1)
+    //   2. 调用 WorkerMessageHandler.setup(handler, port1)
+    //   3. 发送 "ready" 握手
+    // 与真实 Web Worker 完全相同的代码路径，但在主线程执行。
+    const channel = new MessageChannel()
+    WorkerMessageHandler.initializeFromPort(channel.port1)
+    pdfjsLib.GlobalWorkerOptions.workerPort = channel.port2
+  } catch {
+    // 降级：回退到 workerSrc（桌面 Web 可用）
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+  }
+})()
+
 
 // ─── 常量 ──────────────────────────────────────────────────────────────────────
 const CHUNK_SIZE = 800       // 每块字符数
@@ -129,19 +150,80 @@ function chunkMarkdown(markdown: string): string[] {
 
 // ─── PDF 本地解析 ──────────────────────────────────────────────────────────────
 
+/**
+ * 安全地将 pdfjs TextContent.items 转为字符串数组。
+ * pdfjs-dist v5 的 items 在 iOS WKWebView (JavaScriptCore) 中直接迭代会
+ * 触发 Symbol.iterator 缺失错误，改用 Array.from 做安全转换。
+ */
+function safeExtractPageText(items: any): string {
+  try {
+    // 优先用 Array.from 转换（兼容 WKWebView）
+    const arr: any[] = Array.from(items as ArrayLike<any>)
+    return arr
+      .map((item: any) => (typeof item?.str === 'string' ? item.str : ''))
+      .join(' ')
+  } catch {
+    // 极端降级：直接 JSON stringify 后粗提取文字
+    try {
+      return JSON.stringify(items).replace(/"str":"([^"]*)"/g, '$1 ')
+    } catch {
+      return ''
+    }
+  }
+}
+
+/**
+ * 从单页提取文字，兼容 iOS 14/15。
+ *
+ * pdfjs v5 的 page.getTextContent() 内部使用：
+ *   for await (const value of readableStream) { ... }
+ * 这依赖 ReadableStream[Symbol.asyncIterator]，该 API 在 iOS 16+(Safari 16) 才支持。
+ * iOS 14/15 的 WKWebView 不支持，报 "undefined is not a function (near '...a of r...')"。
+ *
+ * 解决：直接调用 page.streamTextContent() 返回的 ReadableStream，
+ * 用 reader.read() 循环逐块读取，完全绕过 for-await-of 语法。
+ */
+async function extractPageText(page: any): Promise<string> {
+  const stream = page.streamTextContent({ disableNormalization: true })
+  const reader = (stream as ReadableStream).getReader()
+  const parts: string[] = []
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value?.items) {
+        const text = safeExtractPageText(value.items)
+        if (text.trim()) parts.push(text)
+      }
+    }
+  } finally {
+    reader.cancel()
+  }
+  return parts.join(' ')
+}
+
 /** 使用 pdfjs-dist 在浏览器/WebView 内本地提取 PDF 文本 */
 async function parsePdfLocally(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+  const pdf = await pdfjsLib.getDocument({
+    data: arrayBuffer,
+    disableRange: true,
+    disableStream: true,
+  }).promise
   const textParts: string[] = []
 
   for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i)
-    const content = await page.getTextContent()
-    const pageText = content.items
-      .map((item: any) => item.str)
-      .join(' ')
-    textParts.push(pageText)
+    try {
+      const page = await pdf.getPage(i)
+      const pageText = await extractPageText(page)
+      if (pageText.trim()) textParts.push(pageText)
+    } catch (pageErr) {
+      const msg = pageErr instanceof Error
+        ? `${pageErr.name}: ${pageErr.message}`
+        : JSON.stringify(pageErr, Object.getOwnPropertyNames(pageErr as object))
+      console.warn(`[PDF] 第 ${i} 页解析失败，已跳过:`, msg)
+    }
   }
 
   return textParts.join('\n\n')
