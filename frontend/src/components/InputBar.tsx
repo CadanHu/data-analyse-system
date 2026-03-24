@@ -11,7 +11,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useSyncStore } from '@/stores/syncStore'
 import { localUpdateSession } from '@/services/localStore'
 import { Capacitor } from '@capacitor/core'
-import { processDocument, loadKnowledgeGraph } from '@/services/mobileKnowledgeService'
+import { processDocument, loadKnowledgeGraph, getPdfPageCount } from '@/services/mobileKnowledgeService'
 import KnowledgeGraphModal from './KnowledgeGraphModal'
 
 // 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
@@ -124,6 +124,10 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const { t, language } = useTranslation()
 
   const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [pdfPageCount, setPdfPageCount] = useState<number>(0)
+  const [pageRangeStart, setPageRangeStart] = useState<string>('1')
+  const [pageRangeEnd, setPageRangeEnd] = useState<string>('')
+  const mineruAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     const processPending = async () => {
@@ -261,6 +265,17 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       const isOtherDoc = /\.(txt|md|markdown)$/i.test(fileName)
 
       console.log('文件选择触发:', fileName, '是否PDF:', isPDF, '是否图片:', isImage, '是否其他文档:', isOtherDoc, '是否CSV/Excel:', isCsvOrExcel)
+
+      // 异步获取 PDF 总页数（用于在弹窗显示页码范围提示）
+      if (isPDF) {
+        setPdfPageCount(0)
+        setPageRangeStart('1')
+        setPageRangeEnd('')
+        getPdfPageCount(file).then(n => {
+          setPdfPageCount(n)
+          setPageRangeEnd(String(n))
+        }).catch(() => {})
+      }
 
       // CSV/Excel 不适合 RAG 切片，引导用户走数据导入流程
       if (isCsvOrExcel) {
@@ -464,8 +479,10 @@ const handleStandardUpload = async (file: File) => {
   }
 
   /** 手机端 / 离线：全本地知识处理流程 */
-  const handleMobileLocalProcess = async (file: File, engine: 'light' | 'pro' | 'knowledge') => {
+  const handleMobileLocalProcess = async (file: File, engine: 'light' | 'pro' | 'knowledge', pageRange?: string) => {
     const messageId = `local_kb_${Date.now()}`
+    const abortController = new AbortController()
+    mineruAbortRef.current = abortController
     try {
       setIsLoading(true)
       setShowEngineSelect(false)
@@ -486,6 +503,8 @@ const handleStandardUpload = async (file: File) => {
         engine,
         userId: localUserId ?? -1,
         sessionId,
+        signal: abortController.signal,
+        pageRange,
         onProgress: (msg) => {
           useSessionStore.getState().updateMessage(messageId, {
             content: `【${modeLabel}】${file.name}\n\n⏳ ${msg}`,
@@ -512,14 +531,20 @@ const handleStandardUpload = async (file: File) => {
         content: `【${modeLabel}】✅ ${file.name} 已完成索引`,
       })
     } catch (e: any) {
+      const cancelled = e?.name === 'AbortError'
       useSessionStore.getState().updateMessage(messageId, {
-        content: `❌ 处理失败：${e.message}`,
+        content: cancelled ? `⏹️ 已取消：${file.name}` : `❌ 处理失败：${e.message}`,
       })
-      alert(e.message)
+      if (!cancelled) alert(e.message)
     } finally {
+      mineruAbortRef.current = null
       setIsLoading(false)
       setPendingFile(null)
     }
+  }
+
+  const cancelMineruProcess = () => {
+    mineruAbortRef.current?.abort()
   }
 
   const selectEngine = async (engine: 'light' | 'pro' | 'knowledge') => {
@@ -531,7 +556,17 @@ const handleStandardUpload = async (file: File) => {
 
     // 手机端或离线模式：走本地知识处理，不依赖后端
     if (isMobileNative || isOffline) {
-      await handleMobileLocalProcess(file, engine)
+      // 如果是 PDF 且选了 pro/knowledge，通过 MinerU API 原生 page_ranges 参数限制页码
+      // 不再前端裁剪 PDF（pdf-lib 裁剪出的文件可能被 MinerU 拒绝）
+      let pageRange: string | undefined
+      const isPdf = file.name.toLowerCase().endsWith('.pdf')
+      const start = parseInt(pageRangeStart) || 1
+      const end = parseInt(pageRangeEnd) || pdfPageCount
+      if (isPdf && (engine === 'pro' || engine === 'knowledge') && pdfPageCount > 0 && end >= start && end < pdfPageCount) {
+        pageRange = `${start}-${end}`
+        console.log(`[PDF] 将通过 MinerU page_ranges 参数限制页码: ${pageRange}`)
+      }
+      await handleMobileLocalProcess(file, engine, pageRange)
       setShowEngineSelect(false)
       setPendingFile(null)
       return
@@ -629,6 +664,43 @@ const handleStandardUpload = async (file: File) => {
             <div className="text-[11px] font-bold text-purple-700">💎 {t('feature.file.title')} (MinerU)</div>
             <div className="text-[9px] text-gray-500">{t('feature.file.desc')}</div>
           </button>
+
+          {/* PDF 页码范围（仅 pro/knowledge 用 MinerU，且是 PDF 时显示） */}
+          {pendingFile?.name.toLowerCase().endsWith('.pdf') && (
+            <div className="mt-2 pt-2 border-t border-gray-100">
+              <div className="text-[10px] text-gray-500 mb-1">
+                📄 页码范围（仅 MinerU 模式有效）{pdfPageCount > 0 ? `，共 ${pdfPageCount} 页` : ''}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  min={1}
+                  max={pdfPageCount || 9999}
+                  value={pageRangeStart}
+                  onChange={e => setPageRangeStart(e.target.value)}
+                  className="w-14 text-center text-xs text-gray-800 bg-white border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:border-blue-400"
+                  placeholder="1"
+                />
+                <span className="text-[10px] text-gray-400">到</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={pdfPageCount || 9999}
+                  value={pageRangeEnd}
+                  onChange={e => setPageRangeEnd(e.target.value)}
+                  className="w-14 text-center text-xs text-gray-800 bg-white border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:border-blue-400"
+                  placeholder={pdfPageCount ? String(pdfPageCount) : '末页'}
+                />
+                <span className="text-[10px] text-gray-400">页</span>
+              </div>
+              {pdfPageCount > 0 && (parseInt(pageRangeEnd) || pdfPageCount) < pdfPageCount && (
+                <div className="text-[9px] text-blue-500 mt-0.5">
+                  MinerU 将只解析第 {parseInt(pageRangeStart) || 1}–{parseInt(pageRangeEnd) || pdfPageCount} 页（共 {(parseInt(pageRangeEnd) || pdfPageCount) - (parseInt(pageRangeStart) || 1) + 1} 页）
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       )}
 
@@ -645,15 +717,27 @@ const handleStandardUpload = async (file: File) => {
 
       <div className="bg-white/60 backdrop-blur-md border border-white/40 rounded-2xl overflow-hidden shadow-[0_4px_16px_rgba(0,0,0,0.06)] data-[mobile=true]:data-[orientation=landscape]:rounded-xl">
         <div className="flex items-center gap-2 px-4 pt-4 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:pt-2">
-          <button
-            onClick={handleFileUpload}
-            className="flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
-            title={t('chat.upload')}
-          >
-            <svg className="w-5 h-5 data-[mobile=true]:data-[orientation=landscape]:w-4 data-[mobile=true]:data-[orientation=landscape]:h-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
+          {isLoading && mineruAbortRef.current ? (
+            <button
+              onClick={cancelMineruProcess}
+              className="flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl bg-gradient-to-r from-red-100 to-red-200 hover:from-red-200 hover:to-red-300 transition-all border border-red-300"
+              title="取消 MinerU 解析"
+            >
+              <svg className="w-4 h-4 text-red-600" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="1" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={handleFileUpload}
+              className="flex-shrink-0 w-9 h-9 data-[mobile=true]:data-[orientation=landscape]:w-7 data-[mobile=true]:data-[orientation=landscape]:h-7 flex items-center justify-center rounded-xl bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] hover:from-[#9FEFC9] hover:to-[#C0EFFF] transition-all shadow-[0_4px_12px_rgba(191,255,217,0.3)] data-[mobile=true]:data-[orientation=landscape]:shadow-none"
+              title={t('chat.upload')}
+            >
+              <svg className="w-5 h-5 data-[mobile=true]:data-[orientation=landscape]:w-4 data-[mobile=true]:data-[orientation=landscape]:h-4 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+          )}
 
           {/* 🔑 模型 & API Key 配置按钮 */}
           <button

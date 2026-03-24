@@ -15,6 +15,8 @@ const config: CapacitorConfig = {
       'api.deepseek.com',
       'api.anthropic.com',
       'generativelanguage.googleapis.com',
+      'mineru.net',
+      '*.mineru.net',
     ],
     cleartext: true
   }

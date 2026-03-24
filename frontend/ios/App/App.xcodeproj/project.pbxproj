@@ -14,6 +14,8 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		53C7100F2F7255B60062202E /* NativeHttpPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = 53C7100D2F7255B60062202E /* NativeHttpPlugin.m */; };
+		53C710102F7255B60062202E /* NativeHttpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53C7100E2F7255B60062202E /* NativeHttpPlugin.swift */; };
 		53E1B1272F6E6FC7005F2882 /* PdfExportPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E1B1262F6E6FC7005F2882 /* PdfExportPlugin.swift */; };
 		53E1B12C2F6E7881005F2882 /* PdfExportPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = 53E1B12B2F6E7881005F2882 /* PdfExportPlugin.m */; };
 		53E1B12E2F6E7A38005F2882 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53E1B12D2F6E7A38005F2882 /* ViewController.swift */; };
@@ -30,6 +32,8 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		53C7100D2F7255B60062202E /* NativeHttpPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NativeHttpPlugin.m; sourceTree = "<group>"; };
+		53C7100E2F7255B60062202E /* NativeHttpPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeHttpPlugin.swift; sourceTree = "<group>"; };
 		53E1B1262F6E6FC7005F2882 /* PdfExportPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfExportPlugin.swift; sourceTree = "<group>"; };
 		53E1B12A2F6E7221005F2882 /* App-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "App-Bridging-Header.h"; sourceTree = "<group>"; };
 		53E1B12B2F6E7881005F2882 /* PdfExportPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PdfExportPlugin.m; sourceTree = "<group>"; };
@@ -80,6 +84,8 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				53C7100D2F7255B60062202E /* NativeHttpPlugin.m */,
+				53C7100E2F7255B60062202E /* NativeHttpPlugin.swift */,
 				53E1B12D2F6E7A38005F2882 /* ViewController.swift */,
 				53E1B12B2F6E7881005F2882 /* PdfExportPlugin.m */,
 				53E1B1262F6E6FC7005F2882 /* PdfExportPlugin.swift */,
@@ -234,6 +240,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				53C7100F2F7255B60062202E /* NativeHttpPlugin.m in Sources */,
+				53C710102F7255B60062202E /* NativeHttpPlugin.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				53E1B1272F6E6FC7005F2882 /* PdfExportPlugin.swift in Sources */,
 				53E1B12E2F6E7A38005F2882 /* ViewController.swift in Sources */,

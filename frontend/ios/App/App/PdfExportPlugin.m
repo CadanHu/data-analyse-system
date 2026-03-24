@@ -3,4 +3,5 @@
 CAP_PLUGIN(PdfExportPlugin, "PdfExport",
     CAP_PLUGIN_METHOD(printHtml, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(createPdf, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(putFile, CAPPluginReturnPromise);
 )

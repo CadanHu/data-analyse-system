@@ -618,6 +618,49 @@ export async function deleteDocChunks(userId: number, docName: string): Promise<
   )
 }
 
+/** 获取某用户所有知识块（用于管理界面展示） */
+export async function getAllKnowledgeChunks(userId: number): Promise<KnowledgeChunk[]> {
+  const d = requireDb()
+  const res = await d.query(
+    `SELECT * FROM knowledge_chunks WHERE user_id = ? ORDER BY session_id, doc_name, chunk_index`,
+    [userId]
+  )
+  return (res.values || []) as KnowledgeChunk[]
+}
+
+/** 更新知识块内容，同时清空旧向量并刷新 FTS 索引 */
+export async function updateKnowledgeChunkContent(id: string, newContent: string): Promise<void> {
+  const d = requireDb()
+  // 删除 FTS 中的旧条目
+  await d.run(
+    `INSERT INTO knowledge_fts(knowledge_fts, rowid, content)
+     SELECT 'delete', rowid, content FROM knowledge_chunks WHERE id = ?`,
+    [id]
+  )
+  // 更新内容，清空已失效的向量
+  await d.run(
+    'UPDATE knowledge_chunks SET content = ?, embedding = NULL WHERE id = ?',
+    [newContent, id]
+  )
+  // 将新内容写入 FTS
+  await d.run(
+    `INSERT INTO knowledge_fts(rowid, content)
+     SELECT rowid, content FROM knowledge_chunks WHERE id = ?`,
+    [id]
+  )
+}
+
+/** 按 ID 删除单个知识块 */
+export async function deleteKnowledgeChunkById(id: string): Promise<void> {
+  const d = requireDb()
+  await d.run(
+    `INSERT INTO knowledge_fts(knowledge_fts, rowid, content)
+     SELECT 'delete', rowid, content FROM knowledge_chunks WHERE id = ?`,
+    [id]
+  )
+  await d.run('DELETE FROM knowledge_chunks WHERE id = ?', [id])
+}
+
 /** 列出某用户/会话已导入的文档 */
 export async function listKnowledgeDocs(userId: number, sessionId: string | null): Promise<string[]> {
   const d = requireDb()

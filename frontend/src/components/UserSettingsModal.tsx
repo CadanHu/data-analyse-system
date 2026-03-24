@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import { Capacitor } from '@capacitor/core'
 import { useAuthStore } from '../stores/authStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { ragApi } from '@/api'
-import { X, User, Database, ChevronDown, RefreshCw, Trash2, Loader2 } from 'lucide-react'
+import { getAllKnowledgeChunks, deleteKnowledgeChunkById, updateKnowledgeChunkContent } from '../services/db'
+import { X, User, Database, ChevronDown, RefreshCw, Trash2, Loader2, Pencil, Check } from 'lucide-react'
 
 interface RagChunk {
   id: string
@@ -52,8 +54,23 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
     setLoadError(null)
     setDedupResult(null)
     try {
-      const data = await ragApi.listChunks()   // 不传 session_id → 当前用户全部
-      setAllChunks(data.chunks)
+      if (Capacitor.isNativePlatform()) {
+        // 移动端：从本地 SQLite 读取
+        const localChunks = await getAllKnowledgeChunks(user?.id ?? 0)
+        setAllChunks(localChunks.map(c => ({
+          id: c.id,
+          content: c.content,
+          metadata: {
+            filename: c.doc_name,
+            session_id: c.session_id ?? undefined,
+            chunk_index: c.chunk_index,
+            ...(c.metadata ? JSON.parse(c.metadata) : {}),
+          }
+        })))
+      } else {
+        const data = await ragApi.listChunks()   // 不传 session_id → 当前用户全部
+        setAllChunks(data.chunks)
+      }
     } catch (e: any) {
       console.error('获取RAG片段失败:', e)
       const msg = e?.response?.data?.detail || e?.message || '请求失败，请检查网络或重新登录'
@@ -61,7 +78,7 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
     } finally {
       setLoadingChunks(false)
     }
-  }, [])
+  }, [user?.id])
 
   useEffect(() => {
     if (activeTab === 'rag') loadChunks()
@@ -130,7 +147,11 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
   const handleDeleteChunk = async (chunkId: string) => {
     setDeletingIds(prev => new Set(prev).add(chunkId))
     try {
-      await ragApi.deleteChunk(chunkId)
+      if (Capacitor.isNativePlatform()) {
+        await deleteKnowledgeChunkById(chunkId)
+      } else {
+        await ragApi.deleteChunk(chunkId)
+      }
       setAllChunks(prev => prev.filter(c => c.id !== chunkId))
     } catch (e) {
       console.error('删除片段失败:', e)
@@ -139,7 +160,46 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
     }
   }
 
+  // Chunk viewer / editor state
+  const [viewingChunk, setViewingChunk] = useState<RagChunk | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  const openChunk = (chunk: RagChunk) => {
+    setViewingChunk(chunk)
+    setEditMode(false)
+    setEditContent(chunk.content)
+  }
+
+  const closeChunk = () => {
+    setViewingChunk(null)
+    setEditMode(false)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!viewingChunk || editContent === viewingChunk.content) { setEditMode(false); return }
+    setSavingEdit(true)
+    try {
+      if (isNative) {
+        await updateKnowledgeChunkContent(viewingChunk.id, editContent)
+      } else {
+        // Web: backend API not yet implemented — update local state only
+      }
+      setAllChunks(prev => prev.map(c =>
+        c.id === viewingChunk.id ? { ...c, content: editContent } : c
+      ))
+      setViewingChunk(prev => prev ? { ...prev, content: editContent } : null)
+      setEditMode(false)
+    } catch (e) {
+      console.error('保存失败:', e)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   const thresholdLabel = threshold >= 0.98 ? '完全重复' : threshold >= 0.9 ? '严格' : threshold >= 0.8 ? '适中' : '宽松'
+  const isNative = Capacitor.isNativePlatform()
 
   const navItems = [
     { id: 'profile' as const, label: '个人信息', icon: <User className="w-4 h-4" /> },
@@ -295,8 +355,8 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                   </button>
                 </div>
 
-                {/* 去重控制 */}
-                <div className="max-w-2xl bg-amber-50/80 backdrop-blur-sm rounded-2xl p-4 border border-amber-100 space-y-3">
+                {/* 去重控制（仅 Web 端可用） */}
+                {!isNative && <div className="max-w-2xl bg-amber-50/80 backdrop-blur-sm rounded-2xl p-4 border border-amber-100 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-gray-700">🧹 智能去重</span>
                     <span className="text-xs text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full font-medium">{thresholdLabel}</span>
@@ -329,7 +389,7 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                       </span>
                     )}
                   </div>
-                </div>
+                </div>}
               </div>
 
               {/* 片段列表 */}
@@ -404,12 +464,13 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                                       {fileChunks.map((chunk, idx) => (
                                         <div
                                           key={chunk.id}
-                                          className="flex items-start gap-3 px-4 sm:px-8 py-3 border-t border-gray-100/80 hover:bg-white/60 transition-colors group"
+                                          className="flex items-start gap-3 px-4 sm:px-8 py-3 border-t border-gray-100/80 hover:bg-white/60 transition-colors group cursor-pointer"
+                                          onClick={() => openChunk(chunk)}
                                         >
                                           <span className="text-xs text-gray-300 font-mono mt-0.5 w-6 flex-shrink-0">#{idx + 1}</span>
                                           <p className="flex-1 text-sm text-gray-600 leading-relaxed line-clamp-3 min-w-0">{chunk.content}</p>
                                           <button
-                                            onClick={() => handleDeleteChunk(chunk.id)}
+                                            onClick={e => { e.stopPropagation(); handleDeleteChunk(chunk.id) }}
                                             disabled={deletingIds.has(chunk.id)}
                                             className="flex-shrink-0 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all disabled:opacity-40"
                                             title="删除该片段"
@@ -437,6 +498,77 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
           )}
         </main>
       </div>
+
+      {/* 片段详情 / 编辑 overlay */}
+      {viewingChunk && (
+        <div
+          className="absolute inset-0 z-10 flex flex-col bg-black/40 backdrop-blur-sm rounded-2xl"
+          onClick={closeChunk}
+        >
+          <div
+            className="mt-auto mx-3 mb-3 bg-white rounded-2xl shadow-xl flex flex-col max-h-[80%]"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <span className="text-sm font-semibold text-gray-700 truncate max-w-[60%]" title={viewingChunk.metadata?.filename}>
+                📄 {viewingChunk.metadata?.filename ?? '片段'}
+              </span>
+              <div className="flex items-center gap-2">
+                {!editMode ? (
+                  <button
+                    onClick={() => setEditMode(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-xs font-medium transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />编辑
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => { setEditMode(false); setEditContent(viewingChunk.content) }}
+                      className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-xs font-medium transition-colors"
+                    >取消</button>
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={savingEdit || editContent === viewingChunk.content}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 disabled:bg-gray-200 disabled:cursor-not-allowed text-white rounded-xl text-xs font-medium transition-colors"
+                    >
+                      {savingEdit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      {savingEdit ? '保存中...' : '保存'}
+                    </button>
+                  </>
+                )}
+                <button onClick={closeChunk} className="w-7 h-7 flex items-center justify-center rounded-xl hover:bg-gray-100 text-gray-400">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* 编辑提示（仅编辑模式显示） */}
+            {editMode && (
+              <div className="px-5 pt-3 pb-1">
+                <p className="text-xs text-amber-600 bg-amber-50 rounded-xl px-3 py-2">
+                  ⚠️ 保存后将清空该片段的语义向量，搜索将自动降级为关键词匹配。如需恢复向量，请重新导入文档。
+                </p>
+              </div>
+            )}
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {editMode ? (
+                <textarea
+                  value={editContent}
+                  onChange={e => setEditContent(e.target.value)}
+                  className="w-full h-full min-h-[200px] text-sm text-gray-700 leading-relaxed bg-gray-50 border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-300/50 resize-none"
+                  autoFocus
+                />
+              ) : (
+                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{viewingChunk.content}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>,
     document.body
   )

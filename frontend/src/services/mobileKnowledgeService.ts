@@ -14,6 +14,17 @@ import * as pdfjsLib from 'pdfjs-dist'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pdfjs worker entry, used for main-thread fake-worker setup
 import { WorkerMessageHandler } from 'pdfjs-dist/build/pdf.worker.min.mjs'
+import { CapacitorHttp, Capacitor, registerPlugin } from '@capacitor/core'
+import { Filesystem, Directory } from '@capacitor/filesystem'
+
+// ─── 原生文件上传（借用已注册的 PdfExport 插件添加 putFile 方法）──────────────
+// CapacitorHttp dataType:'file' 用 InputStream+httpBodyStream，iOS 实际发 0 字节
+// （OSS ETag = D41D8CD9... 即空文件 MD5）。
+// PdfExportPlugin.putFile 用 URLSession.uploadTask(with:fromFile:)，
+// 正确读文件、自动设 Content-Length，OSS 收到完整二进制内容。
+const PdfExportBridge = registerPlugin<{
+  putFile: (options: { url: string; fileUri: string }) => Promise<{ status: number }>
+}>('PdfExport')
 import { generateEmbeddings, cosineSimilarity } from './embeddingService'
 import {
   insertKnowledgeChunk,
@@ -236,55 +247,164 @@ interface MineruUploadInfo {
   file_url: string
 }
 
-async function mineruGetUploadUrl(apiKey: string, fileName: string): Promise<MineruUploadInfo> {
-  const res = await fetch('https://mineru.net/api/v4/file-urls/batch', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      enable_formula: true,
-      enable_table: true,
-      files: [{ name: fileName, is_ocr: true, data_id: generateId() }],
-    }),
+/**
+ * 原生 HTTP GET/POST/PUT 辅助（iOS WKWebView fetch 受 CORS 沙箱限制，需走 CapacitorHttp 原生层）。
+ * 非 native 平台降级到普通 fetch。
+ */
+async function nativeFetchJSON(url: string, method: string, headers: Record<string, string>, bodyObj?: unknown): Promise<unknown> {
+  if (Capacitor.isNativePlatform()) {
+    const res = await CapacitorHttp.request({
+      method,
+      url,
+      headers,
+      data: bodyObj,
+    })
+    if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`)
+    return res.data
+  }
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: bodyObj !== undefined ? JSON.stringify(bodyObj) : undefined,
     signal: timedSignal(30000),
   })
-  if (!res.ok) throw new Error(`MinerU upload-url error ${res.status}`)
-  const json = await res.json()
-  const fileInfo = json.data.file_urls[0]
-  return { batch_id: json.data.batch_id, file_url: fileInfo.url }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+
+async function mineruGetUploadUrl(apiKey: string, fileName: string, pageRange?: string): Promise<MineruUploadInfo> {
+  const fileEntry: Record<string, unknown> = { name: fileName, is_ocr: true, data_id: generateId() }
+  if (pageRange) fileEntry.page_ranges = pageRange   // API 原生支持页码范围，无需前端裁剪 PDF
+  const json = await nativeFetchJSON(
+    'https://mineru.net/api/v4/file-urls/batch',
+    'POST',
+    { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    { enable_formula: true, enable_table: true, model_version: 'vlm', files: [fileEntry] }
+  ) as any
+  // file_urls 是字符串数组，直接取 [0]，不是对象
+  const fileUrl: string = json.data.file_urls[0]
+  console.log('[MinerU] upload URL:', fileUrl?.slice(0, 80), 'pageRange:', pageRange)
+  return { batch_id: json.data.batch_id, file_url: fileUrl }
 }
 
 async function mineruUploadFile(uploadUrl: string, file: File): Promise<void> {
+  if (Capacitor.isNativePlatform()) {
+    // WKWebView fetch 对 OSS PUT 有 CORS 限制，必须走 CapacitorHttp 原生层
+    // dataType:'file' 需要本地文件 URI，先写入 Cache
+    const buffer = await file.arrayBuffer()
+    const bytes = new Uint8Array(buffer)
+    // 分块转 base64，避免大文件 call stack overflow
+    const CHUNK = 8192
+    let binary = ''
+    for (let i = 0; i < bytes.byteLength; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+    }
+    const base64Data = btoa(binary)
+    const tmpName = `mineru_upload_${Date.now()}.pdf`
+    const written = await Filesystem.writeFile({
+      path: tmpName,
+      data: base64Data,
+      directory: Directory.Cache,
+    })
+    console.log('[MinerU] tmp file URI:', written.uri, 'size:', bytes.byteLength)
+    try {
+      // 用 PdfExport 插件的 putFile 方法上传：URLSession.uploadTask(with:fromFile:)
+      // 正确读取文件、设置 Content-Length，OSS 收到完整二进制
+      const result = await PdfExportBridge.putFile({ url: uploadUrl, fileUri: written.uri })
+      console.log('[MinerU] PUT status:', result.status)
+    } finally {
+      await Filesystem.deleteFile({ path: tmpName, directory: Directory.Cache }).catch(() => {})
+    }
+    return
+  }
+  // Web: 直接发送 ArrayBuffer，无须 Content-Type
+  const buffer = await file.arrayBuffer()
   const res = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/octet-stream' },
-    body: file,
+    body: buffer,
     signal: timedSignal(120000),
   })
   if (!res.ok) throw new Error(`MinerU file upload error ${res.status}`)
 }
 
-async function mineruPollResult(batchId: string, apiKey: string): Promise<string> {
+async function mineruPollResult(
+  batchId: string,
+  apiKey: string,
+  onProgress?: (msg: string) => void,
+  signal?: AbortSignal
+): Promise<string> {
   const MAX_RETRIES = 60   // 5 min max (5s interval)
+  const startTime = Date.now()
   for (let i = 0; i < MAX_RETRIES; i++) {
     await new Promise(r => setTimeout(r, 5000))
-    const res = await fetch(`https://mineru.net/api/v4/extract-results/batch/${batchId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: timedSignal(15000),
-    })
-    if (!res.ok) continue
-    const json = await res.json()
-    const task = json.data?.list?.[0]
-    if (!task) continue
+    if (signal?.aborted) throw new DOMException('用户已取消', 'AbortError')
+    const elapsed = Math.round((Date.now() - startTime) / 1000)
+    const mins = Math.floor(elapsed / 60)
+    const secs = elapsed % 60
+    const elapsedStr = mins > 0 ? `${mins}分${secs}秒` : `${secs}秒`
 
-    if (task.state === 'done') {
-      // Download ZIP and extract .md
-      const zipUrl = task.full_zip_url
-      const zipRes = await fetch(zipUrl, { signal: timedSignal(60000) })
+    let json: any
+    try {
+      json = await nativeFetchJSON(
+        `https://mineru.net/api/v4/extract-results/batch/${batchId}`,
+        'GET',
+        { Authorization: `Bearer ${apiKey}` },
+      )
+    } catch {
+      onProgress?.(`⏳ MinerU 解析中... 第 ${i + 1}/60 次轮询，已等待 ${elapsedStr}（网络重试中）`)
+      continue
+    }
+    if (i < 3) console.log('[MinerU] poll raw response:', JSON.stringify(json))
+    const task = json?.data?.extract_result?.[0]
+    const state: string = task?.state ?? 'unknown'
+    const ep = task?.extract_progress
+    const progressStr = (state === 'running' && ep)
+      ? ` · ${ep.extracted_pages}/${ep.total_pages} 页`
+      : ''
 
-      const zipBuffer = await zipRes.arrayBuffer()
+    onProgress?.(`⏳ MinerU 解析中... 状态: ${state}${progressStr} · 已等待 ${elapsedStr}（第 ${i + 1}/60 次）`)
+
+    if (state === 'done') {
+      // 优先取直接返回的 markdown 字段
+      const direct = task.content ?? task.markdown ?? task.full_markdown
+      if (direct) return direct as string
+
+      // 否则下载 ZIP
+      onProgress?.(`⬇️ 解析完成，下载结果中...`)
+      const zipUrl: string = task.full_zip_url
+      if (!zipUrl) throw new Error('MinerU done but no content or zip URL')
+      let zipBuffer: ArrayBuffer
+      if (Capacitor.isNativePlatform()) {
+        // 用 Filesystem.downloadFile 下载 ZIP 到本地，再 readFile 读 base64
+        // 避免 CapacitorHttp arraybuffer 响应的序列化问题
+        const tmpZipName = `mineru_result_${Date.now()}.zip`
+        try {
+          await Filesystem.downloadFile({ url: zipUrl, path: tmpZipName, directory: Directory.Cache })
+        } catch (dlErr: any) {
+          const msg = dlErr?.message ?? String(dlErr)
+          if (msg.includes('TLS') || msg.includes('-1200') || msg.includes('SSL')) {
+            throw new Error('下载结果失败：TLS 证书错误。如已开启 VPN，请关闭后重试。')
+          }
+          throw new Error('下载结果失败：' + msg)
+        }
+        let b64zip: string
+        try {
+          const readResult = await Filesystem.readFile({ path: tmpZipName, directory: Directory.Cache })
+          b64zip = (readResult.data as string).replace(/\s/g, '')
+        } finally {
+          await Filesystem.deleteFile({ path: tmpZipName, directory: Directory.Cache }).catch(() => {})
+        }
+        const binary = atob(b64zip)
+        const bytes = new Uint8Array(binary.length)
+        for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j)
+        zipBuffer = bytes.buffer
+      } else {
+        const zipRes = await fetch(zipUrl, { signal: timedSignal(60000) })
+        zipBuffer = await zipRes.arrayBuffer()
+      }
       return await extractMdFromZip(zipBuffer)
     }
-    if (task.state === 'failed') throw new Error('MinerU task failed: ' + (task.err_msg || ''))
+    if (state === 'failed') throw new Error('MinerU task failed: ' + (task.err_msg || ''))
   }
   throw new Error('MinerU timeout: task did not complete in 5 minutes')
 }
@@ -306,16 +426,36 @@ async function extractMdFromZip(zipBuffer: ArrayBuffer): Promise<string> {
 async function callMineruApi(
   file: File,
   apiKey: string,
-  onProgress?: (step: string) => void
+  onProgress?: (step: string) => void,
+  signal?: AbortSignal,
+  pageRange?: string
 ): Promise<string> {
+  console.log('[MinerU] step1: getting upload URL, file=', file.name, 'size=', file.size, 'pageRange=', pageRange)
   onProgress?.('正在上传到 MinerU...')
-  const { batch_id, file_url } = await mineruGetUploadUrl(apiKey, file.name)
+  let batch_id: string, file_url: string
+  try {
+    const info = await mineruGetUploadUrl(apiKey, file.name, pageRange)
+    batch_id = info.batch_id
+    file_url = info.file_url
+    console.log('[MinerU] step1 OK, batch_id=', batch_id)
+  } catch (e: any) {
+    console.error('[MinerU] step1 FAILED:', e?.message, e)
+    throw e
+  }
 
+  console.log('[MinerU] step2: uploading file to presigned URL')
   onProgress?.('文件上传中...')
-  await mineruUploadFile(file_url, file)
+  try {
+    await mineruUploadFile(file_url, file)
+    console.log('[MinerU] step2 OK')
+  } catch (e: any) {
+    console.error('[MinerU] step2 FAILED:', e?.message, e)
+    throw e
+  }
 
+  console.log('[MinerU] step3: polling result, batch_id=', batch_id)
   onProgress?.('AI 布局分析中（OCR/公式识别），请稍候...')
-  return await mineruPollResult(batch_id, apiKey)
+  return await mineruPollResult(batch_id, apiKey, onProgress, signal)
 }
 
 // ─── 查找用户配置的 Embedding Key ─────────────────────────────────────────────
@@ -328,6 +468,33 @@ async function findEmbeddingKey(userId: number): Promise<{ provider: string; api
   return null
 }
 
+// ─── PDF 页码工具 ──────────────────────────────────────────────────────────────
+
+/** 返回 PDF 的总页数（用于在 UI 显示页码范围提示） */
+export async function getPdfPageCount(file: File): Promise<number> {
+  const buffer = await file.arrayBuffer()
+  const doc = await pdfjsLib.getDocument({ data: buffer }).promise
+  return doc.numPages
+}
+
+/** 用 pdf-lib 裁剪 PDF，返回只包含指定页范围的新 File（1-indexed） */
+export async function extractPdfPageRange(file: File, startPage: number, endPage: number): Promise<File> {
+  const { PDFDocument } = await import('pdf-lib')
+  const buffer = await file.arrayBuffer()
+  const srcDoc = await PDFDocument.load(buffer)
+  const totalPages = srcDoc.getPageCount()
+  const s = Math.max(0, startPage - 1)
+  const e = Math.min(totalPages - 1, endPage - 1)
+  const newDoc = await PDFDocument.create()
+  const indices = Array.from({ length: e - s + 1 }, (_, i) => s + i)
+  const copied = await newDoc.copyPages(srcDoc, indices)   // copyPages, not copyPagesFrom
+  copied.forEach(p => newDoc.addPage(p))
+  const bytes = await newDoc.save()
+  const blob = new Blob([bytes], { type: 'application/pdf' })
+  const baseName = file.name.replace(/\.pdf$/i, '')
+  return new File([blob], `${baseName}_p${startPage}-${endPage}.pdf`, { type: 'application/pdf' })
+}
+
 // ─── 主流程：处理文档 ──────────────────────────────────────────────────────────
 
 export interface ProcessOptions {
@@ -335,6 +502,8 @@ export interface ProcessOptions {
   userId: number
   sessionId: string | null
   onProgress?: (msg: string) => void
+  signal?: AbortSignal
+  pageRange?: string   // MinerU API 原生页码范围，如 "1-5"（无需前端裁剪 PDF）
 }
 
 /**
@@ -344,7 +513,7 @@ export interface ProcessOptions {
  * @returns 文档摘要（前 300 字），用于显示给用户
  */
 export async function processDocument(file: File, opts: ProcessOptions): Promise<string> {
-  const { engine, userId, sessionId, onProgress } = opts
+  const { engine, userId, sessionId, onProgress, signal, pageRange } = opts
 
   // ─ Step 1: 提取文本 ──────────────────────────────────────────────────────────
   let text: string
@@ -361,7 +530,7 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
     if (!mineruKey) {
       throw new Error('请先在设置中配置 MinerU API Key（个人中心 → 国内直连 → PDF 解析工具）')
     }
-    text = await callMineruApi(file, mineruKey.api_key, onProgress)
+    text = await callMineruApi(file, mineruKey.api_key, onProgress, signal, pageRange)
   }
 
   if (!text.trim()) throw new Error('未能从文件中提取到文本内容')

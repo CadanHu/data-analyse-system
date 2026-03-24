@@ -114,6 +114,50 @@ public class PdfExportPlugin: CAPPlugin {
         }
     }
 
+    /// 将本地文件以 PUT 方式上传到指定 URL（Aliyun OSS presigned URL）。
+    ///
+    /// 注意：不能用 uploadTask(with:fromFile:)，它会根据文件扩展名自动设置
+    /// Content-Type（.pdf → application/pdf），而 OSS presigned URL 签名是按
+    /// Content-Type="" 计算的，不匹配会导致 403 SignatureDoesNotMatch。
+    /// 改用 uploadTask(with:from:Data) 读取裸字节，不会自动插入 Content-Type。
+    @objc func putFile(_ call: CAPPluginCall) {
+        guard
+            let urlString = call.getString("url"),
+            let fileUriString = call.getString("fileUri"),
+            let targetUrl = URL(string: urlString),
+            let fileUrl = URL(string: fileUriString)
+        else {
+            call.reject("putFile: missing or invalid url/fileUri")
+            return
+        }
+        let fileData: Data
+        do {
+            fileData = try Data(contentsOf: fileUrl, options: .mappedIfSafe)
+        } catch {
+            call.reject("putFile: read file failed - \(error.localizedDescription)")
+            return
+        }
+        var request = URLRequest(url: targetUrl)
+        request.httpMethod = "PUT"
+        // 不设置 Content-Type（OSS 签名按空 Content-Type 计算）
+        // URLSession 会根据 fileData.count 自动加 Content-Length
+        URLSession.shared.uploadTask(with: request, from: fileData) { _, response, error in
+            if let error = error {
+                call.reject("putFile error: \(error.localizedDescription)")
+                return
+            }
+            guard let http = response as? HTTPURLResponse else {
+                call.reject("putFile: no HTTP response")
+                return
+            }
+            if http.statusCode >= 200 && http.statusCode < 300 {
+                call.resolve(["status": http.statusCode])
+            } else {
+                call.reject("putFile HTTP \(http.statusCode)")
+            }
+        }.resume()
+    }
+
     private func triggerPrint(webView: WKWebView, title: String, call: CAPPluginCall) {
         DispatchQueue.main.async {
             let printController = UIPrintInteractionController.shared
