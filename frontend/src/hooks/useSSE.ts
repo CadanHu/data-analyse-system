@@ -42,6 +42,7 @@ interface ConnectOptions {
   model_provider?: string
   model_name?: string
   parent_id?: string
+  no_database?: boolean
   onMessageSent?: () => void
 }
 
@@ -638,6 +639,7 @@ export function useSSE() {
           rag_scope: options?.rag_scope || 'session',
           rag_engine: options?.rag_engine || 'light',
           enable_data_science_agent: options?.enable_data_science_agent || false,
+          no_database: options?.no_database || false,
           model_provider: options?.model_provider,
           model_name: options?.model_name,
           language: language
@@ -661,6 +663,7 @@ export function useSSE() {
             rag_scope: options?.rag_scope || 'session',
             rag_engine: options?.rag_engine || 'light',
             enable_data_science_agent: options?.enable_data_science_agent || false,
+            no_database: options?.no_database || false,
             model_provider: options?.model_provider,
             model_name: options?.model_name,
             language: language // 🚀 传回当前语言

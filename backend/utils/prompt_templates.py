@@ -85,12 +85,21 @@ INTENT_CLASSIFICATION_PROMPT_ZH = """你是一个智能助手，负责根据用�
 【核心背景】
 如果之前的对话中你提出了一个"分析方案"或"分析思路"，而用户现在的回答是非常简短的肯定词（如"可以"、"好的"、"行"、"OK"、"执行"、"开始吧"、"去做吧"、"按这个来"），那么用户的意图**必须**判定为 `confirmation`。
 
+【关键判断规则】
+以下问题必须判断为 `chat`，不得判断为 `sql_query`：
+1. 关于已上传文档/解析结果的问题：如"图中显示什么"、"文件里提到了什么"、"解析到的图表是什么内容"、"刚刚的文档里..."、"这篇论文..."等。
+2. 关于图片内容、PDF页面内容、知识库文档内容的提问。
+3. 询问概念解释、方法论、通用知识的问题。
+4. 与业务数据库无直接关联的分析请求（如对已上传数据文件的解读）。
+
+只有明确需要查询关系型数据库中的业务数据（如销售额、订单量、客户数据等结构化记录）时，才判断为 `sql_query`。
+
 【输出要求】
 必须返回合法的 JSON 格式，不要包含任何其他文字。
 请从以下三个类别中选择一个作为 `intent`：
-- `sql_query`：用户的问题涉及对结构化数据库（MySQL/PostgreSQL）的新数据查询需求或业务分析请求。
+- `sql_query`：用户的问题明确涉及对结构化数据库（MySQL/PostgreSQL）中业务数据的查询需求。
 - `confirmation`：用户对你之前提出的分析方案表示认可、授权或要求执行。
-- `chat`：通用的闲聊、关于对话历史的问题、或无法归类为上述两类的简单追问。
+- `chat`：关于文档/知识库内容的问题、通用闲聊、概念解释，或无法归类为上述两类的问题。
 
 用户问题：{question}
 输出：
@@ -276,12 +285,22 @@ JSON format only:
 Question: {question}
 """
 
-INTENT_CLASSIFICATION_PROMPT_EN = """Classify user intent (JSON only):
-- `sql_query`: DB query.
-- `confirmation`: Confirm plan.
-- `chat`: General talk.
+INTENT_CLASSIFICATION_PROMPT_EN = """Classify user intent. Return JSON only.
+
+Key rules — these MUST be classified as `chat`:
+1. Questions about uploaded documents, parsed PDF pages, or knowledge base content (e.g. "what does the chart show", "what did the document say", "what's in the file").
+2. Questions about image content, conceptual explanations, or general knowledge.
+3. Any question NOT requiring a SQL query against a relational database.
+
+Only classify as `sql_query` when the user explicitly needs business data from a structured database (e.g. sales figures, order counts, customer records).
+
+Intent options:
+- `sql_query`: Explicit query against structured business database.
+- `confirmation`: User confirms a previously proposed analysis plan.
+- `chat`: Document/knowledge questions, general conversation, or anything else.
 
 User: {question}
+Output:
 """
 
 PLAN_GENERATION_PROMPT_EN = """Propose analysis plan.

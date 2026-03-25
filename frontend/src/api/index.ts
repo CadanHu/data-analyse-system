@@ -154,29 +154,31 @@ export const chatApi = {
 };
 
 export const uploadApi = {
-  upload: (file: File, sessionId: string, engine: string = 'light', useHighPrecision: boolean = false) => {
+  upload: (file: File, sessionId: string, engine: string = 'light', useHighPrecision: boolean = false, pageRange?: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('session_id', sessionId);
     formData.append('engine', engine);
     if (useHighPrecision) formData.append('use_high_precision', 'true');
+    if (pageRange) formData.append('page_range', pageRange);
     return api.post('/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 60000 // 🚀 延长至 60 秒以加载模型
+      timeout: 60000
     }).then(res => res.data);
   },
   // 深度知识库处理接口
-  extractKnowledge: (file: File, sessionId: string, useHighPrecision: boolean = false, engine: string = 'pro', prompt?: string) => {
+  extractKnowledge: (file: File, sessionId: string, useHighPrecision: boolean = false, engine: string = 'pro', prompt?: string, pageRange?: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('session_id', sessionId);
     formData.append('engine', engine);
     if (useHighPrecision) formData.append('use_high_precision', 'true');
     if (prompt) formData.append('prompt', prompt);
+    if (pageRange) formData.append('page_range', pageRange);
 
     return api.post('/upload/knowledge', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 172800000 // 延长至 172,800,000 毫秒 (48小时)
+      timeout: 172800000
     }).then(res => res.data);
   },
 };
@@ -203,6 +205,8 @@ export const ragApi = {
     ).then(res => res.data),
   deleteChunk: (chunkId: string) =>
     api.post<{ success: boolean }>('/rag/chunk/delete', { chunk_id: chunkId }).then(res => res.data),
+  deleteDoc: (sessionId: string | undefined, filename: string) =>
+    api.post<{ success: boolean; deleted: number }>('/rag/doc/delete', { session_id: sessionId || null, filename }).then(res => res.data),
 };
 
 export const messageApi = {

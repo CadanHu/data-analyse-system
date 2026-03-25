@@ -5,6 +5,7 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import * as echarts from 'echarts'
 import type { KnowledgeGraph } from '@/services/mobileKnowledgeService'
 
 // ECharts 颜色方案：按实体类型区分
@@ -28,70 +29,55 @@ export default function KnowledgeGraphModal({ graph, onClose }: Props) {
   useEffect(() => {
     if (!chartRef.current || graph.entities.length === 0) return
 
-    // 动态加载 ECharts（已全局缓存）
-    const win = window as any
-    const echarts = win.echarts
-    if (!echarts) return
-
+    console.log('[KG-Modal] container size:', chartRef.current.offsetWidth, 'x', chartRef.current.offsetHeight, 'entities:', graph.entities.length)
     const chart = echarts.init(chartRef.current, null, { renderer: 'canvas' })
 
+    // ECharts graph edges match nodes by `name`, not `id`.
+    const idToName = new Map(graph.entities.map(e => [e.id, e.text]))
+
     const nodes = graph.entities.map(e => ({
-      id: e.id,
       name: e.text,
       value: e.description || e.type,
       category: e.type,
-      symbolSize: 40,
+      symbolSize: 36,
       itemStyle: { color: TYPE_COLORS[e.type] || '#8b5cf6' },
-      label: { show: true, fontSize: 11, color: '#1f2937' },
+      label: { show: true, fontSize: 10, color: '#1f2937' },
     }))
 
     const edges = graph.relations.map(r => ({
-      source: r.source,
-      target: r.target,
-      label: { show: true, formatter: r.label, fontSize: 9, color: '#6b7280' },
-      lineStyle: { color: '#d1d5db', curveness: 0.1 },
+      source: idToName.get(r.source) ?? r.source,
+      target: idToName.get(r.target) ?? r.target,
+      label: { show: false },   // 边标签先隐藏，避免文字重叠
+      lineStyle: { color: '#94a3b8', curveness: 0.2, width: 1.2 },
     }))
 
-    chart.setOption({
-      backgroundColor: '#fafafa',
-      tooltip: {
-        trigger: 'item',
-        formatter: (params: any) => {
-          if (params.dataType === 'node') {
-            return `<b>${params.data.name}</b><br/>${params.data.category}<br/>${params.data.value || ''}`
-          }
-          return `${params.data.source} → ${params.data.target}<br/>${params.data.label?.formatter || ''}`
-        },
-      },
-      legend: {
-        data: Object.keys(TYPE_COLORS).filter(t => graph.entities.some(e => e.type === t)),
-        orient: 'vertical',
-        right: 10,
-        top: 10,
-        textStyle: { fontSize: 11 },
-        formatter: (name: string) => name,
-      },
-      series: [{
-        type: 'graph',
-        layout: 'force',
-        data: nodes,
-        edges,
-        roam: true,
-        draggable: true,
-        force: {
-          repulsion: 200,
-          gravity: 0.05,
-          edgeLength: [80, 200],
-        },
-        emphasis: {
-          focus: 'adjacency',
-          lineStyle: { width: 3 },
-        },
-        lineStyle: { opacity: 0.7, width: 1.5 },
-      }],
-    })
+    try {
+      chart.setOption({
+        backgroundColor: '#f8fafc',
+        series: [{
+          type: 'graph',
+          layout: 'circular',   // 圆形布局：不依赖动画，立即渲染
+          circular: { rotateLabel: true },
+          data: nodes,
+          edges,
+          roam: true,
+          draggable: true,
+          animation: false,
+          label: { show: true, position: 'right', fontSize: 10 },
+          lineStyle: { opacity: 0.6, width: 1.2, color: '#94a3b8' },
+          emphasis: {
+            focus: 'adjacency',
+            lineStyle: { width: 2.5 },
+          },
+        }],
+      })
+      chart.resize()
+      console.log('[KG-Modal] setOption OK')
+    } catch (err) {
+      console.error('[KG-Modal] setOption error:', err)
+    }
 
-    const handleResize = () => chart.resize()
+    const handleResize = () => { chart.resize(); chart.resize() }
     window.addEventListener('resize', handleResize)
     return () => {
       chart.dispose()
@@ -132,7 +118,7 @@ export default function KnowledgeGraphModal({ graph, onClose }: Props) {
         )}
 
         {/* Graph canvas */}
-        <div ref={chartRef} className="flex-1 w-full" />
+        <div ref={chartRef} className="flex-1 w-full" style={{ minHeight: 300 }} />
 
         {/* Entity list fallback if no echarts */}
         {graph.entities.length === 0 && (

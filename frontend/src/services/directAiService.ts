@@ -154,11 +154,16 @@ export async function streamDirectAi(opts: DirectAiOptions): Promise<void> {
   const headers = config.buildHeaders(opts.apiKey.api_key)
   const body = config.buildBody(opts)
 
+  // iOS native: WKWebView fetch SSE (getReader) has a known bug.
+  // For OpenAI-compatible providers, force stream:false so we get a plain JSON response.
+  const useNonStream = Capacitor.isNativePlatform() && opts.provider !== 'gemini' && opts.provider !== 'claude'
+  const bodyToSend = useNonStream ? { ...(body as object), stream: false } : body
+
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify(bodyToSend),
       signal: opts.signal,
     })
 
@@ -173,6 +178,15 @@ export async function streamDirectAi(opts: DirectAiOptions): Promise<void> {
     if (opts.provider === 'gemini' && Capacitor.isNativePlatform()) {
       const json = await response.json()
       const text = json.candidates?.[0]?.content?.parts?.[0]?.text
+      if (text) opts.onSummary?.(text)
+      opts.onDone?.()
+      return
+    }
+
+    // iOS native: sent stream:false, parse single JSON response directly.
+    if (useNonStream) {
+      const json = await response.json()
+      const text = json.choices?.[0]?.message?.content
       if (text) opts.onSummary?.(text)
       opts.onDone?.()
       return

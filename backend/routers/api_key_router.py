@@ -11,7 +11,15 @@ from routers.auth_router import get_current_user
 
 router = APIRouter()
 
-SUPPORTED_PROVIDERS = {"deepseek", "openai", "gemini", "claude"}
+SUPPORTED_PROVIDERS = {
+    "deepseek", "openai", "gemini", "claude",
+    "zhipu", "zhipu_embedding",
+    "qwen", "qwen_embedding",
+    "minimax",
+    "mineru",
+    "jina_embedding",
+    "google_embedding",
+}
 
 # 哪些模型支持思考模式 (前端校验时也用同样逻辑)
 THINKING_SUPPORTED = {

@@ -86,6 +86,12 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   }
 
   const switchDatabase = async (dbKey: string, shouldUpdateSession: boolean = true) => {
+    // 用户明确选择不使用数据库
+    if (dbKey === '__no_db__') {
+      setCurrentDb('__no_db__')
+      setShowDbSelector(false)
+      return
+    }
     if (isOffline) {
       setCurrentDb(dbKey)
       setShowDbSelector(false)
@@ -99,13 +105,13 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       await databaseApi.switchDatabase(dbKey, shouldUpdateSession && selectedSessionId ? selectedSessionId : undefined)
       setCurrentDb(dbKey)
       setShowDbSelector(false)
-      
+
       // 核心修复：如果是手动切换，立即更新本地 Store 和 SQLite，确保 App 重启后仍能记住选择
       if (shouldUpdateSession && selectedSessionId) {
         updateSession(selectedSessionId, { database_key: dbKey })
         localUpdateSession(selectedSessionId, { database_key: dbKey }).catch(() => {})
       }
-      
+
       await loadDatabases()
     } catch (error) {
       console.error('切换数据库失败:', error)
@@ -158,25 +164,37 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
               <button
                 onClick={() => setShowDbSelector(!showDbSelector)}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-gray-700 transition-all shadow-lg data-[mobile=true]:data-[orientation=landscape]:py-0.5 data-[mobile=true]:data-[orientation=landscape]:px-2 data-[mobile=true]:data-[orientation=landscape]:text-[10px] ${
-                  !currentDb 
-                    ? 'bg-gradient-to-r from-orange-400 to-red-400 text-white animate-pulse font-bold' 
-                    : 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] shadow-[0_4px_12px_rgba(191,255,217,0.3)]'
+                  currentDb === '__no_db__'
+                    ? 'bg-gray-100 text-gray-500 border border-gray-200'
+                    : !currentDb
+                      ? 'bg-gradient-to-r from-orange-400 to-red-400 text-white animate-pulse font-bold'
+                      : 'bg-gradient-to-r from-[#BFFFD9] to-[#E0FFFF] shadow-[0_4px_12px_rgba(191,255,217,0.3)]'
                 }`}
               >
                 <span className="font-medium truncate max-w-[70px] data-[mobile=true]:data-[orientation=landscape]:max-w-[100px]">
-                  {databases.find(d => d.key === currentDb)?.name || t('chat.selectDb')}
+                  {currentDb === '__no_db__'
+                    ? t('chat.noDb')
+                    : databases.find(d => d.key === currentDb)?.name || t('chat.selectDb')}
                 </span>
                 <svg className="w-3 h-3 data-[mobile=true]:data-[orientation=landscape]:w-2 data-[mobile=true]:data-[orientation=landscape]:h-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
               {showDbSelector && Array.isArray(databases) && (
-                <div className="absolute right-0 top-full mt-2 bg-white/90 backdrop-blur-md rounded-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12)] z-50 min-w-[150px]">
-                  {databases.map((db) => (
+                <div className="absolute right-0 top-full mt-2 bg-white/90 backdrop-blur-md rounded-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12)] z-50 min-w-[160px]">
+                  <button
+                    onClick={() => switchDatabase('__no_db__', false)}
+                    className={`w-full text-left px-4 py-2 text-sm transition-all rounded-t-xl hover:bg-gray-100/60 border-b border-gray-100 ${
+                      currentDb === '__no_db__' ? 'bg-gray-100 text-gray-500 font-medium' : 'text-gray-400'
+                    }`}
+                  >
+                    {t('chat.noDb')}
+                  </button>
+                  {databases.map((db, idx) => (
                     <button
                       key={db.key}
                       onClick={() => switchDatabase(db.key, true)}
-                      className={`w-full text-left px-4 py-2 text-sm transition-all first:rounded-t-xl last:rounded-b-xl hover:bg-[#BFFFD9]/30 ${
+                      className={`w-full text-left px-4 py-2 text-sm transition-all ${idx === databases.length - 1 ? 'rounded-b-xl' : ''} hover:bg-[#BFFFD9]/30 ${
                         db.key === currentDb ? 'bg-[#BFFFD9]/50 text-gray-700 font-medium' : 'text-gray-600'
                       }`}
                     >

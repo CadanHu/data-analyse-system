@@ -9,10 +9,11 @@ import { cacheFile } from '@/services/fileCache'
 import ModelKeyModal from './ModelKeyModal'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncStore } from '@/stores/syncStore'
-import { localUpdateSession } from '@/services/localStore'
+import { localUpdateSession, localSaveMessage } from '@/services/localStore'
 import { Capacitor } from '@capacitor/core'
-import { processDocument, loadKnowledgeGraph, getPdfPageCount } from '@/services/mobileKnowledgeService'
+import { processDocument, loadKnowledgeGraph, loadKnowledgeGraphAsync, getPdfPageCount, type KnowledgeGraph } from '@/services/mobileKnowledgeService'
 import KnowledgeGraphModal from './KnowledgeGraphModal'
+import RagManagerModal from './RagManagerModal'
 
 // 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
 const THINKING_SUPPORTED_MODELS = new Set([
@@ -113,12 +114,21 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
   const [showEngineSelect, setShowEngineSelect] = useState(false)
   const [knowledgeGraphDoc, setKnowledgeGraphDoc] = useState<string | null>(null)
+  const [loadedGraph, setLoadedGraph] = useState<KnowledgeGraph | null>(null)
+  const [showRagManager, setShowRagManager] = useState(false)
 
   // 注册全局方法供 MessageItem 调用（避免 prop drilling）
   useEffect(() => {
     (window as any).__showKnowledgeGraph = (docName: string) => setKnowledgeGraphDoc(docName)
     return () => { delete (window as any).__showKnowledgeGraph }
   }, [])
+
+  // 异步加载图谱数据：localStorage → SQLite fallback（重装 App 后恢复）
+  useEffect(() => {
+    if (!knowledgeGraphDoc) { setLoadedGraph(null); return }
+    setLoadedGraph(null)
+    loadKnowledgeGraphAsync(knowledgeGraphDoc, localUserId ?? -1).then(g => setLoadedGraph(g))
+  }, [knowledgeGraphDoc, localUserId])
 
   const { connect, disconnect } = useSSE()
   const { t, language } = useTranslation()
@@ -213,6 +223,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
         parent_id: parentId,
         enable_data_science_agent: isDataScienceMode,
         enable_thinking: isThinkingMode,
+        no_database: currentDb === '__no_db__',
         model_provider: currentModelProvider || undefined,
         model_name: currentModelNameLocal || undefined,
       },
@@ -273,7 +284,7 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
         setPageRangeEnd('')
         getPdfPageCount(file).then(n => {
           setPdfPageCount(n)
-          setPageRangeEnd(String(n))
+          // 不自动填充末页 —— pageRangeEnd 为空表示"解析全部"，用户手动填写才限制范围
         }).catch(() => {})
       }
 
@@ -339,7 +350,7 @@ const handleStandardUpload = async (file: File) => {
     }
   }
 
-  const startKnowledgeExtraction = async (file: File) => {
+  const startKnowledgeExtraction = async (file: File, pageRange?: string, engine: 'pro' | 'knowledge' = 'knowledge') => {
     const messageId = `local_${Date.now()}`
     let progressTimer: any = null
     const startTime = Date.now()
@@ -389,7 +400,7 @@ const handleStandardUpload = async (file: File) => {
         })
       }, 1000)
 
-      const response = await uploadApi.extractKnowledge(file, sessionId!, useHighPrecision)
+      const response = await uploadApi.extractKnowledge(file, sessionId!, useHighPrecision, engine, undefined, pageRange)
       
       // 如果后端返回正在处理（异步模式）
       if (response.status === 'processing') {
@@ -397,17 +408,37 @@ const handleStandardUpload = async (file: File) => {
         useSessionStore.getState().updateMessage(messageId, {
           content: `⏳ **${t('alert.processing')}**\nFile: 《${file.name}》\nStatus: ${t('chat.proMode')} task submitted to background.`
         })
-        
-        // 开启一个轮询，每 10 秒刷新一次消息列表，直到看到完成消息
+
+        // Web：会话重命名（仅在无标题时）
+        const sessW = useSessionStore.getState().currentSession
+        if (sessW && !sessW.title && sessionId) {
+          const newTitle = `📄 ${file.name.replace(/\.[^.]+$/, '').slice(0, 22)}`
+          sessionApi.updateSessionTitle(sessionId, newTitle).catch(() => {})
+          updateSession(sessionId, { title: newTitle })
+        }
+
+        // 开启一个轮询，每 8 秒从服务端拉取最新消息，直到看到完成或失败消息
         const pollInterval = setInterval(async () => {
-          if (onMessageSent) onMessageSent()
-          // 检查最后一条消息是否包含“完成”字样（简单判断）
-          const currentMessages = useSessionStore.getState().messages
-          const lastMsg = currentMessages[currentMessages.length - 1]
-          if (lastMsg?.content?.includes('完成') || lastMsg?.content?.includes('失败') || lastMsg?.content?.includes('Complete') || lastMsg?.content?.includes('Failed')) {
-            clearInterval(pollInterval)
-          }
-        }, 10000)
+          try {
+            const freshMsgs = await sessionApi.getMessages(sessionId!, true)
+            if (Array.isArray(freshMsgs) && freshMsgs.length > 0) {
+              const processed = freshMsgs.map((msg: any) => {
+                if (typeof msg.data === 'string' && msg.data) {
+                  try { return { ...msg, data: JSON.parse(msg.data) } } catch { return msg }
+                }
+                return msg
+              })
+              useSessionStore.getState().setMessages(processed)
+              const lastMsg = processed[processed.length - 1]
+              if (lastMsg?.content?.includes('完成') || lastMsg?.content?.includes('失败') ||
+                  lastMsg?.content?.includes('Complete') || lastMsg?.content?.includes('Failed') ||
+                  lastMsg?.data?.is_background_completed) {
+                clearInterval(pollInterval)
+                if (onMessageSent) onMessageSent()
+              }
+            }
+          } catch { /* ignore poll errors */ }
+        }, 8000)
         
         return
       }
@@ -455,7 +486,15 @@ const handleStandardUpload = async (file: File) => {
       } catch (saveErr) {
         console.error('Failed to persist knowledge message:', saveErr)
       }
-      
+
+      // Web 同步模式：会话重命名（仅在无标题时）
+      const sessSync = useSessionStore.getState().currentSession
+      if (sessSync && !sessSync.title && sessionId) {
+        const newTitle = `📄 ${file.name.replace(/\.[^.]+$/, '').slice(0, 22)}`
+        sessionApi.updateSessionTitle(sessionId, newTitle).catch(() => {})
+        updateSession(sessionId, { title: newTitle })
+      }
+
       if (onMessageSent) onMessageSent()
     } catch (error: any) {
       if (progressTimer) clearInterval(progressTimer)
@@ -483,21 +522,23 @@ const handleStandardUpload = async (file: File) => {
     const messageId = `local_kb_${Date.now()}`
     const abortController = new AbortController()
     mineruAbortRef.current = abortController
+    const modeLabel = engine === 'light' ? '标准模式（本地解析）'
+      : engine === 'pro' ? '深度模式（MinerU）'
+      : '知识抽取（MinerU）'
+    const userMsg = {
+      id: messageId,
+      session_id: sessionId!,
+      role: 'user' as const,
+      content: `【${modeLabel}】正在处理：${file.name}...`,
+      created_at: new Date().toISOString(),
+    }
     try {
       setIsLoading(true)
       setShowEngineSelect(false)
 
-      const modeLabel = engine === 'light' ? '标准模式（本地解析）'
-        : engine === 'pro' ? '深度模式（MinerU）'
-        : '知识抽取（MinerU）'
-
-      addMessage({
-        id: messageId,
-        session_id: sessionId!,
-        role: 'user',
-        content: `【${modeLabel}】正在处理：${file.name}...`,
-        created_at: new Date().toISOString(),
-      })
+      addMessage(userMsg)
+      // 持久化到本地 SQLite，切换会话后不丢失
+      localSaveMessage(userMsg).catch(console.error)
 
       const preview = await processDocument(file, {
         engine,
@@ -518,23 +559,37 @@ const handleStandardUpload = async (file: File) => {
       const hasGraph = engine === 'knowledge' && !!loadKnowledgeGraph(file.name, localUserId ?? -1)
       const graphHint = hasGraph ? '\n\n💡 点击下方「知识图谱」按钮可查看抽取的实体关系图' : ''
 
-      addMessage({
-        id: `resp_kb_${Date.now()}`,
+      const assistantRespId = `resp_kb_${Date.now()}`
+      const assistantResp = {
+        id: assistantRespId,
         session_id: sessionId!,
-        role: 'assistant',
+        role: 'assistant' as const,
         content: `✅ 已完成本地知识索引\n文件：《${file.name}》\n\n**内容预览：**\n> ${preview.slice(0, 200)}...${graphHint}\n\n文档已索引到本地知识库，后续对话将自动检索相关内容。`,
         data: hasGraph ? JSON.stringify({ is_knowledge_extraction: true, doc_name: file.name, has_graph: true }) : undefined,
         created_at: new Date().toISOString(),
-      })
+      }
+      addMessage(assistantResp)
+      // 持久化助手回复和最终用户消息到本地 SQLite
+      const finalUserContent = `【${modeLabel}】✅ ${file.name} 已完成索引`
+      localSaveMessage({ ...userMsg, content: finalUserContent }).catch(console.error)
+      localSaveMessage(assistantResp).catch(console.error)
 
       useSessionStore.getState().updateMessage(messageId, {
-        content: `【${modeLabel}】✅ ${file.name} 已完成索引`,
+        content: finalUserContent,
       })
+
+      // 移动端：会话重命名（仅在无标题时）
+      const sessForRename = useSessionStore.getState().currentSession
+      if (sessForRename && !sessForRename.title && sessionId) {
+        const newTitle = `📄 ${file.name.replace(/\.[^.]+$/, '').slice(0, 22)}`
+        localUpdateSession(sessionId, { title: newTitle }).catch(console.error)
+        updateSession(sessionId, { title: newTitle })
+      }
     } catch (e: any) {
       const cancelled = e?.name === 'AbortError'
-      useSessionStore.getState().updateMessage(messageId, {
-        content: cancelled ? `⏹️ 已取消：${file.name}` : `❌ 处理失败：${e.message}`,
-      })
+      const errContent = cancelled ? `⏹️ 已取消：${file.name}` : `❌ 处理失败：${e.message}`
+      useSessionStore.getState().updateMessage(messageId, { content: errContent })
+      localSaveMessage({ ...userMsg, content: errContent }).catch(console.error)
       if (!cancelled) alert(e.message)
     } finally {
       mineruAbortRef.current = null
@@ -561,9 +616,10 @@ const handleStandardUpload = async (file: File) => {
       let pageRange: string | undefined
       const isPdf = file.name.toLowerCase().endsWith('.pdf')
       const start = parseInt(pageRangeStart) || 1
-      const end = parseInt(pageRangeEnd) || pdfPageCount
-      if (isPdf && (engine === 'pro' || engine === 'knowledge') && pdfPageCount > 0 && end >= start && end < pdfPageCount) {
-        pageRange = `${start}-${end}`
+      const endVal = parseInt(pageRangeEnd) // NaN if empty → 解析全部
+      // pageRangeEnd 有明确数字才限制范围，不依赖 pdfPageCount（异步可能未加载完）
+      if (isPdf && (engine === 'pro' || engine === 'knowledge') && !isNaN(endVal) && endVal >= start) {
+        pageRange = `${start}-${endVal}`
         console.log(`[PDF] 将通过 MinerU page_ranges 参数限制页码: ${pageRange}`)
       }
       await handleMobileLocalProcess(file, engine, pageRange)
@@ -573,15 +629,32 @@ const handleStandardUpload = async (file: File) => {
     }
 
     // 电脑端 + 在线：保持原有后端流程
-    if (engine === 'knowledge') {
-      startKnowledgeExtraction(file)
+    // 计算页码范围（仅 PDF + pro/knowledge 时有效）
+    const isPdf = file.name.toLowerCase().endsWith('.pdf')
+    let webPageRange: string | undefined
+    const webStart = parseInt(pageRangeStart) || 1
+    const webEnd = parseInt(pageRangeEnd)
+    if (isPdf && (engine === 'pro' || engine === 'knowledge') && !isNaN(webEnd) && webEnd >= webStart) {
+      webPageRange = `${webStart}-${webEnd}`
+    }
+
+    if (engine === 'knowledge' || engine === 'pro') {
+      // pro/knowledge 引擎均走后台任务流程，结果写入 session 消息，刷新后不丢失
+      startKnowledgeExtraction(file, webPageRange, engine)
     } else {
       setRagEngine(engine as any)
       try {
         setIsLoading(true)
-        await uploadApi.upload(file, sessionId!, engine)
+        await uploadApi.upload(file, sessionId!, engine, useHighPrecision, webPageRange)
         setSessionHasFiles(true)
         setRagScope('session')
+        // Web light 模式：会话重命名（仅在无标题时）
+        const sessLight = useSessionStore.getState().currentSession
+        if (sessLight && !sessLight.title && sessionId) {
+          const newTitle = `📄 ${file.name.replace(/\.[^.]+$/, '').slice(0, 22)}`
+          sessionApi.updateSessionTitle(sessionId, newTitle).catch(() => {})
+          updateSession(sessionId, { title: newTitle })
+        }
       } catch (e: any) {
         alert(`${t('alert.parseFailed')}: ${e.message}`)
       } finally {
@@ -616,12 +689,9 @@ const handleStandardUpload = async (file: File) => {
       )}
 
       {/* Knowledge Graph Modal */}
-      {knowledgeGraphDoc && (() => {
-        const graph = loadKnowledgeGraph(knowledgeGraphDoc, localUserId ?? -1)
-        return graph ? (
-          <KnowledgeGraphModal graph={graph} onClose={() => setKnowledgeGraphDoc(null)} />
-        ) : null
-      })()}
+      {knowledgeGraphDoc && loadedGraph && (
+        <KnowledgeGraphModal graph={loadedGraph} onClose={() => setKnowledgeGraphDoc(null)} />
+      )}
 
       {/* Model Key Modal */}
       {showModelKeyModal && (
@@ -632,6 +702,9 @@ const handleStandardUpload = async (file: File) => {
           onClose={() => setShowModelKeyModal(false)}
           onModelChange={handleModelChange}
         />
+      )}
+      {showRagManager && sessionId && (
+        <RagManagerModal sessionId={sessionId} onClose={() => setShowRagManager(false)} />
       )}
 
       {showEngineSelect && (

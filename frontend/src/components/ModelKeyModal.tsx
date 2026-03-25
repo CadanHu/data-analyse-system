@@ -45,6 +45,18 @@ const PROVIDER_MODELS: Record<string, {
       { value: 'qwen-turbo', label: 'Qwen-Turbo 极速 (免费额度)' },
     ],
   },
+  zhipu: {
+    label: '智谱 AI (GLM)',
+    vpn: false,
+    baseUrlHint: 'https://open.bigmodel.cn/api/paas/v4',
+    getKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
+    freeTier: '赠送 600万 tokens',
+    models: [
+      { value: 'glm-4.5-air', label: 'GLM-4.5 Air (推荐，免费额度)' },
+      { value: 'glm-4.6v', label: 'GLM-4.6V 视觉 (赠 600万 tokens)' },
+      { value: 'glm-4-flash', label: 'GLM-4 Flash 极速 (免费)' },
+    ],
+  },
   minimax: {
     label: 'MiniMax',
     vpn: false,
@@ -162,6 +174,11 @@ async function validateProviderKey(providerKey: string, apiKey: string, baseUrl?
     }
     if (providerKey === 'openai') {
       const url = `${base || 'https://api.openai.com'}/v1/models`
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) })
+      return res.status === 200 || res.status === 404
+    }
+    if (providerKey === 'zhipu' || providerKey === 'zhipu_embedding') {
+      const url = 'https://open.bigmodel.cn/api/paas/v4/models'
       const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) })
       return res.status === 200 || res.status === 404
     }

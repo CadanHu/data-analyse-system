@@ -23,16 +23,22 @@ class MinerUService:
             "Content-Type": "application/json"
         }
 
-    def _get_upload_url(self, filename: str) -> Optional[Dict[str, Any]]:
+    def _get_upload_url(self, filename: str, page_ranges: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """第一步：申请上传 URL"""
         url = f"{self.BASE_URL}/file-urls/batch"
+        file_entry: Dict[str, Any] = {"name": filename, "data_id": f"ext_{int(time.time())}"}
+        if page_ranges:
+            file_entry["page_ranges"] = page_ranges
         data = {
-            "files": [{"name": filename, "data_id": f"ext_{int(time.time())}"}],
+            "files": [file_entry],
             "model_version": "vlm"
         }
         try:
             logger.info(f"📡 [MinerU] 申请上传 URL: {filename}")
             response = requests.post(url, headers=self.headers, json=data, timeout=15)
+            if response.status_code != 200:
+                logger.error(f"❌ [MinerU] HTTP {response.status_code}: {response.text[:200]}")
+                return None
             result = response.json()
             if result.get("code") == 0:
                 batch_id = result["data"]["batch_id"]
@@ -64,23 +70,43 @@ class MinerUService:
             logger.error(f"❌ [MinerU] 上传异常: {str(e)}")
             return False
 
-    def _download_and_extract_md(self, zip_url: str) -> str:
-        """从结果压缩包中提取 Markdown 内容"""
+    def _save_zip_to_dirs(self, zip_bytes: bytes, save_dirs: List[Path]) -> None:
+        """将 ZIP 内所有文件解压到一个或多个目录（保留内部路径结构）"""
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            for name in z.namelist():
+                if name.endswith('/'):
+                    continue
+                data = z.read(name)
+                for save_dir in save_dirs:
+                    out = save_dir / name
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_bytes(data)
+        logger.info(f"✅ [MinerU] 解析结果已保存到 {len(save_dirs)} 个目录")
+
+    def _download_and_extract_md(self, zip_url: str, save_dirs: Optional[List[Path]] = None) -> str:
+        """从结果压缩包中提取 Markdown 内容，同时将所有文件保存到指定目录"""
         try:
             logger.info(f"📡 [MinerU] 正在下载并解析结果包: {zip_url}")
-            
+
             # 使用 Auth 头下载
             resp = requests.get(zip_url, headers=self.headers, timeout=30)
-            
+
             if resp.status_code != 200:
                 logger.error(f"❌ [MinerU] 结果包下载失败 (状态码: {resp.status_code})")
                 return f"错误: 结果包下载失败 (状态码: {resp.status_code})"
-            
+
             # 检查是否为有效 ZIP
             if resp.content[:2] != b'PK':
                 content_type = resp.headers.get("Content-Type", "")
                 logger.error(f"❌ [MinerU] 下载的内容不是 ZIP (Type: {content_type})")
                 return "错误: 提取结果失败 - 下载的内容不是有效的 ZIP 文件"
+
+            # 保存所有文件到指定目录（Plan A / Plan B）
+            if save_dirs:
+                try:
+                    self._save_zip_to_dirs(resp.content, save_dirs)
+                except Exception as e:
+                    logger.warning(f"⚠️ [MinerU] 保存解析文件失败（不影响主流程）: {e}")
 
             with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
                 # 寻找根目录或子目录下的 .md 文件
@@ -94,7 +120,7 @@ class MinerUService:
             logger.error(f"❌ [MinerU] 提取结果失败: {str(e)}")
             return f"错误: 提取结果失败 - {str(e)}"
 
-    def _poll_task(self, batch_id: str) -> str:
+    def _poll_task(self, batch_id: str, save_dirs: Optional[List[Path]] = None) -> str:
         """第三步：轮询任务状态"""
         url = f"{self.BASE_URL}/extract-results/batch/{batch_id}"
         max_retries = 60
@@ -125,7 +151,7 @@ class MinerUService:
                         # 2. 尝试下载 ZIP
                         zip_url = task_info.get("full_zip_url")
                         if zip_url:
-                            return self._download_and_extract_md(zip_url)
+                            return self._download_and_extract_md(zip_url, save_dirs)
                         
                         return "错误: 解析完成但未找到内容或链接"
                     elif state == "failed":
@@ -140,13 +166,13 @@ class MinerUService:
             time.sleep(interval)
         return "错误: 任务处理超时 (5分钟)"
 
-    def parse_pdf(self, file_path: Path) -> str:
+    def parse_pdf(self, file_path: Path, save_dirs: Optional[List[Path]] = None, page_ranges: Optional[str] = None) -> str:
         if not self.api_key: return "错误: 未配置 MinerU API Key"
-        info = self._get_upload_url(file_path.name)
+        info = self._get_upload_url(file_path.name, page_ranges=page_ranges)
         if not info: return "错误: 申请上传通道失败"
         if not self._upload_file(info["upload_url"], file_path):
             return "错误: 文件上传失败"
-        return self._poll_task(info["batch_id"])
+        return self._poll_task(info["batch_id"], save_dirs)
 
 # 全局实例
 mineru_service = MinerUService()

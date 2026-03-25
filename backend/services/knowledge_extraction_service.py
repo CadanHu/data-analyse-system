@@ -361,3 +361,109 @@ class KnowledgeExtractionService:
         return await self.extract_and_save(text, "uploaded_file", prompt)
 
 knowledge_extraction_service = KnowledgeExtractionService()
+
+
+# ─── Web 端知识图谱抽取（后台任务专用）──────────────────────────────────────────
+async def extract_knowledge_graph_for_web(text: str, user_id: int, filename: str) -> Optional[Dict[str, Any]]:
+    """
+    从文档文本中抽取知识图谱实体和关系。
+    在后台任务中从数据库读取用户 API Key，直接调用 LLM。
+    返回 {entities, relations, doc_name, extracted_at} 或 None。
+    """
+    import httpx
+    import datetime
+    from database.session_db import session_db
+
+    # 1. 读取用户已配置的 LLM Key，按优先级（国内优先）
+    PREFERRED = ['deepseek', 'qwen', 'zhipu', 'minimax', 'openai', 'claude']
+    DEFAULT_ENDPOINTS = {
+        'deepseek': ('https://api.deepseek.com/v1/chat/completions',  'deepseek-chat'),
+        'qwen':     ('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', 'qwen-plus'),
+        'zhipu':    ('https://open.bigmodel.cn/api/paas/v4/chat/completions', 'glm-4-flash'),
+        'minimax':  ('https://api.minimax.chat/v1/text/chatcompletion_v2', 'MiniMax-Text-01'),
+        'openai':   ('https://api.openai.com/v1/chat/completions', 'gpt-4o-mini'),
+        'claude':   (None, None),  # claude 格式不同，暂不支持
+    }
+
+    try:
+        all_keys = await session_db.get_all_api_keys(user_id)
+    except Exception as e:
+        logger.warning(f"⚠️ [KG-Web] 读取用户 Key 失败: {e}")
+        return None
+
+    key_map = {k['provider']: k for k in all_keys}
+    chosen_key = chosen_url = chosen_model = None
+
+    for provider in PREFERRED:
+        if provider not in key_map or provider not in DEFAULT_ENDPOINTS:
+            continue
+        default_url, default_model = DEFAULT_ENDPOINTS[provider]
+        if default_url is None:
+            continue  # 跳过格式不兼容的
+        rec = key_map[provider]
+        chosen_key   = rec['api_key']
+        chosen_model = rec.get('model_name') or default_model
+        base = (rec.get('base_url') or '').rstrip('/')
+        if base:
+            if base.endswith('/chat/completions'):
+                chosen_url = base
+            elif '/v1' in base or 'compatible-mode' in base or 'paas' in base:
+                chosen_url = base + '/chat/completions'
+            else:
+                chosen_url = base + '/v1/chat/completions'
+        else:
+            chosen_url = default_url
+        break
+
+    if not chosen_key:
+        logger.info('⚠️ [KG-Web] 未找到可用 LLM Key，跳过知识图谱抽取')
+        return None
+
+    # 2. 构建 prompt（和移动端保持一致）
+    combined = text[:6000]
+    prompt = (
+        f'请从以下文本中抽取关键实体和它们之间的关系，用于构建知识图谱。\n\n'
+        f'文本内容：\n"""\n{combined}\n"""\n\n'
+        f'请严格输出 JSON 格式（不要有任何其他文字）：\n'
+        f'{{\n'
+        f'  "entities": [\n'
+        f'    {{"id": "e1", "text": "实体名称", "type": "Person|Organization|Concept|Event|Location|Other", "description": "简短描述"}}\n'
+        f'  ],\n'
+        f'  "relations": [\n'
+        f'    {{"id": "r1", "source": "e1", "target": "e2", "label": "关系描述"}}\n'
+        f'  ]\n'
+        f'}}\n\n'
+        f'要求：\n'
+        f'- 实体数量 5-20 个，选最重要的\n'
+        f'- 关系数量 5-15 个，只包含确定存在的关系\n'
+        f'- id 从 e1/r1 开始递增\n'
+        f'- 类型只能是 Person/Organization/Concept/Event/Location/Other 之一'
+    )
+
+    # 3. 调用 LLM
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                chosen_url,
+                headers={'Authorization': f'Bearer {chosen_key}', 'Content-Type': 'application/json'},
+                json={'model': chosen_model, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 2000}
+            )
+            resp.raise_for_status()
+            raw = resp.json()['choices'][0]['message']['content']
+
+        match = re.search(r'\{[\s\S]*\}', raw)
+        if not match:
+            raise ValueError('No JSON found in LLM response')
+        parsed = json.loads(match.group(0))
+
+        graph = {
+            'entities':     parsed.get('entities', []),
+            'relations':    parsed.get('relations', []),
+            'doc_name':     filename,
+            'extracted_at': datetime.datetime.utcnow().isoformat(),
+        }
+        logger.info(f'✅ [KG-Web] 抽取完成: {len(graph["entities"])} 实体, {len(graph["relations"])} 关系')
+        return graph
+    except Exception as e:
+        logger.warning(f'⚠️ [KG-Web] 知识图谱抽取失败: {e}')
+        return None

@@ -45,6 +45,8 @@ import { exportReport } from '@/services/pdfExportService'
 import { saveFile } from '@/services/fileSaverService'
 import { localGetApiKey } from '@/services/localStore'
 import { useLanguageStore } from '../stores/languageStore'
+import KnowledgeGraphModal from './KnowledgeGraphModal'
+import type { KnowledgeGraph } from '@/services/mobileKnowledgeService'
 
 interface MessageItemProps {
   message: Message
@@ -202,6 +204,8 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const [imageModal, setImageModal] = useState<string | null>(null)
   // Native: in-app ECharts fullscreen viewer
   const [chartModal, setChartModal] = useState<object | null>(null)
+  // Web: inline knowledge graph modal (from server-extracted graph data)
+  const [inlineGraph, setInlineGraph] = useState<KnowledgeGraph | null>(null)
 
   const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
   const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
@@ -957,14 +961,20 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </div>
             )}
 
-            {/* 知识图谱按钮（本地知识抽取模式） */}
+            {/* 知识图谱按钮（本地知识抽取模式 / Web 后台抽取模式） */}
             {isKnowledgeExtraction && parsedData?.has_graph && (
               <div className="relative group/action">
                 <button
                   onClick={() => {
-                    const docName = parsedData?.doc_name
-                    if (docName && (window as any).__showKnowledgeGraph) {
-                      (window as any).__showKnowledgeGraph(docName)
+                    if (parsedData?.knowledge_graph) {
+                      // Web 模式：图谱数据内嵌在消息 data 中，直接展示
+                      setInlineGraph(parsedData.knowledge_graph as KnowledgeGraph)
+                    } else {
+                      // 移动端模式：从 localStorage/SQLite 加载
+                      const docName = parsedData?.doc_name
+                      if (docName && (window as any).__showKnowledgeGraph) {
+                        (window as any).__showKnowledgeGraph(docName)
+                      }
                     }
                   }}
                   className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg border border-indigo-100 transition-all active:scale-95"
@@ -1142,6 +1152,11 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
           </div>
         </div>,
         document.body
+      )}
+
+      {/* Web 知识图谱弹窗（内嵌在消息 data 中，不依赖 localStorage） */}
+      {inlineGraph && (
+        <KnowledgeGraphModal graph={inlineGraph} onClose={() => setInlineGraph(null)} />
       )}
     </div>
   )

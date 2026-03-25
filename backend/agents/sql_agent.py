@@ -479,7 +479,8 @@ class SQLAgent:
         enable_thinking: bool = False,
         provider: str = None,
         model_name: str = None,
-        language: str = "zh"
+        language: str = "zh",
+        force_chat: bool = False  # 用户明确选择不使用数据库，跳过意图分类直接走 chat 路径
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """增强的处理逻辑：集成 SQL 引擎与 RAG 知识库"""
         from config import DATABASES
@@ -515,7 +516,11 @@ class SQLAgent:
         yield {"event": "thinking", "data": {"content": "正在理解您的问题..."}}
         yield {"event": "schema_loaded", "data": {"tables": tables}}
 
-        intent = await self._classify_intent(question, provider=provider, model_name=model_name, language=language)
+        # 用户明确选择不使用数据库时，跳过意图分类，直接走 chat 路径
+        if force_chat:
+            intent = "chat"
+        else:
+            intent = await self._classify_intent(question, provider=provider, model_name=model_name, language=language)
 
         if intent == "chat":
             full_summary_reasoning = ""

@@ -1,11 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Capacitor } from '@capacitor/core'
+import { Filesystem, Directory } from '@capacitor/filesystem'
 import { useAuthStore } from '../stores/authStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { ragApi } from '@/api'
 import { getAllKnowledgeChunks, deleteKnowledgeChunkById, updateKnowledgeChunkContent } from '../services/db'
-import { X, User, Database, ChevronDown, RefreshCw, Trash2, Loader2, Pencil, Check } from 'lucide-react'
+import { X, User, Database, ChevronDown, RefreshCw, Trash2, Loader2, Pencil, Check, FolderOpen } from 'lucide-react'
+
+interface ParsedFileInfo {
+  name: string
+  size: number
+  url?: string
+}
 
 interface RagChunk {
   id: string
@@ -31,9 +38,9 @@ interface UserSettingsModalProps {
 }
 
 export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
-  const { user } = useAuthStore()
+  const { user, localUserId } = useAuthStore()
   const { sessions } = useSessionStore()
-  const [activeTab, setActiveTab] = useState<'profile' | 'rag'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'rag' | 'parsed'>('profile')
 
   // RAG state
   const [allChunks, setAllChunks] = useState<RagChunk[]>([])   // 全量，用于推导下拉框
@@ -201,9 +208,94 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
   const thresholdLabel = threshold >= 0.98 ? '完全重复' : threshold >= 0.9 ? '严格' : threshold >= 0.8 ? '适中' : '宽松'
   const isNative = Capacitor.isNativePlatform()
 
+  // ── 解析文件 Tab ──────────────────────────────────────────
+  const [parsedDocs, setParsedDocs] = useState<string[]>([])
+  const [parsedDocsLoading, setParsedDocsLoading] = useState(false)
+  const [selectedParsedDoc, setSelectedParsedDoc] = useState<string | null>(null)
+  const [parsedFilesList, setParsedFilesList] = useState<ParsedFileInfo[]>([])
+  const [parsedFilesLoading, setParsedFilesLoading] = useState(false)
+
+  // 加载有过解析的文档列表（从已有 chunks 中提取唯一文档名）
+  const loadParsedDocs = useCallback(async () => {
+    setParsedDocsLoading(true)
+    try {
+      let docs: string[] = []
+      if (isNative) {
+        const localChunks = await getAllKnowledgeChunks(localUserId ?? user?.id ?? 0)
+        docs = [...new Set(localChunks.map(c => c.doc_name).filter(Boolean))] as string[]
+      } else {
+        const data = await ragApi.listChunks()
+        docs = [...new Set((data.chunks as RagChunk[]).map(c => c.metadata?.filename).filter(Boolean))] as string[]
+      }
+      setParsedDocs(docs)
+    } catch (e) {
+      console.error('加载文档列表失败:', e)
+    } finally {
+      setParsedDocsLoading(false)
+    }
+  }, [isNative, localUserId, user?.id])
+
+  useEffect(() => {
+    if (activeTab === 'parsed') loadParsedDocs()
+  }, [activeTab, loadParsedDocs])
+
+  const loadParsedFiles = async (filename: string) => {
+    if (selectedParsedDoc === filename) {
+      setSelectedParsedDoc(null)
+      setParsedFilesList([])
+      return
+    }
+    setSelectedParsedDoc(filename)
+    setParsedFilesList([])
+    setParsedFilesLoading(true)
+    try {
+      if (isNative) {
+        const safeDocName = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const baseDir = `parsed/${localUserId ?? user?.id}/${safeDocName}`
+        const files: ParsedFileInfo[] = []
+        const readLevel = async (relDir: string) => {
+          try {
+            const res = await Filesystem.readdir({ path: relDir, directory: Directory.Data })
+            for (const f of res.files) {
+              if (f.type === 'directory') {
+                await readLevel(`${relDir}/${f.name}`)
+              } else {
+                const relName = `${relDir.replace(baseDir + '/', '')}/${f.name}`.replace(/^\//, '')
+                files.push({ name: relName || f.name, size: f.size ?? 0 })
+              }
+            }
+          } catch { /* 静默 */ }
+        }
+        try {
+          const rootRes = await Filesystem.readdir({ path: baseDir, directory: Directory.Data })
+          for (const f of rootRes.files) {
+            if (f.type === 'directory') {
+              await readLevel(`${baseDir}/${f.name}`)
+            } else {
+              files.push({ name: f.name, size: f.size ?? 0 })
+            }
+          }
+        } catch { /* 未找到 */ }
+        setParsedFilesList(files)
+      } else {
+        const stem = filename.replace(/\.[^.]+$/, '')
+        try {
+          const res = await fetch(`/api/parsed-output/${encodeURIComponent(stem)}`)
+          if (res.ok) {
+            const data = await res.json()
+            setParsedFilesList((data.files as any[]).map((f: any) => ({ name: f.name, size: f.size, url: f.url })))
+          }
+        } catch { /* API 未找到 */ }
+      }
+    } finally {
+      setParsedFilesLoading(false)
+    }
+  }
+
   const navItems = [
     { id: 'profile' as const, label: '个人信息', icon: <User className="w-4 h-4" /> },
     { id: 'rag' as const, label: 'RAG 知识库', icon: <Database className="w-4 h-4" /> },
+    { id: 'parsed' as const, label: '解析文件', icon: <FolderOpen className="w-4 h-4" /> },
   ]
 
   return createPortal(
@@ -494,6 +586,101 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+          {/* 解析文件 */}
+          {activeTab === 'parsed' && (
+            <div className="max-w-2xl mx-auto p-6 sm:p-8">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-800">📂 MinerU 解析文件</h2>
+                <button
+                  onClick={loadParsedDocs}
+                  disabled={parsedDocsLoading}
+                  className="p-2 rounded-xl hover:bg-white/60 text-gray-400 hover:text-gray-600 transition-colors border border-gray-200/60"
+                  title="刷新文档列表"
+                >
+                  <RefreshCw className={`w-4 h-4 ${parsedDocsLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mb-5">
+                通过 MinerU 深度模式解析过的文档，可在此下载完整解析结果（Markdown、图片、JSON 等）。
+              </p>
+
+              {parsedDocsLoading ? (
+                <div className="flex items-center justify-center py-16 text-gray-400 gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span className="text-sm">加载中...</span>
+                </div>
+              ) : parsedDocs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+                  <span className="text-5xl">📭</span>
+                  <p className="text-sm font-medium text-gray-500">暂无解析文档</p>
+                  <p className="text-xs text-center">使用「深度 MinerU 模式」上传 PDF 后，解析文件将出现在这里</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {parsedDocs.map(filename => (
+                    <div key={filename} className="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/60 shadow-sm overflow-hidden">
+                      {/* 文档行 */}
+                      <button
+                        onClick={() => loadParsedFiles(filename)}
+                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-blue-50/40 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="text-xl flex-shrink-0">📄</span>
+                          <span className="text-sm font-medium text-gray-700 truncate">{filename}</span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                          {selectedParsedDoc === filename && parsedFilesLoading
+                            ? <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                            : <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${selectedParsedDoc === filename ? 'rotate-180' : ''}`} />
+                          }
+                        </div>
+                      </button>
+
+                      {/* 文件列表面板 */}
+                      {selectedParsedDoc === filename && !parsedFilesLoading && (
+                        <div className="border-t border-gray-100 px-5 py-3 bg-blue-50/40">
+                          {parsedFilesList.length === 0 ? (
+                            <p className="text-xs text-gray-400 py-2">
+                              未找到解析文件。该文档需通过 MinerU 深度模式解析后才会有结果。
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {isNative && (
+                                <p className="text-[10px] text-gray-400 mb-2">
+                                  存储路径：parsed/{localUserId ?? user?.id}/{filename.replace(/[^a-zA-Z0-9._-]/g, '_')}/
+                                </p>
+                              )}
+                              {parsedFilesList.map(f => (
+                                <div key={f.name} className="flex items-center justify-between gap-3 py-1">
+                                  <span className="text-xs text-gray-600 truncate flex-1" title={f.name}>
+                                    {f.name.includes('images/') ? '🖼 ' : f.name.endsWith('.md') ? '📝 ' : f.name.endsWith('.json') ? '🔧 ' : f.name.endsWith('.pdf') ? '📄 ' : '📎 '}
+                                    {f.name}
+                                  </span>
+                                  <span className="text-[10px] text-gray-400 flex-shrink-0">
+                                    {f.size > 1024 * 1024 ? `${(f.size / 1024 / 1024).toFixed(1)}MB` : f.size > 1024 ? `${(f.size / 1024).toFixed(0)}KB` : `${f.size}B`}
+                                  </span>
+                                  {f.url && (
+                                    <a
+                                      href={f.url}
+                                      download
+                                      className="flex-shrink-0 text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded-lg transition-colors"
+                                      onClick={e => e.stopPropagation()}
+                                    >
+                                      下载
+                                    </a>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </main>

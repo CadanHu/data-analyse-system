@@ -40,6 +40,7 @@ class ChatRequest(BaseModel):
     rag_scope: str = "session"  # "session" = 仅当前会话, "global" = 当前用户全部会话
     enable_data_science_agent: bool = False # 🚀 模式原名：支持作为 Agent 被调用
     enable_depth: bool = False # 🚀 新增：深度分析模式
+    no_database: bool = False # 用户明确选择不使用数据库，跳过意图分类直接走 chat 路径
     external_data: Optional[List[Dict[str, Any]]] = None
  # 🚀 新增：支持外部 Agent 自带数据
     model_provider: Optional[str] = None # 可选：deepseek, openai, gemini, claude

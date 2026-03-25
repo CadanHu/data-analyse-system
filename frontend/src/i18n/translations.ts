@@ -95,7 +95,7 @@ export type TranslationKey =
   | 'session.shareTitle' | 'session.unnamed'
   // New welcome screen and assistant titles
   | 'welcome.assistantTitle' | 'welcome.learnMore' | 'chat.welcomeMessage' | 'chat.featureViz' | 'chat.featureVizDesc'
-  | 'chat.featureThinking' | 'chat.featureThinkingDesc' | 'chat.tryAsking' | 'chat.selectDb'
+  | 'chat.featureThinking' | 'chat.featureThinkingDesc' | 'chat.tryAsking' | 'chat.selectDb' | 'chat.noDb'
   | 'chat.example1' | 'chat.example2' | 'chat.example3' | 'chat.example4'
   | 'chat.example5' | 'chat.example6' | 'chat.example7' | 'chat.example8' | 'chat.example9' | 'chat.example10'
   // Data Scientist Guide
@@ -436,6 +436,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.featureThinkingDesc': '实时展示推理思维链，让 AI 的分析逻辑透明可见、专业可靠。',
     'chat.tryAsking': '您可以试着这样问我：',
     'chat.selectDb': '⚠️ 请选择数据库',
+    'chat.noDb': '暂不使用数据库',
     'chat.example1': '分析去年的销售额趋势并生成面积图',
     'chat.example2': '对比核心产品的多维性能 (雷达图)',
     'chat.example3': '分析用户从首页到下单的转化漏斗',
@@ -808,6 +809,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.featureThinkingDesc': 'Real-time display of reasoning chain of thought, making AI analysis logic transparent, visible, professional, and reliable.',
     'chat.tryAsking': 'You can try asking me like this:',
     'chat.selectDb': '⚠️ Please select a database',
+    'chat.noDb': 'No Database',
     'chat.example1': 'Analyze last year\'s sales trends and generate an area chart',
     'chat.example2': 'Compare multi-dimensional performance of core products (Radar chart)',
     'chat.example3': 'Analyze user conversion funnel from home page to order',

@@ -1,6 +1,7 @@
 package com.cadanhu.datapulse;
 
 import android.content.Context;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.print.PrintAttributes;
@@ -14,12 +15,22 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @CapacitorPlugin(name = "PdfExport")
 public class PdfExportPlugin extends Plugin {
@@ -118,5 +129,75 @@ public class PdfExportPlugin extends Plugin {
         if (container.getParent() instanceof ViewGroup) {
             ((ViewGroup) container.getParent()).removeView(container);
         }
+    }
+
+    /**
+     * 将本地文件以 PUT 方式上传到指定 URL（Aliyun OSS presigned URL）。
+     * 不设置 Content-Type，保持与 OSS 预签名签名计算一致（空 Content-Type）。
+     */
+    @PluginMethod
+    public void putFile(final PluginCall call) {
+        final String urlString = call.getString("url");
+        final String fileUriString = call.getString("fileUri");
+        if (urlString == null || fileUriString == null) {
+            call.reject("putFile: missing or invalid url/fileUri");
+            return;
+        }
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        executor.execute(() -> {
+            HttpURLConnection conn = null;
+            InputStream fileIn = null;
+            try {
+                // 解析 file:// URI，读取文件字节
+                Uri fileUri = Uri.parse(fileUriString);
+                File file = new File(fileUri.getPath());
+                long fileSize = file.length();
+
+                URL targetUrl = new URL(urlString);
+                conn = (HttpURLConnection) targetUrl.openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setDoOutput(true);
+                conn.setFixedLengthStreamingMode(fileSize);
+                // 显式设置空 Content-Type —— 阻止 OkHttp 注入默认值（如 application/octet-stream）
+                // OSS presigned URL 签名按 Content-Type="" 计算，不匹配会导致 403
+                conn.setRequestProperty("Content-Type", "");
+
+                fileIn = new FileInputStream(file);
+                OutputStream out = conn.getOutputStream();
+                byte[] buf = new byte[8192];
+                int read;
+                while ((read = fileIn.read(buf)) != -1) {
+                    out.write(buf, 0, read);
+                }
+                out.flush();
+
+                int status = conn.getResponseCode();
+                if (status >= 200 && status < 300) {
+                    JSObject result = new JSObject();
+                    result.put("status", status);
+                    call.resolve(result);
+                } else {
+                    // 读取 OSS 错误响应体（XML），便于诊断签名不匹配等问题
+                    String errBody = "";
+                    try {
+                        InputStream errStream = conn.getErrorStream();
+                        if (errStream != null) {
+                            byte[] errBuf = new byte[2048];
+                            int errRead = errStream.read(errBuf);
+                            if (errRead > 0) errBody = new String(errBuf, 0, errRead, "UTF-8");
+                            errStream.close();
+                        }
+                    } catch (IOException ignored) {}
+                    call.reject("putFile HTTP " + status + (errBody.isEmpty() ? "" : " | " + errBody));
+                }
+            } catch (IOException e) {
+                call.reject("putFile error: " + e.getMessage());
+            } finally {
+                if (fileIn != null) { try { fileIn.close(); } catch (IOException ignored) {} }
+                if (conn != null) { conn.disconnect(); }
+            }
+        });
+        executor.shutdown();
     }
 }

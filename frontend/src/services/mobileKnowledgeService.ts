@@ -31,6 +31,8 @@ import {
   searchKnowledgeFTS,
   getChunksWithEmbeddings,
   deleteDocChunks,
+  saveKnowledgeGraphToDb,
+  loadKnowledgeGraphFromDb,
   type KnowledgeChunk,
 } from './db'
 import { localGetApiKey } from './localStore'
@@ -89,6 +91,43 @@ const RAG_TOP_K = 5          // 检索返回的最大块数
 
 // Embedding 提供商优先级（按实用性排序，首个配置的生效）
 const EMBEDDING_PROVIDERS = ['qwen_embedding', 'zhipu_embedding', 'jina_embedding', 'google_embedding']
+
+// 视觉 AI 提供商优先级：国内模型优先（无需 VPN，无限速问题）
+const VISION_PROVIDERS = ['qwen', 'zhipu', 'openai', 'claude', 'gemini']
+// 各提供商默认视觉模型
+const VISION_MODELS: Record<string, string> = {
+  qwen:   'qwen-vl-plus',            // 通义千问视觉（国内，有免费额度）
+  zhipu:  'glm-4.6v',                // 智谱 GLM-4.6V（国内，赠送 600万 tokens）
+  openai: 'gpt-4o-mini',
+  claude: 'claude-3-haiku-20240307',
+  gemini: 'gemini-2.0-flash',        // 需 VPN，15 RPM 免费限制
+}
+// 各提供商请求间隔（ms），避免触发速率限制
+const VISION_REQUEST_DELAY: Record<string, number> = {
+  gemini: 4500,   // 15 RPM → 每 4s 一张
+  qwen:   1000,
+  zhipu:  500,
+  openai: 1000,
+  claude: 1000,
+}
+const MAX_VISION_IMAGES = 20   // 单次最多处理图片数量（避免 API 消耗过多）
+
+// ─── MinerU 完整解析结果类型 ──────────────────────────────────────────────────
+
+interface MineruContentItem {
+  type: string        // 'text' | 'table' | 'figure' | 'equation' | 'title' | ...
+  text?: string
+  img_path?: string   // 相对于 ZIP 根目录的路径，如 "images/figure_001.png"
+  page_idx?: number
+  bbox?: number[]
+}
+
+interface MineruFullResult {
+  markdown: string
+  contentList: MineruContentItem[]
+  imageFiles: Map<string, Uint8Array>   // ZIP 内路径 → 图片字节
+  otherFiles: Map<string, Uint8Array>   // 其余文件：.model.json / _middle.json / .layout.pdf 等
+}
 
 // ─── 兼容性工具：替代 AbortSignal.timeout（iOS WKWebView 不支持）────────────
 /**
@@ -258,6 +297,8 @@ async function nativeFetchJSON(url: string, method: string, headers: Record<stri
       url,
       headers,
       data: bodyObj,
+      connectTimeout: 60000,
+      readTimeout: 60000,
     })
     if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`)
     return res.data
@@ -332,7 +373,7 @@ async function mineruPollResult(
   apiKey: string,
   onProgress?: (msg: string) => void,
   signal?: AbortSignal
-): Promise<string> {
+): Promise<MineruFullResult> {
   const MAX_RETRIES = 60   // 5 min max (5s interval)
   const startTime = Date.now()
   for (let i = 0; i < MAX_RETRIES; i++) {
@@ -365,9 +406,9 @@ async function mineruPollResult(
     onProgress?.(`⏳ MinerU 解析中... 状态: ${state}${progressStr} · 已等待 ${elapsedStr}（第 ${i + 1}/60 次）`)
 
     if (state === 'done') {
-      // 优先取直接返回的 markdown 字段
+      // 优先取直接返回的 markdown 字段（无 ZIP，无图片）
       const direct = task.content ?? task.markdown ?? task.full_markdown
-      if (direct) return direct as string
+      if (direct) return { markdown: direct as string, contentList: [], imageFiles: new Map() }
 
       // 否则下载 ZIP
       onProgress?.(`⬇️ 解析完成，下载结果中...`)
@@ -375,24 +416,43 @@ async function mineruPollResult(
       if (!zipUrl) throw new Error('MinerU done but no content or zip URL')
       let zipBuffer: ArrayBuffer
       if (Capacitor.isNativePlatform()) {
-        // 用 Filesystem.downloadFile 下载 ZIP 到本地，再 readFile 读 base64
-        // 避免 CapacitorHttp arraybuffer 响应的序列化问题
-        const tmpZipName = `mineru_result_${Date.now()}.zip`
-        try {
-          await Filesystem.downloadFile({ url: zipUrl, path: tmpZipName, directory: Directory.Cache })
-        } catch (dlErr: any) {
-          const msg = dlErr?.message ?? String(dlErr)
-          if (msg.includes('TLS') || msg.includes('-1200') || msg.includes('SSL')) {
-            throw new Error('下载结果失败：TLS 证书错误。如已开启 VPN，请关闭后重试。')
-          }
-          throw new Error('下载结果失败：' + msg)
-        }
+        const isAndroid = Capacitor.getPlatform() === 'android'
         let b64zip: string
-        try {
-          const readResult = await Filesystem.readFile({ path: tmpZipName, directory: Directory.Cache })
-          b64zip = (readResult.data as string).replace(/\s/g, '')
-        } finally {
-          await Filesystem.deleteFile({ path: tmpZipName, directory: Directory.Cache }).catch(() => {})
+        if (isAndroid) {
+          // Android：Filesystem.downloadFile 会 "Connection closed by peer"（CDN 重定向问题）
+          // 改用 CapacitorHttp responseType:'blob' 直接拿 base64，避免 arraybuffer bridge 序列化问题
+          try {
+            const dlRes = await CapacitorHttp.request({
+              url: zipUrl,
+              method: 'GET',
+              responseType: 'blob',
+            })
+            if (dlRes.status < 200 || dlRes.status >= 300) {
+              throw new Error(`HTTP ${dlRes.status}`)
+            }
+            b64zip = (dlRes.data as string).replace(/\s/g, '')
+          } catch (dlErr: any) {
+            const msg = dlErr?.message ?? String(dlErr)
+            throw new Error('下载结果失败：' + msg)
+          }
+        } else {
+          // iOS：Filesystem.downloadFile 工作正常，保留原有路径
+          const tmpZipName = `mineru_result_${Date.now()}.zip`
+          try {
+            await Filesystem.downloadFile({ url: zipUrl, path: tmpZipName, directory: Directory.Cache })
+          } catch (dlErr: any) {
+            const msg = dlErr?.message ?? String(dlErr)
+            if (msg.includes('TLS') || msg.includes('-1200') || msg.includes('SSL')) {
+              throw new Error('下载结果失败：TLS 证书错误。如已开启 VPN，请关闭后重试。')
+            }
+            throw new Error('下载结果失败：' + msg)
+          }
+          try {
+            const readResult = await Filesystem.readFile({ path: tmpZipName, directory: Directory.Cache })
+            b64zip = (readResult.data as string).replace(/\s/g, '')
+          } finally {
+            await Filesystem.deleteFile({ path: tmpZipName, directory: Directory.Cache }).catch(() => {})
+          }
         }
         const binary = atob(b64zip)
         const bytes = new Uint8Array(binary.length)
@@ -402,24 +462,39 @@ async function mineruPollResult(
         const zipRes = await fetch(zipUrl, { signal: timedSignal(60000) })
         zipBuffer = await zipRes.arrayBuffer()
       }
-      return await extractMdFromZip(zipBuffer)
+      return await extractMineruZip(zipBuffer)
     }
     if (state === 'failed') throw new Error('MinerU task failed: ' + (task.err_msg || ''))
   }
   throw new Error('MinerU timeout: task did not complete in 5 minutes')
 }
 
-/** 从 ZIP ArrayBuffer 中提取第一个 .md 文件内容 */
-async function extractMdFromZip(zipBuffer: ArrayBuffer): Promise<string> {
-  // 动态导入 fflate（Vite tree-shake 友好）
+/** 从 ZIP ArrayBuffer 中提取 MinerU 完整解析结果：markdown + content_list + 所有图片 + 其余文件 */
+async function extractMineruZip(zipBuffer: ArrayBuffer): Promise<MineruFullResult> {
   const { unzipSync, strFromU8 } = await import('fflate')
   const files = unzipSync(new Uint8Array(zipBuffer))
+  let markdown = ''
+  let contentList: MineruContentItem[] = []
+  const imageFiles = new Map<string, Uint8Array>()
+  const otherFiles = new Map<string, Uint8Array>()
+
   for (const [name, data] of Object.entries(files)) {
-    if (name.endsWith('.md')) {
-      return strFromU8(data as Uint8Array)
+    const lname = name.toLowerCase()
+    if (lname.endsWith('.md') && !markdown) {
+      markdown = strFromU8(data as Uint8Array)
+    } else if (lname.endsWith('_content_list.json')) {
+      try { contentList = JSON.parse(strFromU8(data as Uint8Array)) } catch {}
+      otherFiles.set(name, data as Uint8Array)
+    } else if (/\.(png|jpg|jpeg|webp)$/i.test(lname)) {
+      imageFiles.set(name, data as Uint8Array)
+    } else if (lname.endsWith('.json') || lname.endsWith('.pdf')) {
+      // _model.json / _middle.json / .layout.pdf 等
+      otherFiles.set(name, data as Uint8Array)
     }
   }
-  throw new Error('MinerU ZIP: no .md file found')
+
+  if (!markdown) throw new Error('MinerU ZIP: no .md file found')
+  return { markdown, contentList, imageFiles, otherFiles }
 }
 
 /** 调用 MinerU API 解析 PDF，返回 Markdown 字符串 */
@@ -429,7 +504,7 @@ async function callMineruApi(
   onProgress?: (step: string) => void,
   signal?: AbortSignal,
   pageRange?: string
-): Promise<string> {
+): Promise<MineruFullResult> {
   console.log('[MinerU] step1: getting upload URL, file=', file.name, 'size=', file.size, 'pageRange=', pageRange)
   onProgress?.('正在上传到 MinerU...')
   let batch_id: string, file_url: string
@@ -466,6 +541,188 @@ async function findEmbeddingKey(userId: number): Promise<{ provider: string; api
     if (keyRecord) return { provider, apiKey: keyRecord.api_key }
   }
   return null
+}
+
+// ─── 视觉 AI：图表/图片描述 ────────────────────────────────────────────────────
+
+async function findVisionKey(userId: number): Promise<{ provider: string; key: NonNullable<Awaited<ReturnType<typeof localGetApiKey>>> } | null> {
+  for (const provider of VISION_PROVIDERS) {
+    const k = await localGetApiKey(userId, provider)
+    if (k) return { provider, key: k }
+    // 智谱：zhipu_embedding key 与 zhipu 聊天/视觉 key 相同，可复用
+    if (provider === 'zhipu') {
+      const fallback = await localGetApiKey(userId, 'zhipu_embedding')
+      if (fallback) return { provider: 'zhipu', key: fallback }
+    }
+    // 通义千问：同理
+    if (provider === 'qwen') {
+      const fallback = await localGetApiKey(userId, 'qwen_embedding')
+      if (fallback) return { provider: 'qwen', key: fallback }
+    }
+  }
+  return null
+}
+
+/**
+ * 调用视觉 AI 描述一张图片，返回文字说明。
+ * 模型固定为各提供商的视觉专用版本（VISION_MODELS），不依赖用户配置的文本模型。
+ */
+async function describeImageWithAI(
+  imgBase64: string,
+  provider: string,
+  key: NonNullable<Awaited<ReturnType<typeof localGetApiKey>>>,
+  itemType: string,
+): Promise<string> {
+  const typeLabel = itemType === 'table' ? '表格' : '图表/图片'
+  const prompt = `请详细描述这个${typeLabel}中的所有数据、标签、趋势和关键信息，输出完整文字描述，便于文本搜索和问答。如果是表格，请列出所有行列数据。`
+  const model = VISION_MODELS[provider] ?? 'gemini-2.0-flash'
+
+  if (provider === 'gemini') {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key.api_key}`
+    const res = await nativeFetchJSON(url, 'POST', { 'Content-Type': 'application/json' }, {
+      contents: [{ parts: [
+        { inline_data: { mime_type: 'image/png', data: imgBase64 } },
+        { text: prompt },
+      ]}],
+    }) as any
+    return res?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  }
+
+  if (provider === 'openai') {
+    const baseUrl = (key as any).base_url || 'https://api.openai.com'
+    const res = await nativeFetchJSON(`${baseUrl}/v1/chat/completions`, 'POST', {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key.api_key}`,
+    }, {
+      model,
+      messages: [{ role: 'user', content: [
+        { type: 'image_url', image_url: { url: `data:image/png;base64,${imgBase64}` } },
+        { type: 'text', text: prompt },
+      ]}],
+      max_tokens: 1000,
+    }) as any
+    return res?.choices?.[0]?.message?.content ?? ''
+  }
+
+  if (provider === 'claude') {
+    const res = await nativeFetchJSON('https://api.anthropic.com/v1/messages', 'POST', {
+      'Content-Type': 'application/json',
+      'x-api-key': key.api_key,
+      'anthropic-version': '2023-06-01',
+    }, {
+      model, max_tokens: 1000,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: imgBase64 } },
+        { type: 'text', text: prompt },
+      ]}],
+    }) as any
+    return res?.content?.[0]?.text ?? ''
+  }
+
+  if (provider === 'qwen') {
+    const baseUrl = (key as any).base_url || 'https://dashscope.aliyuncs.com/compatible-mode'
+    const res = await nativeFetchJSON(`${baseUrl}/v1/chat/completions`, 'POST', {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key.api_key}`,
+    }, {
+      model,
+      messages: [{ role: 'user', content: [
+        { type: 'image_url', image_url: { url: `data:image/png;base64,${imgBase64}` } },
+        { type: 'text', text: prompt },
+      ]}],
+      max_tokens: 1000,
+    }) as any
+    return res?.choices?.[0]?.message?.content ?? ''
+  }
+
+  if (provider === 'zhipu') {
+    // 智谱 GLM-4V-Flash：完全免费，国内直连，OpenAI 兼容格式
+    const baseUrl = (key as any).base_url || 'https://open.bigmodel.cn/api/paas/v4'
+    const res = await nativeFetchJSON(`${baseUrl}/chat/completions`, 'POST', {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key.api_key}`,
+    }, {
+      model,
+      messages: [{ role: 'user', content: [
+        { type: 'image_url', image_url: { url: `data:image/png;base64,${imgBase64}` } },
+        { type: 'text', text: prompt },
+      ]}],
+      max_tokens: 1000,
+    }) as any
+    return res?.choices?.[0]?.message?.content ?? ''
+  }
+
+  return ''
+}
+
+/** 将 Uint8Array 写入 Filesystem（分块 base64 编码） */
+async function writeFileData(relPath: string, data: Uint8Array): Promise<void> {
+  let binary = ''
+  const CHUNK = 8192
+  for (let i = 0; i < data.byteLength; i += CHUNK) {
+    binary += String.fromCharCode(...data.subarray(i, i + CHUNK))
+  }
+  await Filesystem.writeFile({ path: relPath, data: btoa(binary), directory: Directory.Data, recursive: true })
+}
+
+/**
+ * 将 MinerU ZIP 全部解析文件保存到本地持久目录（Directory.Data）：
+ *   Plan A（按文件名）: parsed/{userId}/{safeDocName}/
+ *   Plan B（按会话）:  parsed_sessions/{userId}/{sessionId}/{safeDocName}/  （sessionId 非空时）
+ *
+ * 返回 ZIP内图片路径 → Plan A 本地相对路径 的映射（供视觉识别步骤读取）。
+ */
+async function saveMineruParsedOutput(
+  docName: string,
+  sessionId: string | null,
+  userId: number,
+  result: MineruFullResult,
+): Promise<Map<string, string>> {
+  const imageLocalPaths = new Map<string, string>()
+  if (!Capacitor.isNativePlatform()) return imageLocalPaths
+
+  const safeDocName = docName.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const planA = `parsed/${userId}/${safeDocName}`
+  const planB = sessionId ? `parsed_sessions/${userId}/${sessionId}/${safeDocName}` : null
+
+  /** 写一个文件到所有目录 */
+  const writeAll = async (relInZip: string, data: Uint8Array) => {
+    const paths = [planA + '/' + relInZip]
+    if (planB) paths.push(planB + '/' + relInZip)
+    for (const p of paths) {
+      try { await writeFileData(p, data) } catch (e) { console.warn('[MinerU] write failed:', p, e) }
+    }
+  }
+
+  // 1. 保存 markdown
+  const mdPath = `${safeDocName}.md`
+  const encoder = new TextEncoder()
+  await writeAll(mdPath, encoder.encode(result.markdown)).catch(e => console.warn('[MinerU] md write:', e))
+
+  // 2. 保存图片（同时记录 Plan A 路径供视觉识别）
+  for (const [imgZipPath, data] of result.imageFiles.entries()) {
+    try {
+      const fileName = imgZipPath.split('/').pop() ?? imgZipPath
+      const relInZip = `images/${fileName}`
+      const planAFull = planA + '/' + relInZip
+      await writeFileData(planAFull, data)
+      if (planB) {
+        await writeFileData(planB + '/' + relInZip, data).catch(e => console.warn('[MinerU] planB img:', e))
+      }
+      imageLocalPaths.set(imgZipPath, planAFull)
+    } catch (e) {
+      console.warn('[MinerU] saveImage:', imgZipPath, e)
+    }
+  }
+
+  // 3. 保存其余文件（model.json / middle.json / layout.pdf 等）
+  for (const [zipPath, data] of result.otherFiles.entries()) {
+    const fileName = zipPath.split('/').pop() ?? zipPath
+    await writeAll(fileName, data).catch(e => console.warn('[MinerU] otherFile:', zipPath, e))
+  }
+
+  console.log(`[MinerU] 解析文件已存储 → Plan A: ${planA}${planB ? `  Plan B: ${planB}` : ''}`)
+  return imageLocalPaths
 }
 
 // ─── PDF 页码工具 ──────────────────────────────────────────────────────────────
@@ -517,6 +774,7 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
 
   // ─ Step 1: 提取文本 ──────────────────────────────────────────────────────────
   let text: string
+  let mineruResult: MineruFullResult | null = null
   if (engine === 'light') {
     onProgress?.('本地解析 PDF...')
     if (file.type === 'application/pdf') {
@@ -530,7 +788,8 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
     if (!mineruKey) {
       throw new Error('请先在设置中配置 MinerU API Key（个人中心 → 国内直连 → PDF 解析工具）')
     }
-    text = await callMineruApi(file, mineruKey.api_key, onProgress, signal, pageRange)
+    mineruResult = await callMineruApi(file, mineruKey.api_key, onProgress, signal, pageRange)
+    text = mineruResult.markdown
   }
 
   if (!text.trim()) throw new Error('未能从文件中提取到文本内容')
@@ -576,6 +835,86 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
   }
 
   onProgress?.(`已索引 ${chunks.length} 个知识块`)
+
+  // ─ Step 5.5: 保存全量解析文件（仅 MinerU 模式）──────────────────────────────
+  // 无论有无图片，均保存 markdown / model.json / middle.json / images/ 等到本地
+  // Plan A: parsed/{userId}/{docName}/   Plan B: parsed_sessions/{userId}/{sessionId}/{docName}/
+  if (mineruResult) {
+    const imgCount = mineruResult.imageFiles.size
+    const otherCount = mineruResult.otherFiles.size
+    if (imgCount > 0 || otherCount > 0) {
+      onProgress?.(`保存解析文件到本地 (${imgCount} 张图片，${otherCount} 个结构文件)...`)
+    } else {
+      onProgress?.('保存解析 Markdown 到本地...')
+    }
+    const localImagePaths = await saveMineruParsedOutput(file.name, sessionId, userId, mineruResult)
+
+    // ─ 图表视觉识别（有图片时执行）─────────────────────────────────────────────
+    if (imgCount > 0) {
+      const visionCfg = await findVisionKey(userId)
+      if (visionCfg) {
+        // 优先用 content_list 中的 figure/table 条目；无则处理全部图片
+        const imageItems: { img_path: string; type: string; page_idx: number }[] =
+          mineruResult.contentList.filter(c => (c.type === 'figure' || c.type === 'table') && c.img_path)
+            .map(c => ({ img_path: c.img_path!, type: c.type, page_idx: c.page_idx ?? 0 }))
+
+        const toProcess = imageItems.length > 0
+          ? imageItems
+          : [...mineruResult.imageFiles.keys()].map(k => ({ img_path: k, type: 'figure', page_idx: 0 }))
+
+        const limited = toProcess.slice(0, MAX_VISION_IMAGES)
+        onProgress?.(`图表 AI 识别中 (${limited.length}/${toProcess.length} 张, ${visionCfg.provider})...`)
+
+        let visionCount = 0
+        for (let vi = 0; vi < limited.length; vi++) {
+          const item = limited[vi]
+          const localPath = localImagePaths.get(item.img_path)
+          if (!localPath) continue
+          try {
+            onProgress?.(`图表识别 ${vi + 1}/${limited.length}...`)
+            const readResult = await Filesystem.readFile({ path: localPath, directory: Directory.Data })
+            const imgBase64 = (readResult.data as string).replace(/\s/g, '')
+            // Capacitor Bridge 传输大 base64 payload 有限制，超过 ~1MB base64 跳过
+            if (imgBase64.length > 1_000_000) {
+              console.warn('[Vision] skip oversized image (>1MB base64):', item.img_path)
+              continue
+            }
+            // 请求间隔：避免触发速率限制（Gemini 免费额度 15 RPM，每 4.5s 一张）
+            if (vi > 0) {
+              const delay = VISION_REQUEST_DELAY[visionCfg.provider] ?? 1000
+              await new Promise(r => setTimeout(r, delay))
+            }
+            // 单张图片识别最多等 45 秒，超时跳过而不卡整个流程
+            const descriptionPromise = describeImageWithAI(imgBase64, visionCfg.provider, visionCfg.key, item.type)
+            const timeoutPromise = new Promise<string>((_, reject) =>
+              setTimeout(() => reject(new Error('vision timeout')), 45000)
+            )
+            const description = await Promise.race([descriptionPromise, timeoutPromise])
+            if (!description.trim()) continue
+            const typeLabel = item.type === 'table' ? '表格' : '图表'
+            await insertKnowledgeChunk({
+              id: generateId(),
+              user_id: userId,
+              session_id: sessionId,
+              doc_name: file.name,
+              chunk_index: chunks.length + visionCount,
+              content: `[${typeLabel} · 第 ${item.page_idx + 1} 页]\n${description}`,
+              embedding: null,
+              embedding_provider: null,
+              metadata: JSON.stringify({ type: item.type, page: item.page_idx, image_path: localPath }),
+              created_at: now,
+            })
+            visionCount++
+          } catch (e) {
+            console.warn('[Vision] failed:', item.img_path, e)
+          }
+        }
+        if (visionCount > 0) onProgress?.(`图表识别完成，新增 ${visionCount} 个视觉知识块`)
+      } else {
+        onProgress?.('未配置视觉 AI Key（Gemini/OpenAI/Claude/Qwen），图片已保存本地但跳过识别')
+      }
+    }
+  }
 
   // ─ Step 6: 知识图谱抽取（仅 knowledge 模式，且用户有 LLM key）─────────────
   if (engine === 'knowledge') {
@@ -660,24 +999,51 @@ ${combinedText}
       extracted_at: new Date().toISOString(),
     }
 
-    // 将图谱存到 localStorage 供 UI 展示（SQLite 写入为可选扩展）（轻量级，无需再查 SQLite）
+    // localStorage 缓存（快速读取）
     const key = `kg_${docName}_${userId}`
     localStorage.setItem(key, JSON.stringify(graph))
 
+    // SQLite 持久化（App 重装后恢复）
+    await saveKnowledgeGraphToDb(docName, userId, graph.entities, graph.relations)
+
+    console.log('[KG] 抽取完成，rawJson 长度:', rawJson.length, '实体:', graph.entities.length, '关系:', graph.relations.length)
+    console.log('[KG] 实体列表:', JSON.stringify(graph.entities.map(e => e.text)))
     onProgress?.(`知识图谱构建完成（${graph.entities.length} 实体，${graph.relations.length} 关系）`)
     return graph
   } catch (e) {
+    console.error('[KG] 抽取失败，rawJson:', rawJson, '错误:', e)
     onProgress?.('知识图谱抽取失败（不影响 RAG 检索）')
     return null
   }
 }
 
-/** 从 localStorage 加载某文档的知识图谱（用于 UI 展示） */
+/** 从 localStorage 加载某文档的知识图谱（同步，仅供当次抽取后立即检查用） */
 export function loadKnowledgeGraph(docName: string, userId: number): KnowledgeGraph | null {
   try {
     const key = `kg_${docName}_${userId}`
     const raw = localStorage.getItem(key)
     return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+/** 异步加载知识图谱：先查 localStorage，没有则从 SQLite 恢复（App 重装后） */
+export async function loadKnowledgeGraphAsync(docName: string, userId: number): Promise<KnowledgeGraph | null> {
+  const cached = loadKnowledgeGraph(docName, userId)
+  if (cached) return cached
+  try {
+    const dbData = await loadKnowledgeGraphFromDb(docName, userId)
+    if (!dbData) return null
+    const graph: KnowledgeGraph = {
+      entities: dbData.entities,
+      relations: dbData.relations,
+      doc_name: docName,
+      extracted_at: '',
+    }
+    // 回写 localStorage 供后续同步读取
+    localStorage.setItem(`kg_${docName}_${userId}`, JSON.stringify(graph))
+    return graph
   } catch {
     return null
   }

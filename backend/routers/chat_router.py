@@ -487,7 +487,8 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
                 enable_thinking=request.enable_thinking,
                 provider=request.model_provider,
                 model_name=request.model_name,
-                language=request.language
+                language=request.language,
+                force_chat=request.no_database
             ):
                 event_type = event["event"]
                 event_data = event.get("data", {})

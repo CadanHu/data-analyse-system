@@ -661,6 +661,22 @@ export async function deleteKnowledgeChunkById(id: string): Promise<void> {
   await d.run('DELETE FROM knowledge_chunks WHERE id = ?', [id])
 }
 
+/** 按文档名删除某用户/会话的所有知识块 */
+export async function deleteKnowledgeChunksByDoc(userId: number, sessionId: string | null, docName: string): Promise<void> {
+  const d = requireDb()
+  const condition = sessionId != null
+    ? 'user_id = ? AND session_id = ? AND doc_name = ?'
+    : 'user_id = ? AND doc_name = ?'
+  const params = sessionId != null ? [userId, sessionId, docName] : [userId, docName]
+  // 先从 FTS 中删除
+  await d.run(
+    `INSERT INTO knowledge_fts(knowledge_fts, rowid, content)
+     SELECT 'delete', rowid, content FROM knowledge_chunks WHERE ${condition}`,
+    params
+  )
+  await d.run(`DELETE FROM knowledge_chunks WHERE ${condition}`, params)
+}
+
 /** 列出某用户/会话已导入的文档 */
 export async function listKnowledgeDocs(userId: number, sessionId: string | null): Promise<string[]> {
   const d = requireDb()
@@ -854,6 +870,64 @@ export async function getLocalBizTables(dbKey: string): Promise<{ tableName: str
 
 export async function clearBizSyncMeta(dbKey: string): Promise<void> {
   await requireDb().run('DELETE FROM biz_sync_meta WHERE db_key = ?', [dbKey])
+}
+
+// ─── 知识图谱持久化（knowledge_entities / knowledge_relationships）──────────────
+
+/** 将知识图谱写入 SQLite（覆盖同文档旧数据） */
+export async function saveKnowledgeGraphToDb(
+  docName: string,
+  userId: number,
+  entities: { id: string; text: string; type: string; description?: string }[],
+  relations: { id: string; source: string; target: string; label: string }[]
+): Promise<void> {
+  const d = requireDb()
+  const now = new Date().toISOString()
+  const docId = `${userId}::${docName}`
+  // 清旧数据
+  await d.run('DELETE FROM knowledge_entities WHERE doc_id = ?', [docId])
+  await d.run('DELETE FROM knowledge_relationships WHERE doc_id = ?', [docId])
+  for (const e of entities) {
+    await d.run(
+      'INSERT INTO knowledge_entities (id, doc_id, entity_class, entity_text, attributes, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [`${docId}::${e.id}`, docId, e.type, e.text, JSON.stringify({ description: e.description || '' }), now]
+    )
+  }
+  for (const r of relations) {
+    const srcText = entities.find(e => e.id === r.source)?.text ?? r.source
+    const tgtText = entities.find(e => e.id === r.target)?.text ?? r.target
+    await d.run(
+      'INSERT INTO knowledge_relationships (id, doc_id, source_text, target_text, relation_type, attributes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [`${docId}::${r.id}`, docId, srcText, tgtText, r.label, '{}', now]
+    )
+  }
+}
+
+/** 从 SQLite 读取知识图谱（app 重装后 localStorage 丢失时的恢复路径） */
+export async function loadKnowledgeGraphFromDb(
+  docName: string,
+  userId: number
+): Promise<{ entities: { id: string; text: string; type: string; description?: string }[]; relations: { id: string; source: string; target: string; label: string }[] } | null> {
+  const d = requireDb()
+  const docId = `${userId}::${docName}`
+  const eRes = await d.query('SELECT * FROM knowledge_entities WHERE doc_id = ?', [docId])
+  if (!eRes.values || eRes.values.length <= 1) return null   // 只有 ios_columns 行
+  const rows = eRes.values.slice(1) as any[]
+  const entities = rows.map((r, i) => {
+    let desc = ''
+    try { desc = JSON.parse(r.attributes || '{}').description || '' } catch { /* */ }
+    return { id: `e${i + 1}`, text: r.entity_text, type: r.entity_class || 'Other', description: desc }
+  })
+  const idMap = new Map(entities.map(e => [e.text, e.id]))
+  const rRes = await d.query('SELECT * FROM knowledge_relationships WHERE doc_id = ?', [docId])
+  const rRows = ((rRes.values || []).slice(1)) as any[]
+  const relations = rRows.map((r, i) => ({
+    id: `r${i + 1}`,
+    source: idMap.get(r.source_text) ?? `e1`,
+    target: idMap.get(r.target_text) ?? `e2`,
+    label: r.relation_type || '',
+  }))
+  return { entities, relations }
 }
 
 export const dbService = {
