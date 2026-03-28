@@ -195,21 +195,28 @@ export async function localDeleteApiKey(userId: number, provider: string): Promi
 // ==================== Dirty rows for sync ====================
 
 export async function getDirtyRows() {
-  if (!_dbReady) return { sessions: [], messages: [], apiKeys: [] }
-  const [sessions, messages, apiKeys] = await Promise.all([
+  if (!_dbReady) return { sessions: [], messages: [], apiKeys: [], knowledgeChunks: [] }
+  const [sessions, messages, apiKeys, knowledgeChunks] = await Promise.all([
     dbService.getDirtySessions(),
     dbService.getDirtyMessages(),
     dbService.getDirtyApiKeys(),
+    dbService.getDirtyKnowledgeChunks(),
   ])
-  return { sessions, messages, apiKeys }
+  return { sessions, messages, apiKeys, knowledgeChunks }
 }
 
-export async function clearDirtyFlags(ids: { sessionIds: string[]; messageIds: string[]; apiKeyIds: string[] }) {
+export async function clearDirtyFlags(ids: {
+  sessionIds: string[]
+  messageIds: string[]
+  apiKeyIds: string[]
+  knowledgeChunkIds: string[]
+}) {
   if (!_dbReady) return
   await Promise.all([
     ...ids.sessionIds.map(id => dbService.clearSessionDirty(id)),
     ...ids.messageIds.map(id => dbService.clearMessageDirty(id)),
     ...ids.apiKeyIds.map(id => dbService.clearApiKeyDirty(id)),
+    ...ids.knowledgeChunkIds.map(id => dbService.clearKnowledgeChunkDirty(id)),
   ])
   await dbService.hardDeleteSyncedDeleted()
 }
@@ -228,7 +235,7 @@ export function webMergeFromServer(data: {
 }): void {
   for (const s of data.sessions) {
     const local = _sessions.get(s.id)
-    if (!local || (local._sync_dirty === 0 && s.updated_at > (local.updated_at || ''))) {
+    if (!local || (local._sync_dirty === 0 && (s.updated_at ?? '') > (local.updated_at || ''))) {
       _sessions.set(s.id, { ...s, _sync_dirty: 0, _deleted: 0 })
     }
   }
@@ -241,7 +248,7 @@ export function webMergeFromServer(data: {
   for (const k of data.api_keys) {
     const mapKey = `${k.user_id}:${k.provider}`
     const local = _apiKeys.get(mapKey)
-    if (!local || (local._sync_dirty === 0 && k.updated_at > (local.updated_at || ''))) {
+    if (!local || (local._sync_dirty === 0 && (k.updated_at ?? '') > (local.updated_at || ''))) {
       _apiKeys.set(mapKey, { ...k, _sync_dirty: 0, _deleted: 0 })
     }
   }

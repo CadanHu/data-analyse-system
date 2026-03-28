@@ -67,14 +67,33 @@ class MessageModel(Base):
     chart_cfg = Column(Text)
     thinking = Column(Text)
     data = Column(Text)
-    is_current = Column(Integer, default=1) # 1 为当前活跃分支，0 为历史分支
-    feedback = Column(Integer, default=0)   # 1: 点赞, -1: 点踩
+    is_current = Column(Integer, default=1)      # 1 为当前活跃分支，0 为历史分支
+    is_compressed = Column(Boolean, default=False) # True 表示已被摘要压缩，由 HistorySummarizer 标记
+    feedback = Column(Integer, default=0)        # 1: 点赞, -1: 点踩
     feedback_text = Column(Text, nullable=True) # 问题反馈内容
     tokens_prompt = Column(Integer, default=0) # 提问消耗 Token
     tokens_completion = Column(Integer, default=0) # 回答消耗 Token
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (Index('idx_session', 'session_id'),)
+
+class KnowledgeSyncChunkModel(Base):
+    """移动端同步上来的知识块（纯文本，不含向量）"""
+    __tablename__ = 'knowledge_sync_chunks'
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, nullable=False)
+    session_id = Column(String(64), nullable=True)
+    doc_name = Column(String(512), nullable=False)
+    chunk_index = Column(Integer, default=0)
+    content = Column(Text, nullable=False)
+    chunk_metadata = Column(Text, nullable=True)   # JSON string
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_ksc_user', 'user_id'),
+        Index('idx_ksc_created', 'created_at'),
+    )
+
 
 class SessionDatabase:
     """使用 SQLAlchemy 实现的会话数据库"""
@@ -123,6 +142,7 @@ class SessionDatabase:
         migrations = [
             "ALTER TABLE sessions ADD COLUMN model_provider VARCHAR(32) NULL",
             "ALTER TABLE sessions ADD COLUMN model_name VARCHAR(128) NULL",
+            "ALTER TABLE messages ADD COLUMN is_compressed TINYINT(1) NOT NULL DEFAULT 0",
         ]
         async with self.engine.begin() as conn:
             for sql in migrations:
@@ -438,15 +458,17 @@ class SessionDatabase:
         """获取消息列表。默认仅获取当前活跃分支的消息链。"""
         async with self.async_session() as session:
             if all_branches:
-                # 获取该会话下的所有消息，用于前端构建树
-                query = select(MessageModel).where(
-                    MessageModel.session_id == session_id
-                ).order_by(MessageModel.created_at.asc())
-            else:
-                # 默认只获取 is_current=1 的当前活跃分支消息
+                # 获取该会话下的所有消息，用于前端构建树（排除已压缩原文）
                 query = select(MessageModel).where(
                     MessageModel.session_id == session_id,
-                    MessageModel.is_current == 1
+                    MessageModel.is_compressed == False,
+                ).order_by(MessageModel.created_at.asc())
+            else:
+                # 默认只获取 is_current=1 且未被摘要压缩的消息
+                query = select(MessageModel).where(
+                    MessageModel.session_id == session_id,
+                    MessageModel.is_current == 1,
+                    MessageModel.is_compressed == False,
                 ).order_by(MessageModel.created_at.asc())
             
             result = await session.execute(query)
@@ -652,6 +674,162 @@ class SessionDatabase:
             await session.delete(k)
             await session.commit()
             return True
+
+    # ==================== Knowledge Sync Chunks ====================
+
+    async def get_knowledge_chunks_since(self, user_id: int, since: Optional[datetime]) -> List[Dict[str, Any]]:
+        """返回该用户 created_at >= since 的已同步知识块"""
+        async with self.async_session() as session:
+            q = select(KnowledgeSyncChunkModel).where(KnowledgeSyncChunkModel.user_id == user_id)
+            if since:
+                q = q.where(KnowledgeSyncChunkModel.created_at >= since)
+            result = await session.execute(q.order_by(KnowledgeSyncChunkModel.created_at.asc()))
+            return [self._to_dict(c) for c in result.scalars().all()]
+
+    async def upsert_knowledge_chunk(self, data: Dict[str, Any]) -> None:
+        """接收手机推送的知识块，存入 MySQL 并写入向量库（后台 re-embed）"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(KnowledgeSyncChunkModel).where(KnowledgeSyncChunkModel.id == data["id"])
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                # Update content if changed
+                existing.content = data.get("content", existing.content)
+                existing.chunk_metadata = data.get("metadata", existing.chunk_metadata)
+            else:
+                chunk = KnowledgeSyncChunkModel(
+                    id=data["id"],
+                    user_id=data["user_id"],
+                    session_id=data.get("session_id"),
+                    doc_name=data.get("doc_name", ""),
+                    chunk_index=data.get("chunk_index", 0),
+                    content=data.get("content", ""),
+                    chunk_metadata=data.get("metadata"),
+                    created_at=datetime.utcnow(),
+                )
+                session.add(chunk)
+            await session.commit()
+
+        # Re-embed and index into Chroma so desktop RAG can search it
+        # sync_to_mobile=False：手机推上来的片段不回写同步表，避免 re-chunk 后版本覆盖原始片段
+        try:
+            from services.vector_store import vector_store
+            await vector_store.add_text(
+                data["content"],
+                {
+                    "filename": data.get("doc_name", ""),
+                    "source": "mobile_sync",
+                    "chunk_index": str(data.get("chunk_index", 0)),
+                },
+                session_id=data.get("session_id"),
+                user_id=data.get("user_id"),
+                sync_to_mobile=False,
+            )
+        except Exception as e:
+            print(f"⚠️ [KnowledgeSync] vector_store 写入失败 (chunk {data['id']}): {e}")
+
+    async def insert_chunk_for_sync(self, data: dict) -> None:
+        """将电脑端解析的知识块写入同步表，供手机 pull。
+        不触发 re-embed，避免与 vector_store.add_text 双重入库。"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(KnowledgeSyncChunkModel).where(KnowledgeSyncChunkModel.id == data["id"])
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                existing.content = data.get("content", existing.content)
+                existing.chunk_metadata = data.get("metadata")
+            else:
+                session.add(KnowledgeSyncChunkModel(
+                    id=data["id"],
+                    user_id=data["user_id"],
+                    session_id=data.get("session_id"),
+                    doc_name=data.get("doc_name", ""),
+                    chunk_index=data.get("chunk_index", 0),
+                    content=data.get("content", ""),
+                    chunk_metadata=data.get("metadata"),
+                    created_at=datetime.utcnow(),
+                ))
+            await session.commit()
+
+    async def insert_chunks_for_sync_batch(self, chunks: list) -> None:
+        """批量写入知识块到同步表，所有处理步骤完成后统一调用，确保手机拉取时数据完整。"""
+        async with self.async_session() as session:
+            for data in chunks:
+                result = await session.execute(
+                    select(KnowledgeSyncChunkModel).where(KnowledgeSyncChunkModel.id == data["id"])
+                )
+                existing = result.scalar_one_or_none()
+                if existing:
+                    existing.content = data.get("content", existing.content)
+                    existing.chunk_metadata = data.get("metadata")
+                else:
+                    session.add(KnowledgeSyncChunkModel(
+                        id=data["id"],
+                        user_id=data["user_id"],
+                        session_id=data.get("session_id"),
+                        doc_name=data.get("doc_name", ""),
+                        chunk_index=data.get("chunk_index", 0),
+                        content=data.get("content", ""),
+                        chunk_metadata=data.get("metadata"),
+                        created_at=datetime.utcnow(),
+                    ))
+            await session.commit()
+
+    async def delete_knowledge_chunk(self, chunk_id: str, user_id: int) -> bool:
+        """删除知识块（验证 user_id）"""
+        async with self.async_session() as session:
+            res = await session.execute(
+                select(KnowledgeSyncChunkModel).where(
+                    KnowledgeSyncChunkModel.id == chunk_id,
+                    KnowledgeSyncChunkModel.user_id == user_id,
+                )
+            )
+            c = res.scalar_one_or_none()
+            if not c:
+                return False
+            await session.delete(c)
+            await session.commit()
+
+        # Remove from Chroma too
+        try:
+            from services.vector_store import vector_store
+            await vector_store.delete_chunk(chunk_id)
+        except Exception:
+            pass
+        return True
+
+    # ==================== History Summarizer Helpers ====================
+
+    async def mark_messages_compressed(self, message_ids: List[str]) -> None:
+        """将指定消息标记为已压缩（由 HistorySummarizer 调用）。"""
+        if not message_ids:
+            return
+        async with self.async_session() as session:
+            await session.execute(
+                text("UPDATE messages SET is_compressed = 1 WHERE id IN :ids"),
+                {"ids": tuple(message_ids)},
+            )
+            await session.commit()
+
+    async def create_summary_message(self, session_id: str, summary_text: str) -> str:
+        """写入一条 role='summary' 的摘要消息，作为被压缩消息的替代。"""
+        message_id = str(uuid.uuid4())
+        async with self.async_session() as session:
+            msg = MessageModel(
+                id=message_id,
+                session_id=session_id,
+                parent_id=None,
+                role="summary",
+                content=summary_text,
+                is_current=1,
+                is_compressed=False,
+                created_at=datetime.utcnow(),
+            )
+            session.add(msg)
+            await session.commit()
+        return message_id
 
     def _to_dict(self, model_obj):
         if not model_obj: return None

@@ -27,7 +27,6 @@ import {
   isDemoDbInitialized,
   getDemoDbRowCount,
   initDemoDatabase,
-  GA_DEMO_DB_KEY,
   isGlobalAnalysisDemoInitialized,
   getGaDbRowCount,
   initGlobalAnalysisDemo,

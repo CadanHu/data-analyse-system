@@ -28,15 +28,21 @@ const PdfExportBridge = registerPlugin<{
 import { generateEmbeddings, cosineSimilarity } from './embeddingService'
 import {
   insertKnowledgeChunk,
+  markDocChunksDirty,
   searchKnowledgeFTS,
   getChunksWithEmbeddings,
   deleteDocChunks,
   saveKnowledgeGraphToDb,
   loadKnowledgeGraphFromDb,
+  getGraphDocIdsForSession,
+  findEntitiesInText,
+  findRelationsForEntityNames,
   type KnowledgeChunk,
 } from './db'
 import { localGetApiKey } from './localStore'
 import { streamDirectAi } from './directAiService'
+import { getBaseURL } from '../api'
+import { useAuthStore } from '../stores/authStore'
 
 // ─── 知识图谱类型 ──────────────────────────────────────────────────────────────
 export interface KnowledgeEntity {
@@ -76,7 +82,7 @@ export interface KnowledgeGraph {
     // 与真实 Web Worker 完全相同的代码路径，但在主线程执行。
     const channel = new MessageChannel()
     WorkerMessageHandler.initializeFromPort(channel.port1)
-    pdfjsLib.GlobalWorkerOptions.workerPort = channel.port2
+    pdfjsLib.GlobalWorkerOptions.workerPort = channel.port2 as any
   } catch {
     // 降级：回退到 workerSrc（桌面 Web 可用）
     pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
@@ -86,30 +92,38 @@ export interface KnowledgeGraph {
 
 // ─── 常量 ──────────────────────────────────────────────────────────────────────
 const CHUNK_SIZE = 800       // 每块字符数
-const CHUNK_OVERLAP = 100    // 块间重叠字符数
+const CHUNK_OVERLAP = 200    // 上文衔接字符数
 const RAG_TOP_K = 5          // 检索返回的最大块数
 
 // Embedding 提供商优先级（按实用性排序，首个配置的生效）
 const EMBEDDING_PROVIDERS = ['qwen_embedding', 'zhipu_embedding', 'jina_embedding', 'google_embedding']
 
-// 视觉 AI 提供商优先级：国内模型优先（无需 VPN，无限速问题）
-const VISION_PROVIDERS = ['qwen', 'zhipu', 'openai', 'claude', 'gemini']
-// 各提供商默认视觉模型
-const VISION_MODELS: Record<string, string> = {
-  qwen:   'qwen-vl-plus',            // 通义千问视觉（国内，有免费额度）
-  zhipu:  'glm-4.6v',                // 智谱 GLM-4.6V（国内，赠送 600万 tokens）
-  openai: 'gpt-4o-mini',
-  claude: 'claude-3-haiku-20240307',
-  gemini: 'gemini-2.0-flash',        // 需 VPN，15 RPM 免费限制
+// 视觉 LLM provider 配置表（顺序 = 降级优先级，与后端 _VISION_PROVIDER_TABLE 对齐）
+// call_type: 'openai' = OpenAI 兼容格式（Bearer Auth）；'gemini' = Gemini 原生；'claude' = Anthropic 原生
+interface VisionProviderEntry {
+  provider: string
+  base_url: string
+  vision_model: string
+  call_type: 'openai' | 'gemini' | 'claude'
+  request_delay_ms: number  // 速率限制间隔
 }
-// 各提供商请求间隔（ms），避免触发速率限制
-const VISION_REQUEST_DELAY: Record<string, number> = {
-  gemini: 4500,   // 15 RPM → 每 4s 一张
-  qwen:   1000,
-  zhipu:  500,
-  openai: 1000,
-  claude: 1000,
-}
+const VISION_PROVIDER_TABLE: VisionProviderEntry[] = [
+  // ── 国内直连（国内优先，无需 VPN）──────────────────────────────────────────────
+  { provider: 'zhipu',     base_url: 'https://open.bigmodel.cn/api/paas/v4',              vision_model: 'glm-4.6v-flash',           call_type: 'openai', request_delay_ms: 500  },
+  { provider: 'zhipu',     base_url: 'https://open.bigmodel.cn/api/paas/v4',              vision_model: 'glm-4.6v',                 call_type: 'openai', request_delay_ms: 500  },
+  { provider: 'qwen',      base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', vision_model: 'qwen3-vl-plus',            call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'doubao',    base_url: 'https://ark.volcengineapi.com/api/v3',               vision_model: 'doubao-seed-2.0-lite',     call_type: 'openai', request_delay_ms: 500  },
+  { provider: 'hunyuan',   base_url: 'https://api.hunyuan.cloud.tencent.com/v1',           vision_model: 'hunyuan-vision',           call_type: 'openai', request_delay_ms: 500  },
+  { provider: 'baidu',     base_url: 'https://aistudio.baidu.com/llm/lmapi/v3',            vision_model: 'ERNIE-4.5-VL',            call_type: 'openai', request_delay_ms: 500  },
+  { provider: 'kimi',      base_url: 'https://api.moonshot.cn/v1',                         vision_model: 'kimi-k2.5',               call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'sensenova', base_url: 'https://api.sensenova.cn/v1',                        vision_model: 'SenseNova-V6.5-Turbo',    call_type: 'openai', request_delay_ms: 500  },
+  // ── 海外（需 VPN）──────────────────────────────────────────────────────────────
+  { provider: 'openai',    base_url: 'https://api.openai.com/v1',                          vision_model: 'gpt-4o',                  call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'gemini',    base_url: 'https://generativelanguage.googleapis.com/v1beta',   vision_model: 'gemini-2.0-flash',        call_type: 'gemini', request_delay_ms: 4500 },
+  { provider: 'claude',    base_url: 'https://api.anthropic.com',                          vision_model: 'claude-sonnet-4-6',       call_type: 'claude', request_delay_ms: 1000 },
+  { provider: 'xai',       base_url: 'https://api.x.ai/v1',                                vision_model: 'grok-4.1-fast',           call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'mistral',   base_url: 'https://api.mistral.ai/v1',                          vision_model: 'pixtral-large-latest',    call_type: 'openai', request_delay_ms: 1000 },
+]
 const MAX_VISION_IMAGES = 20   // 单次最多处理图片数量（避免 API 消耗过多）
 
 // ─── MinerU 完整解析结果类型 ──────────────────────────────────────────────────
@@ -151,51 +165,100 @@ function generateId(): string {
   return `kc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-/** 将长文本切成有重叠的块 */
-function chunkText(text: string): string[] {
-  const chunks: string[] = []
-  let start = 0
-  while (start < text.length) {
-    const end = Math.min(start + CHUNK_SIZE, text.length)
-    const chunk = text.slice(start, end).trim()
-    if (chunk.length > 20) chunks.push(chunk)    // 过滤太短的碎片
-    start += CHUNK_SIZE - CHUNK_OVERLAP
+/** 将段落列表合并到接近 CHUNK_SIZE，返回合并后的段落数组 */
+function mergeSmallParagraphs(paras: string[]): string[] {
+  const merged: string[] = []
+  let buf = ''
+  for (const p of paras) {
+    if (buf.length + p.length < CHUNK_SIZE) {
+      buf = buf ? buf + '\n\n' + p : p
+    } else {
+      if (buf) merged.push(buf)
+      buf = p
+    }
   }
-  return chunks
+  if (buf) merged.push(buf)
+  return merged
 }
 
-/** 按标题分割 Markdown，保留层级上下文（用于 MinerU 返回的 md） */
+/** 纯文本：按段落（双换行）切分，小段落合并，附加上文衔接 */
+function chunkText(text: string): string[] {
+  const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 20)
+  const chunks = mergeSmallParagraphs(paras)
+  return chunks.map((chunk, i) => {
+    if (i === 0) return chunk
+    const prevTail = chunks[i - 1].slice(-CHUNK_OVERLAP)
+    return `[上文衔接]\n${prevTail}\n\n[正文]\n${chunk}`
+  })
+}
+
+/** 按标题分割 Markdown（1-6级），小节合并，附加上文衔接 */
 function chunkMarkdown(markdown: string): string[] {
   const lines = markdown.split('\n')
-  const sections: string[] = []
-  let current: string[] = []
-  let headerContext = ''
+  const headerRe = /^(#{1,6})\s+(.+)/
+
+  // 按标题切点收集原始节
+  type RawSection = { headerPath: string; lines: string[] }
+  const rawSections: RawSection[] = [{ headerPath: '', lines: [] }]
+  const stack: Array<{ level: number; title: string }> = []
 
   for (const line of lines) {
-    if (/^#{1,3}\s/.test(line)) {
-      if (current.length > 0) {
-        sections.push((headerContext ? headerContext + '\n' : '') + current.join('\n'))
-      }
-      headerContext = line
-      current = []
+    const m = headerRe.exec(line)
+    if (m) {
+      const level = m[1].length
+      const title = m[2].trim()
+      while (stack.length && stack[stack.length - 1].level >= level) stack.pop()
+      stack.push({ level, title })
+      rawSections.push({
+        headerPath: stack.map(s => s.title).join(' > '),
+        lines: [line],
+      })
     } else {
-      current.push(line)
+      rawSections[rawSections.length - 1].lines.push(line)
     }
-  }
-  if (current.length > 0) {
-    sections.push((headerContext ? headerContext + '\n' : '') + current.join('\n'))
   }
 
-  // 对过长的 section 再做二次切割
-  const result: string[] = []
-  for (const section of sections) {
-    if (section.length <= CHUNK_SIZE) {
-      if (section.trim().length > 20) result.push(section.trim())
+  // 转为纯文本段，过滤空节
+  const sections = rawSections
+    .map(s => ({ path: s.headerPath, content: s.lines.join('\n').trim() }))
+    .filter(s => s.content.length > 20)
+
+  // 合并过短相邻节
+  const merged: typeof sections = []
+  let buf = { path: '', content: '' }
+  for (const s of sections) {
+    if (buf.content.length + s.content.length < CHUNK_SIZE) {
+      buf.content = buf.content ? buf.content + '\n\n' + s.content : s.content
+      buf.path = buf.path || s.path
     } else {
-      result.push(...chunkText(section))
+      if (buf.content) merged.push({ ...buf })
+      buf = { ...s }
     }
   }
-  return result
+  if (buf.content) merged.push(buf)
+
+  // 对超长节二次切割（字符滑窗），再整体附加上文衔接
+  const flat: string[] = []
+  for (const s of merged) {
+    if (s.content.length <= CHUNK_SIZE) {
+      flat.push(s.path ? `[${s.path}]\n${s.content}` : s.content)
+    } else {
+      // 超长节内部按字符滑窗切，每子块都带章节路径
+      let start = 0
+      while (start < s.content.length) {
+        const sub = s.content.slice(start, start + CHUNK_SIZE).trim()
+        if (sub.length > 20) flat.push(s.path ? `[${s.path}]\n${sub}` : sub)
+        start += CHUNK_SIZE - CHUNK_OVERLAP
+      }
+    }
+  }
+
+  // 附加上文衔接
+  return flat.map((chunk, i) => {
+    if (i === 0) return chunk
+    const prevTail = flat[i - 1].slice(-CHUNK_OVERLAP)
+    return `[上文衔接]\n${prevTail}\n\n[正文]\n${chunk}`
+  })
 }
 
 // ─── PDF 本地解析 ──────────────────────────────────────────────────────────────
@@ -300,7 +363,10 @@ async function nativeFetchJSON(url: string, method: string, headers: Record<stri
       connectTimeout: 60000,
       readTimeout: 60000,
     })
-    if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`)
+    if (res.status < 200 || res.status >= 300) {
+      const bodyStr = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+      throw new Error(`HTTP ${res.status}: ${bodyStr.slice(0, 300)}`)
+    }
     return res.data
   }
   const res = await fetch(url, {
@@ -309,7 +375,10 @@ async function nativeFetchJSON(url: string, method: string, headers: Record<stri
     body: bodyObj !== undefined ? JSON.stringify(bodyObj) : undefined,
     signal: timedSignal(30000),
   })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) {
+    const bodyStr = await res.text().catch(() => '')
+    throw new Error(`HTTP ${res.status}: ${bodyStr.slice(0, 300)}`)
+  }
   return res.json()
 }
 
@@ -408,7 +477,7 @@ async function mineruPollResult(
     if (state === 'done') {
       // 优先取直接返回的 markdown 字段（无 ZIP，无图片）
       const direct = task.content ?? task.markdown ?? task.full_markdown
-      if (direct) return { markdown: direct as string, contentList: [], imageFiles: new Map() }
+      if (direct) return { markdown: direct as string, contentList: [], imageFiles: new Map(), otherFiles: new Map() }
 
       // 否则下载 ZIP
       onProgress?.(`⬇️ 解析完成，下载结果中...`)
@@ -545,114 +614,103 @@ async function findEmbeddingKey(userId: number): Promise<{ provider: string; api
 
 // ─── 视觉 AI：图表/图片描述 ────────────────────────────────────────────────────
 
-async function findVisionKey(userId: number): Promise<{ provider: string; key: NonNullable<Awaited<ReturnType<typeof localGetApiKey>>> } | null> {
-  for (const provider of VISION_PROVIDERS) {
-    const k = await localGetApiKey(userId, provider)
-    if (k) return { provider, key: k }
-    // 智谱：zhipu_embedding key 与 zhipu 聊天/视觉 key 相同，可复用
-    if (provider === 'zhipu') {
-      const fallback = await localGetApiKey(userId, 'zhipu_embedding')
-      if (fallback) return { provider: 'zhipu', key: fallback }
-    }
-    // 通义千问：同理
-    if (provider === 'qwen') {
-      const fallback = await localGetApiKey(userId, 'qwen_embedding')
-      if (fallback) return { provider: 'qwen', key: fallback }
-    }
-  }
-  return null
-}
+type VisionConfig = VisionProviderEntry & { api_key: string }
 
 /**
- * 调用视觉 AI 描述一张图片，返回文字说明。
- * 模型固定为各提供商的视觉专用版本（VISION_MODELS），不依赖用户配置的文本模型。
+ * 收集所有已配置的视觉 LLM，按 VISION_PROVIDER_TABLE 优先级排列。
+ * 与后端 _get_all_vision_configs 逻辑对齐：返回完整列表供逐个降级尝试。
+ */
+async function findAllVisionConfigs(userId: number): Promise<VisionConfig[]> {
+  const configs: VisionConfig[] = []
+  for (const entry of VISION_PROVIDER_TABLE) {
+    const k = await localGetApiKey(userId, entry.provider)
+    let apiKey = k?.api_key?.trim() ?? ''
+    // 智谱/通义千问：embedding key 与视觉 key 相同，可复用
+    if (!apiKey && entry.provider === 'zhipu') {
+      const fb = await localGetApiKey(userId, 'zhipu_embedding')
+      if (fb) apiKey = fb.api_key?.trim() ?? ''
+    }
+    if (!apiKey && entry.provider === 'qwen') {
+      const fb = await localGetApiKey(userId, 'qwen_embedding')
+      if (fb) apiKey = fb.api_key?.trim() ?? ''
+    }
+    if (!apiKey) continue
+    const userBaseUrl = k?.base_url?.trim() ?? ''
+    configs.push({ ...entry, base_url: userBaseUrl || entry.base_url, api_key: apiKey })
+  }
+  return configs
+}
+
+const _VISION_PROMPT = `请仔细分析这张图表或图片，用中文详细描述以下内容：
+1. 图表类型（折线图/柱状图/散点图/热力图/表格等）
+2. 标题、坐标轴标签及其含义
+3. 关键数据点、趋势方向和变化规律
+4. 数据的时间范围、数值区间、单位
+5. 极值（最高/最低）及出现时间
+6. 图表传达的核心结论或市场信号
+
+请直接输出描述，不要开场白，语言简洁精准，保留具体数字。`
+
+/**
+ * 调用单个视觉 LLM provider 描述图片，抛出异常表示失败（供调用方降级）。
+ * call_type='openai'  → OpenAI 兼容格式（所有国内 + openai/xai/mistral）
+ * call_type='gemini'  → Gemini 原生 generateContent
+ * call_type='claude'  → Anthropic Messages API
  */
 async function describeImageWithAI(
   imgBase64: string,
-  provider: string,
-  key: NonNullable<Awaited<ReturnType<typeof localGetApiKey>>>,
+  cfg: VisionConfig,
   itemType: string,
+  mimeType = 'image/jpeg',
 ): Promise<string> {
-  const typeLabel = itemType === 'table' ? '表格' : '图表/图片'
-  const prompt = `请详细描述这个${typeLabel}中的所有数据、标签、趋势和关键信息，输出完整文字描述，便于文本搜索和问答。如果是表格，请列出所有行列数据。`
-  const model = VISION_MODELS[provider] ?? 'gemini-2.0-flash'
+  const typeHint = itemType === 'table' ? '（这是一个表格，请列出所有行列数据）' : ''
+  const prompt = _VISION_PROMPT + typeHint
 
-  if (provider === 'gemini') {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key.api_key}`
+  if (cfg.call_type === 'gemini') {
+    const url = `${cfg.base_url}/models/${cfg.vision_model}:generateContent?key=${cfg.api_key}`
     const res = await nativeFetchJSON(url, 'POST', { 'Content-Type': 'application/json' }, {
       contents: [{ parts: [
-        { inline_data: { mime_type: 'image/png', data: imgBase64 } },
+        { inline_data: { mime_type: mimeType, data: imgBase64 } },
         { text: prompt },
       ]}],
     }) as any
-    return res?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    const text = res?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    if (!text) throw new Error('empty response')
+    return text
   }
 
-  if (provider === 'openai') {
-    const baseUrl = (key as any).base_url || 'https://api.openai.com'
-    const res = await nativeFetchJSON(`${baseUrl}/v1/chat/completions`, 'POST', {
+  if (cfg.call_type === 'claude') {
+    const res = await nativeFetchJSON(`${cfg.base_url}/v1/messages`, 'POST', {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key.api_key}`,
-    }, {
-      model,
-      messages: [{ role: 'user', content: [
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${imgBase64}` } },
-        { type: 'text', text: prompt },
-      ]}],
-      max_tokens: 1000,
-    }) as any
-    return res?.choices?.[0]?.message?.content ?? ''
-  }
-
-  if (provider === 'claude') {
-    const res = await nativeFetchJSON('https://api.anthropic.com/v1/messages', 'POST', {
-      'Content-Type': 'application/json',
-      'x-api-key': key.api_key,
+      'x-api-key': cfg.api_key,
       'anthropic-version': '2023-06-01',
     }, {
-      model, max_tokens: 1000,
+      model: cfg.vision_model, max_tokens: 700,
       messages: [{ role: 'user', content: [
-        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: imgBase64 } },
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: imgBase64 } },
         { type: 'text', text: prompt },
       ]}],
     }) as any
-    return res?.content?.[0]?.text ?? ''
+    const text = res?.content?.[0]?.text ?? ''
+    if (!text) throw new Error('empty response')
+    return text
   }
 
-  if (provider === 'qwen') {
-    const baseUrl = (key as any).base_url || 'https://dashscope.aliyuncs.com/compatible-mode'
-    const res = await nativeFetchJSON(`${baseUrl}/v1/chat/completions`, 'POST', {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key.api_key}`,
-    }, {
-      model,
-      messages: [{ role: 'user', content: [
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${imgBase64}` } },
-        { type: 'text', text: prompt },
-      ]}],
-      max_tokens: 1000,
-    }) as any
-    return res?.choices?.[0]?.message?.content ?? ''
-  }
-
-  if (provider === 'zhipu') {
-    // 智谱 GLM-4V-Flash：完全免费，国内直连，OpenAI 兼容格式
-    const baseUrl = (key as any).base_url || 'https://open.bigmodel.cn/api/paas/v4'
-    const res = await nativeFetchJSON(`${baseUrl}/chat/completions`, 'POST', {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key.api_key}`,
-    }, {
-      model,
-      messages: [{ role: 'user', content: [
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${imgBase64}` } },
-        { type: 'text', text: prompt },
-      ]}],
-      max_tokens: 1000,
-    }) as any
-    return res?.choices?.[0]?.message?.content ?? ''
-  }
-
-  return ''
+  // OpenAI-compat（覆盖：zhipu/qwen/doubao/hunyuan/baidu/kimi/sensenova/openai/xai/mistral）
+  const res = await nativeFetchJSON(`${cfg.base_url}/chat/completions`, 'POST', {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${cfg.api_key}`,
+  }, {
+    model: cfg.vision_model,
+    messages: [{ role: 'user', content: [
+      { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imgBase64}` } },
+      { type: 'text', text: prompt },
+    ]}],
+    max_tokens: 700,
+  }) as any
+  const text = res?.choices?.[0]?.message?.content ?? ''
+  if (!text) throw new Error('empty response')
+  return text
 }
 
 /** 将 Uint8Array 写入 Filesystem（分块 base64 编码） */
@@ -747,7 +805,7 @@ export async function extractPdfPageRange(file: File, startPage: number, endPage
   const copied = await newDoc.copyPages(srcDoc, indices)   // copyPages, not copyPagesFrom
   copied.forEach(p => newDoc.addPage(p))
   const bytes = await newDoc.save()
-  const blob = new Blob([bytes], { type: 'application/pdf' })
+  const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' })
   const baseName = file.name.replace(/\.pdf$/i, '')
   return new File([blob], `${baseName}_p${startPage}-${endPage}.pdf`, { type: 'application/pdf' })
 }
@@ -769,7 +827,7 @@ export interface ProcessOptions {
  *
  * @returns 文档摘要（前 300 字），用于显示给用户
  */
-export async function processDocument(file: File, opts: ProcessOptions): Promise<string> {
+export async function processDocument(file: File, opts: ProcessOptions): Promise<{ preview: string; fullText: string; localPdfUri: string | null }> {
   const { engine, userId, sessionId, onProgress, signal, pageRange } = opts
 
   // ─ Step 1: 提取文本 ──────────────────────────────────────────────────────────
@@ -797,7 +855,12 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
   // ─ Step 2: 分块 ────────────────────────────────────────────────────────────
   onProgress?.('文本分块处理中...')
   const isPro = engine !== 'light'
-  const chunks = isPro ? chunkMarkdown(text) : chunkText(text)
+  const rawChunks = isPro ? chunkMarkdown(text) : chunkText(text)
+  // RAG 存储时剥除图片 Markdown 语法（![alt](path)），避免 chunk 里出现无意义的图片 URL
+  // 视觉识别成功后会另外新增包含图片描述的 chunk
+  const chunks = rawChunks
+    .map(c => c.replace(/!\[[^\]]*\]\([^)]+\)/g, '').replace(/\n{3,}/g, '\n\n').trim())
+    .filter(Boolean)
   const preview = text.slice(0, 300)
 
   // ─ Step 3: 删除旧版本（覆盖导入）────────────────────────────────────────────
@@ -819,7 +882,7 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
   onProgress?.(`存储 ${chunks.length} 个知识块...`)
   const now = new Date().toISOString()
   for (let i = 0; i < chunks.length; i++) {
-    const chunk: KnowledgeChunk = {
+    const chunk: KnowledgeChunk & { _sync_dirty: number } = {
       id: generateId(),
       user_id: userId,
       session_id: sessionId,
@@ -830,6 +893,7 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
       embedding_provider: embeddings ? embeddingConfig!.provider : null,
       metadata: null,
       created_at: now,
+      _sync_dirty: 0, // 等待所有处理步骤完成后再统一标记
     }
     await insertKnowledgeChunk(chunk)
   }
@@ -839,6 +903,7 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
   // ─ Step 5.5: 保存全量解析文件（仅 MinerU 模式）──────────────────────────────
   // 无论有无图片，均保存 markdown / model.json / middle.json / images/ 等到本地
   // Plan A: parsed/{userId}/{docName}/   Plan B: parsed_sessions/{userId}/{sessionId}/{docName}/
+  let localPdfUri: string | null = null
   if (mineruResult) {
     const imgCount = mineruResult.imageFiles.size
     const otherCount = mineruResult.otherFiles.size
@@ -851,116 +916,242 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
 
     // ─ 图表视觉识别（有图片时执行）─────────────────────────────────────────────
     if (imgCount > 0) {
-      const visionCfg = await findVisionKey(userId)
-      if (visionCfg) {
-        // 优先用 content_list 中的 figure/table 条目；无则处理全部图片
-        const imageItems: { img_path: string; type: string; page_idx: number }[] =
-          mineruResult.contentList.filter(c => (c.type === 'figure' || c.type === 'table') && c.img_path)
-            .map(c => ({ img_path: c.img_path!, type: c.type, page_idx: c.page_idx ?? 0 }))
+      // 优先用 content_list 中的 figure/table 条目；无则处理全部图片
+      const imageItems: { img_path: string; type: string; page_idx: number }[] =
+        mineruResult.contentList.filter(c => (c.type === 'figure' || c.type === 'table') && c.img_path)
+          .map(c => ({ img_path: c.img_path!, type: c.type, page_idx: c.page_idx ?? 0 }))
 
-        const toProcess = imageItems.length > 0
-          ? imageItems
-          : [...mineruResult.imageFiles.keys()].map(k => ({ img_path: k, type: 'figure', page_idx: 0 }))
+      const toProcess = imageItems.length > 0
+        ? imageItems
+        : [...mineruResult.imageFiles.keys()].map(k => ({ img_path: k, type: 'figure', page_idx: 0 }))
 
-        const limited = toProcess.slice(0, MAX_VISION_IMAGES)
-        onProgress?.(`图表 AI 识别中 (${limited.length}/${toProcess.length} 张, ${visionCfg.provider})...`)
+      const limited = toProcess.slice(0, MAX_VISION_IMAGES)
 
-        let visionCount = 0
-        for (let vi = 0; vi < limited.length; vi++) {
-          const item = limited[vi]
-          const localPath = localImagePaths.get(item.img_path)
-          if (!localPath) continue
-          try {
-            onProgress?.(`图表识别 ${vi + 1}/${limited.length}...`)
-            const readResult = await Filesystem.readFile({ path: localPath, directory: Directory.Data })
-            const imgBase64 = (readResult.data as string).replace(/\s/g, '')
-            // Capacitor Bridge 传输大 base64 payload 有限制，超过 ~1MB base64 跳过
-            if (imgBase64.length > 1_000_000) {
-              console.warn('[Vision] skip oversized image (>1MB base64):', item.img_path)
-              continue
-            }
-            // 请求间隔：避免触发速率限制（Gemini 免费额度 15 RPM，每 4.5s 一张）
-            if (vi > 0) {
-              const delay = VISION_REQUEST_DELAY[visionCfg.provider] ?? 1000
-              await new Promise(r => setTimeout(r, delay))
-            }
-            // 单张图片识别最多等 45 秒，超时跳过而不卡整个流程
-            const descriptionPromise = describeImageWithAI(imgBase64, visionCfg.provider, visionCfg.key, item.type)
-            const timeoutPromise = new Promise<string>((_, reject) =>
-              setTimeout(() => reject(new Error('vision timeout')), 45000)
-            )
-            const description = await Promise.race([descriptionPromise, timeoutPromise])
-            if (!description.trim()) continue
-            const typeLabel = item.type === 'table' ? '表格' : '图表'
-            await insertKnowledgeChunk({
-              id: generateId(),
-              user_id: userId,
-              session_id: sessionId,
-              doc_name: file.name,
-              chunk_index: chunks.length + visionCount,
-              content: `[${typeLabel} · 第 ${item.page_idx + 1} 页]\n${description}`,
-              embedding: null,
-              embedding_provider: null,
-              metadata: JSON.stringify({ type: item.type, page: item.page_idx, image_path: localPath }),
-              created_at: now,
-            })
-            visionCount++
-          } catch (e) {
-            console.warn('[Vision] failed:', item.img_path, e)
-          }
-        }
-        if (visionCount > 0) onProgress?.(`图表识别完成，新增 ${visionCount} 个视觉知识块`)
+      // 初次检查：用于进度提示，key 列表在循环内每张图片重新查询以支持途中配置
+      const initialConfigs = await findAllVisionConfigs(userId)
+      if (initialConfigs.length > 0) {
+        const providerChain = initialConfigs.map(c => c.provider).join(' → ')
+        onProgress?.(`图表 AI 识别中 (${limited.length}/${toProcess.length} 张) | provider链: ${providerChain}`)
       } else {
-        onProgress?.('未配置视觉 AI Key（Gemini/OpenAI/Claude/Qwen），图片已保存本地但跳过识别')
+        onProgress?.('未配置视觉 AI Key，图片已保存本地但跳过识别')
+      }
+
+      let visionCount = 0
+      let lastUsedProvider = initialConfigs[0]?.provider ?? ''
+      for (let vi = 0; vi < limited.length; vi++) {
+        const item = limited[vi]
+        // 每张图片重新查询配置列表，确保解析中途新配置的 key 立即生效
+        const visionConfigs = await findAllVisionConfigs(userId)
+        if (visionConfigs.length === 0) continue
+
+        const localPath = localImagePaths.get(item.img_path)
+        if (!localPath) continue
+        // 从文件扩展名检测正确 MIME type（MinerU 常见：jpg/jpeg/png/webp）
+        const imgExt = (localPath.split('.').pop() ?? 'jpg').toLowerCase()
+        const imgMime = imgExt === 'png' ? 'image/png' : imgExt === 'webp' ? 'image/webp' : 'image/jpeg'
+        try {
+          onProgress?.(`图表识别 ${vi + 1}/${limited.length}...`)
+          const readResult = await Filesystem.readFile({ path: localPath, directory: Directory.Data })
+          const imgBase64 = (readResult.data as string).replace(/\s/g, '')
+          // Capacitor Bridge 传输大 base64 payload 有限制，超过 ~1MB base64 跳过
+          if (imgBase64.length > 1_000_000) {
+            console.warn('[Vision] skip oversized image (>1MB base64):', item.img_path)
+            continue
+          }
+          // 请求间隔：基于上一张成功使用的 provider，避免触发速率限制
+          if (vi > 0) {
+            const primaryCfg = visionConfigs.find(c => c.provider === lastUsedProvider) ?? visionConfigs[0]
+            await new Promise(r => setTimeout(r, primaryCfg.request_delay_ms))
+          }
+
+          // ── Provider 降级链：逐个尝试，与后端 _describe_image 对齐 ──────────────
+          const imgName = item.img_path.split('/').pop() ?? item.img_path
+          const typeHintLabel = item.type === 'table' ? '表格' : '图表'
+          const promptPreview = _VISION_PROMPT.split('\n')[0]
+          console.info(`[Vision] 🔍 开始处理 ${vi + 1}/${limited.length}: ${imgName} (${typeHintLabel}) | 大小: ${(imgBase64.length / 1024).toFixed(1)} KB`)
+          console.info(`[Vision] 📋 Prompt: ${promptPreview}${item.type === 'table' ? '（含表格行列提示）' : ''}`)
+          let description = ''
+          for (let pi = 0; pi < visionConfigs.length; pi++) {
+            const cfg = visionConfigs[pi]
+            const nextModel = pi + 1 < visionConfigs.length
+              ? ` → 改用 ${visionConfigs[pi + 1].provider}/${visionConfigs[pi + 1].vision_model}`
+              : ' → 已无可用 provider，放弃'
+            console.info(`[Vision] 📤 尝试 ${cfg.provider}/${cfg.vision_model} | 图片: ${imgName}`)
+            try {
+              const descPromise = describeImageWithAI(imgBase64, cfg, item.type, imgMime)
+              const timeoutPromise = new Promise<string>((_, reject) =>
+                setTimeout(() => reject(new Error('vision timeout')), 45000)
+              )
+              const result = await Promise.race([descPromise, timeoutPromise])
+              if (result.trim()) {
+                description = result
+                lastUsedProvider = cfg.provider
+                console.info(`[Vision] ✅ ${cfg.provider}/${cfg.vision_model} 成功 | 图片 ${vi + 1}/${limited.length}: ${imgName} | 描述长度: ${result.trim().length} 字`)
+                break
+              }
+              console.warn(`[Vision] ❌ ${cfg.provider}/${cfg.vision_model} 返回空内容 | 图片: ${imgName}${nextModel}`)
+            } catch (e) {
+              console.warn(`[Vision] ❌ ${cfg.provider}/${cfg.vision_model} 失败: ${e instanceof Error ? e.message : String(e)} | 图片: ${imgName}${nextModel}`)
+            }
+          }
+
+          if (!description.trim()) continue
+          const typeLabel = item.type === 'table' ? '表格' : '图表'
+          await insertKnowledgeChunk({
+            id: generateId(),
+            user_id: userId,
+            session_id: sessionId,
+            doc_name: file.name,
+            chunk_index: chunks.length + visionCount,
+            content: `[${typeLabel} · 第 ${item.page_idx + 1} 页]\n${description}`,
+            embedding: null,
+            embedding_provider: null,
+            metadata: JSON.stringify({ type: item.type, page: item.page_idx, image_path: localPath }),
+            created_at: now,
+            _sync_dirty: 0, // 等待所有处理步骤完成后再统一标记
+          })
+          visionCount++
+        } catch (e) {
+          console.warn('[Vision] 图片读取失败:', item.img_path, e instanceof Error ? e.message : String(e))
+        }
+      }
+      if (visionCount > 0) onProgress?.(`图表识别完成，新增 ${visionCount} 个视觉知识块`)
+    }
+
+    // ─ Step 5.6: 替换 Markdown 图片路径为 Capacitor 本地可访问 URL ────────────
+    if (Capacitor.isNativePlatform() && localImagePaths.size > 0) {
+      for (const [imgZipPath, localRelPath] of localImagePaths.entries()) {
+        try {
+          const { uri } = await Filesystem.getUri({ path: localRelPath, directory: Directory.Data })
+          const webUrl = Capacitor.convertFileSrc(uri)
+          const fileName = imgZipPath.split('/').pop() ?? imgZipPath
+          // 按精确度从高到低尝试替换，优先完整路径，避免 filename 污染已替换的 URL
+          if (text.includes(imgZipPath)) {
+            text = text.split(imgZipPath).join(webUrl)
+          } else if (text.includes(`./${fileName}`)) {
+            text = text.split(`./${fileName}`).join(webUrl)
+          } else if (text.includes(`(${fileName})`)) {
+            // markdown 语法 ![...](filename.jpg)：仅替换括号内的 filename
+            text = text.split(`(${fileName})`).join(`(${webUrl})`)
+          }
+        } catch (e) {
+          console.warn('[MinerU] 图片路径转换失败:', imgZipPath, e)
+        }
+      }
+    }
+
+    // ─ Step 5.7: 保存原始 PDF 到本地（供"对照预览"左侧显示使用）────────────────
+    if (Capacitor.isNativePlatform() && file.type === 'application/pdf') {
+      try {
+        const safeDocName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const pdfPath = `parsed/${userId}/${safeDocName}_original.pdf`
+        const arrayBuffer = await file.arrayBuffer()
+        const data = new Uint8Array(arrayBuffer)
+        let binary = ''
+        const CHUNK = 8192
+        for (let i = 0; i < data.byteLength; i += CHUNK) {
+          binary += String.fromCharCode(...data.subarray(i, i + CHUNK))
+        }
+        await Filesystem.writeFile({ path: pdfPath, data: btoa(binary), directory: Directory.Data, recursive: true })
+        const { uri } = await Filesystem.getUri({ path: pdfPath, directory: Directory.Data })
+        localPdfUri = uri  // 保存原始 native file:// URI（MessageItem 读取时会调用 convertFileSrc）
+        console.log('[PDF] 原始文件已保存本地:', uri)
+      } catch (e) {
+        console.warn('[PDF] 保存原始文件失败（不影响知识索引）:', e)
       }
     }
   }
 
-  // ─ Step 6: 知识图谱抽取（仅 knowledge 模式，且用户有 LLM key）─────────────
+  // ─ Step 6: 知识图谱抽取 + 社区检测（仅 knowledge 模式）──────────────────────
   if (engine === 'knowledge') {
-    await extractKnowledgeGraph(userId, file.name, chunks.slice(0, 20), onProgress)
+    const graph = await extractKnowledgeGraph(userId, file.name, chunks.slice(0, 20), onProgress)
+    if (graph && graph.entities.length >= 3 && graph.relations.length > 0) {
+      await detectAndUploadCommunities(graph, userId, file.name, onProgress)
+    }
   }
 
+  // ─ Step 7: 所有本地处理完成，统一标记为待同步 ─────────────────────────────────
+  // 必须在视觉识别 + 知识图谱全部完成后，才将本文档所有 chunk 标记 dirty，
+  // 确保同步到 Web 时片段数量完整、内容原封不动。
+  await markDocChunksDirty(userId, file.name)
+
   onProgress?.('完成！')
-  return preview
+  return { preview, fullText: text, localPdfUri }
 }
 
 // ─── 知识图谱抽取 ──────────────────────────────────────────────────────────────
 
-/** 调用用户的 LLM，从文本块中抽取实体和关系，构建知识图谱 */
+/** 调用用户的 LLM，从文本块中抽取实体和关系，构建知识图谱（与 Web 端 extract_knowledge_graph_for_web 对齐）*/
 async function extractKnowledgeGraph(
   userId: number,
   docName: string,
   chunks: string[],
   onProgress?: (msg: string) => void
 ): Promise<KnowledgeGraph | null> {
-  // 找用户配置的 LLM key（优先国内：deepseek、qwen、minimax）
-  const LLM_PROVIDERS = ['deepseek', 'qwen', 'minimax', 'openai', 'gemini', 'claude']
-  let llmKey = null
-  let llmProvider = ''
-  for (const p of LLM_PROVIDERS) {
-    llmKey = await localGetApiKey(userId, p)
-    if (llmKey) { llmProvider = p; break }
+
+  // 1. 按优先级（国内优先）收集所有可用 LLM 配置，使用 OpenAI 兼容接口（与 Web 端一致）
+  type LlmConfig = { provider: string; url: string; apiKey: string; model: string }
+  const KG_PROVIDER_DEFAULTS: Array<{ provider: string; defaultUrl: string; defaultModel: string }> = [
+    { provider: 'deepseek', defaultUrl: 'https://api.deepseek.com/v1/chat/completions',                              defaultModel: 'deepseek-chat'     },
+    { provider: 'qwen',     defaultUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',        defaultModel: 'qwen-plus'         },
+    { provider: 'zhipu',    defaultUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',                     defaultModel: 'glm-4-flash'       },
+    { provider: 'minimax',  defaultUrl: 'https://api.minimax.chat/v1/text/chatcompletion_v2',                        defaultModel: 'MiniMax-Text-01'   },
+    { provider: 'kimi',     defaultUrl: 'https://api.moonshot.cn/v1/chat/completions',                               defaultModel: 'moonshot-v1-8k'    },
+    { provider: 'doubao',   defaultUrl: 'https://ark.volcengineapi.com/api/v3/chat/completions',                     defaultModel: 'doubao-seed-2.0-lite' },
+    { provider: 'openai',   defaultUrl: 'https://api.openai.com/v1/chat/completions',                                defaultModel: 'gpt-4o-mini'       },
+  ]
+
+  const allConfigs: LlmConfig[] = []
+  for (const entry of KG_PROVIDER_DEFAULTS) {
+    const k = await localGetApiKey(userId, entry.provider)
+    const apiKey = k?.api_key?.trim() ?? ''
+    if (!apiKey) continue
+    const base = (k?.base_url ?? '').trim().replace(/\/+$/, '')
+    let url: string
+    if (base) {
+      if (base.endsWith('/chat/completions'))                                               url = base
+      else if (base.includes('/v1') || base.includes('compatible-mode') || base.includes('paas')) url = base + '/chat/completions'
+      else                                                                                  url = base + '/v1/chat/completions'
+    } else {
+      url = entry.defaultUrl
+    }
+    allConfigs.push({ provider: entry.provider, url, apiKey, model: k?.model_name?.trim() || entry.defaultModel })
   }
-  if (!llmKey) {
+
+  if (allConfigs.length === 0) {
     onProgress?.('未找到 LLM Key，跳过知识图谱抽取')
     return null
   }
 
+  // 2. 全文分块：4000 字符 + 200 重叠（与 Web 端 CHUNK_SIZE/OVERLAP 对齐）
+  const fullText = chunks.join('\n\n')
+  const KG_CHUNK_SIZE = 4000
+  const KG_OVERLAP   = 200
+  const kgChunks: string[] = []
+  let pos = 0
+  while (pos < fullText.length) {
+    kgChunks.push(fullText.slice(pos, pos + KG_CHUNK_SIZE))
+    if (pos + KG_CHUNK_SIZE >= fullText.length) break
+    pos += KG_CHUNK_SIZE - KG_OVERLAP
+  }
+
+  const modelChain = allConfigs.map(c => `${c.provider}/${c.model}`).join(' → ')
+  console.log(`[KG] 🚀 开始抽取: ${docName} | 文本 ${fullText.length} 字符 → ${kgChunks.length} 块 | 模型链: ${modelChain}`)
   onProgress?.('知识图谱抽取中（实体/关系识别）...')
 
-  const combinedText = chunks.join('\n\n').slice(0, 6000)
-  const prompt = `请从以下文本中抽取关键实体和它们之间的关系，用于构建知识图谱。
+  // 3. 构建 prompt（与 Web 端 build_prompt 完全一致）
+  function buildKgPrompt(chunk: string): string {
+    return `请从以下文本中抽取所有实体和它们之间的关系，用于构建知识图谱。
 
 文本内容：
 """
-${combinedText}
+${chunk}
 """
 
 请严格输出 JSON 格式（不要有任何其他文字）：
 {
   "entities": [
-    {"id": "e1", "text": "实体名称", "type": "Person|Organization|Concept|Event|Location|Other", "description": "简短描述（可选）"}
+    {"id": "e1", "text": "实体名称", "type": "Person|Organization|Concept|Event|Location|Other", "description": "简短描述"}
   ],
   "relations": [
     {"id": "r1", "source": "e1", "target": "e2", "label": "关系描述"}
@@ -968,52 +1159,250 @@ ${combinedText}
 }
 
 要求：
-- 实体数量 5-20 个，选最重要的
-- 关系数量 5-15 个，只包含确定存在的关系
+- 尽量抽取文本中出现的所有实体，不要遗漏
+- 尽量抽取所有确定存在的关系
 - id 从 e1/r1 开始递增
 - 类型只能是 Person/Organization/Concept/Event/Location/Other 之一`
+  }
 
-  let rawJson = ''
-  try {
-    await streamDirectAi({
-      provider: llmProvider,
-      model: llmKey.model_name || (llmProvider === 'deepseek' ? 'deepseek-chat' : llmProvider === 'qwen' ? 'qwen-plus' : 'gpt-4o-mini'),
-      messages: [{ role: 'user', content: prompt }],
-      apiKey: llmKey,
-      enableThinking: false,
-      maxTokens: 2000,
-      onSummary: (chunk) => { rawJson += chunk },
-      onDone: () => {},
-      onError: (e) => { throw new Error(e) },
-    })
-
-    // 提取 JSON（防止模型输出多余文字）
-    const match = rawJson.match(/\{[\s\S]*\}/)
-    if (!match) throw new Error('No JSON found')
-    const parsed = JSON.parse(match[0])
-
-    const graph: KnowledgeGraph = {
-      entities: parsed.entities || [],
-      relations: parsed.relations || [],
-      doc_name: docName,
-      extracted_at: new Date().toISOString(),
+  // 4. 单次 LLM 调用（非流式，与 Web 端 httpx POST 对齐）
+  async function callOnce(chunk: string, cfg: LlmConfig): Promise<string | null> {
+    try {
+      const res = await nativeFetchJSON(cfg.url, 'POST', {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cfg.apiKey}`,
+      }, { model: cfg.model, messages: [{ role: 'user', content: buildKgPrompt(chunk) }], max_tokens: 4000 }) as any
+      return res?.choices?.[0]?.message?.content ?? null
+    } catch {
+      return null
     }
+  }
 
-    // localStorage 缓存（快速读取）
-    const key = `kg_${docName}_${userId}`
-    localStorage.setItem(key, JSON.stringify(graph))
+  // 5. 合并解析结果（text.toLowerCase() 去重，与 Web 端 all_entities/all_relations dict 对齐）
+  const allEntitiesMap = new Map<string, { text: string; type: string; description: string }>()
+  const allRelationsMap = new Map<string, { source: string; target: string; label: string }>()
 
-    // SQLite 持久化（App 重装后恢复）
-    await saveKnowledgeGraphToDb(docName, userId, graph.entities, graph.relations)
+  function parseAndMerge(raw: string, chunkIdx: number): void {
+    const match = raw.match(/\{[\s\S]*\}/)
+    if (!match) { console.warn(`[KG] ⚠️ 块 ${chunkIdx + 1}/${kgChunks.length} 未找到 JSON`); return }
+    let parsed: any
+    try { parsed = JSON.parse(match[0]) } catch (je) { console.warn(`[KG] ⚠️ 块 ${chunkIdx + 1}/${kgChunks.length} JSON 解析失败:`, je); return }
 
-    console.log('[KG] 抽取完成，rawJson 长度:', rawJson.length, '实体:', graph.entities.length, '关系:', graph.relations.length)
-    console.log('[KG] 实体列表:', JSON.stringify(graph.entities.map(e => e.text)))
-    onProgress?.(`知识图谱构建完成（${graph.entities.length} 实体，${graph.relations.length} 关系）`)
-    return graph
-  } catch (e) {
-    console.error('[KG] 抽取失败，rawJson:', rawJson, '错误:', e)
+    const chunkIdToText: Record<string, string> = {}
+    let newE = 0, newR = 0
+    for (const e of parsed.entities ?? []) {
+      const t = (e.text ?? '').trim()
+      if (!t) continue
+      chunkIdToText[e.id ?? ''] = t
+      const key = t.toLowerCase()
+      if (!allEntitiesMap.has(key)) { allEntitiesMap.set(key, { text: t, type: e.type ?? 'Other', description: e.description ?? '' }); newE++ }
+    }
+    for (const r of parsed.relations ?? []) {
+      const srcRaw = r.source ?? r.from ?? ''
+      const tgtRaw = r.target ?? r.to ?? ''
+      const src = (chunkIdToText[srcRaw] ?? srcRaw).trim()
+      const tgt = (chunkIdToText[tgtRaw] ?? tgtRaw).trim()
+      const label = (r.label ?? '').trim()
+      if (!src || !tgt || !label) continue
+      const rkey = `${src.toLowerCase()}→${tgt.toLowerCase()}→${label.toLowerCase()}`
+      if (!allRelationsMap.has(rkey)) { allRelationsMap.set(rkey, { source: src, target: tgt, label }); newR++ }
+    }
+    console.log(`[KG] ✔ 块 ${chunkIdx + 1}/${kgChunks.length} 完成 (+${newE} 实体, +${newR} 关系) | 累计: ${allEntitiesMap.size} 实体, ${allRelationsMap.size} 关系`)
+  }
+
+  // 6. 逐块处理：主模型 → 重试一次 → 备用模型（与 Web 端三段式重试对齐）
+  const [primaryCfg, ...fallbackCfgs] = allConfigs
+  const failedChunks: number[] = []
+
+  for (let ci = 0; ci < kgChunks.length; ci++) {
+    console.log(`[KG] ⏳ 块 ${ci + 1}/${kgChunks.length} (${kgChunks[ci].length} 字符) → ${primaryCfg.provider}/${primaryCfg.model}`)
+    const raw = await callOnce(kgChunks[ci], primaryCfg)
+    if (raw) { parseAndMerge(raw, ci) } else { failedChunks.push(ci) }
+  }
+
+  // 重试一次
+  const stillFailed: number[] = []
+  for (const ci of failedChunks) {
+    console.log(`[KG] 🔁 重试块 ${ci + 1}/${kgChunks.length}`)
+    const raw = await callOnce(kgChunks[ci], primaryCfg)
+    if (raw) { parseAndMerge(raw, ci) } else { stillFailed.push(ci) }
+  }
+
+  // 备用模型
+  for (const ci of stillFailed) {
+    let succeeded = false
+    for (const fb of fallbackCfgs) {
+      console.log(`[KG] 🔄 块 ${ci + 1}/${kgChunks.length} 切换备用模型: ${fb.provider}/${fb.model}`)
+      const raw = await callOnce(kgChunks[ci], fb)
+      if (raw) { parseAndMerge(raw, ci); succeeded = true; break }
+    }
+    if (!succeeded) console.warn(`[KG] ⚠️ 块 ${ci + 1}/${kgChunks.length} 所有模型均失败，跳过`)
+  }
+
+  if (allEntitiesMap.size === 0) {
     onProgress?.('知识图谱抽取失败（不影响 RAG 检索）')
     return null
+  }
+
+  // 7. 全局重新编号（与 Web 端 text_to_gid 逻辑对齐）
+  const textToGid = new Map<string, string>()
+  const entitiesList: KnowledgeEntity[] = []
+  let eidx = 1
+  for (const [, e] of allEntitiesMap) {
+    const gid = `e${eidx++}`
+    textToGid.set(e.text.toLowerCase(), gid)
+    entitiesList.push({ id: gid, text: e.text, type: e.type, description: e.description })
+  }
+
+  const relationsList: KnowledgeRelation[] = []
+  let ridx = 1
+  for (const [, r] of allRelationsMap) {
+    const srcGid = textToGid.get(r.source.toLowerCase()) ?? r.source
+    const tgtGid = textToGid.get(r.target.toLowerCase()) ?? r.target
+    relationsList.push({ id: `r${ridx++}`, source: srcGid, target: tgtGid, label: r.label })
+  }
+
+  const graph: KnowledgeGraph = {
+    entities: entitiesList,
+    relations: relationsList,
+    doc_name: docName,
+    extracted_at: new Date().toISOString(),
+  }
+
+  // 8. 持久化（localStorage 缓存 + SQLite）
+  localStorage.setItem(`kg_${docName}_${userId}`, JSON.stringify(graph))
+  await saveKnowledgeGraphToDb(docName, userId, graph.entities, graph.relations)
+
+  console.log(`[KG] ✅ 抽取完成: ${graph.entities.length} 实体, ${graph.relations.length} 关系`)
+  console.log('[KG] 实体列表:', JSON.stringify(graph.entities.map(e => e.text)))
+  onProgress?.(`知识图谱构建完成（${graph.entities.length} 实体，${graph.relations.length} 关系）`)
+  return graph
+}
+
+/**
+ * BFS 连通分量社区检测 + LLM 摘要 → POST 到服务器
+ * 仅在 knowledge 模式下调用，不影响 Web 端。
+ */
+async function detectAndUploadCommunities(
+  graph: KnowledgeGraph,
+  userId: number,
+  docName: string,
+  onProgress?: (msg: string) => void
+): Promise<void> {
+  const { entities, relations } = graph
+
+  // ─ BFS 连通分量 ──────────────────────────────────────────────────────────────
+  const adjMap = new Map<string, Set<string>>()
+  for (const e of entities) adjMap.set(e.id, new Set())
+  for (const r of relations) {
+    adjMap.get(r.source)?.add(r.target)
+    adjMap.get(r.target)?.add(r.source)
+  }
+
+  const visited = new Set<string>()
+  const componentGroups: string[][] = []
+  for (const e of entities) {
+    if (visited.has(e.id)) continue
+    const group: string[] = []
+    const queue = [e.id]
+    visited.add(e.id)
+    while (queue.length > 0) {
+      const cur = queue.shift()!
+      group.push(cur)
+      for (const nb of adjMap.get(cur) || []) {
+        if (!visited.has(nb)) { visited.add(nb); queue.push(nb) }
+      }
+    }
+    if (group.length >= 2) componentGroups.push(group)
+  }
+
+  if (componentGroups.length === 0) return
+  componentGroups.sort((a, b) => b.length - a.length)
+
+  onProgress?.(`社区检测中（${componentGroups.length} 个社区）...`)
+
+  // ─ 找 LLM Key ─────────────────────────────────────────────────────────────────
+  const LLM_PROVIDERS = ['deepseek', 'qwen', 'minimax', 'openai', 'gemini', 'claude']
+  let llmKey = null
+  let llmProvider = ''
+  for (const p of LLM_PROVIDERS) {
+    llmKey = await localGetApiKey(userId, p)
+    if (llmKey) { llmProvider = p; break }
+  }
+  if (!llmKey) return
+
+  // ─ 逐社区生成 LLM 摘要 ───────────────────────────────────────────────────────
+  const communities: Array<{
+    community_id: number; title: string; summary: string; entity_texts: string[]; size: number
+  }> = []
+
+  for (let i = 0; i < componentGroups.length; i++) {
+    const group = componentGroups[i]
+    const groupEntities = group.map(id => entities.find(e => e.id === id)!).filter(Boolean)
+    const entityTexts = groupEntities.map(e => e.text)
+    const groupRelations = relations.filter(r => group.includes(r.source) && group.includes(r.target))
+    const relLines = groupRelations.slice(0, 10).map(r => {
+      const src = entities.find(e => e.id === r.source)?.text ?? r.source
+      const tgt = entities.find(e => e.id === r.target)?.text ?? r.target
+      return `${src} → ${tgt}（${r.label}）`
+    })
+
+    const prompt = `请为以下知识图谱社区生成标题和摘要。
+实体：${entityTexts.join('、')}
+关系：${relLines.join('；')}
+请严格输出 JSON（不要其他文字）：{"title": "不超过15字的标题", "summary": "80-150字摘要"}`
+
+    let raw = ''
+    try {
+      await streamDirectAi({
+        provider: llmProvider,
+        model: llmKey.model_name || (llmProvider === 'deepseek' ? 'deepseek-chat' : llmProvider === 'qwen' ? 'qwen-plus' : 'gpt-4o-mini'),
+        messages: [{ role: 'user', content: prompt }],
+        apiKey: llmKey,
+        enableThinking: false,
+        maxTokens: 300,
+        onSummary: c => { raw += c },
+        onDone: () => {},
+        onError: () => {},
+      })
+      const match = raw.match(/\{[\s\S]*?\}/)
+      const parsed = match ? JSON.parse(match[0]) : {}
+      communities.push({
+        community_id: i,
+        title: parsed.title || entityTexts.slice(0, 3).join('、'),
+        summary: parsed.summary || entityTexts.join('、'),
+        entity_texts: entityTexts,
+        size: entityTexts.length,
+      })
+    } catch {
+      communities.push({
+        community_id: i,
+        title: entityTexts.slice(0, 3).join('、'),
+        summary: entityTexts.join('、'),
+        entity_texts: entityTexts,
+        size: entityTexts.length,
+      })
+    }
+  }
+
+  // ─ POST 到服务器（KnowledgeGraphModal 从服务器读取，无需改 modal）───────────
+  try {
+    const base = getBaseURL()
+    const token = useAuthStore.getState().token || ''
+    const apiBase = base.endsWith('/') ? base.slice(0, -1) : base
+    const res = await fetch(`${apiBase}/knowledge-graph/communities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ doc_id: docName, communities }),
+    })
+    if (res.ok) {
+      onProgress?.(`社区报告生成完成（${communities.length} 个社区）`)
+      console.log(`[Community] ✅ 上传 ${communities.length} 个社区: ${docName}`)
+    } else {
+      console.warn('[Community] 上传失败:', res.status)
+    }
+  } catch (e) {
+    console.warn('[Community] 上传社区失败:', e instanceof Error ? e.message : String(e))
   }
 }
 
@@ -1052,10 +1441,84 @@ export async function loadKnowledgeGraphAsync(docName: string, userId: number): 
 // ─── RAG 检索 ──────────────────────────────────────────────────────────────────
 
 /**
+ * 搜索本地知识图谱，返回与问题相关的实体关系上下文。
+ * 策略：直接在图谱中查找「出现在问题里的实体」，再做 2 跳关系遍历。
+ * 无需分词或 LLM，完全离线可用。
+ */
+export async function searchGraphContext(
+  userId: number,
+  sessionId: string | null,
+  question: string
+): Promise<string> {
+  try {
+    const docIds = await getGraphDocIdsForSession(userId, sessionId)
+    if (docIds.length === 0) return ''
+
+    // 直接查「问题中包含哪些已知实体名」
+    const matched = await findEntitiesInText(docIds, question)
+    if (matched.length === 0) return ''
+
+    const uniqueEntities = [...new Set(matched.map(e => e.entityText))].slice(0, 10)
+
+    // 第一跳关系
+    const hop1Relations = await findRelationsForEntityNames(docIds, uniqueEntities)
+    if (hop1Relations.length === 0) return ''
+
+    // 第二跳：从第一跳发现的新实体出发
+    const hop1Entities = new Set(uniqueEntities)
+    const newEntities: string[] = []
+    for (const r of hop1Relations) {
+      if (!hop1Entities.has(r.source)) newEntities.push(r.source)
+      if (!hop1Entities.has(r.target)) newEntities.push(r.target)
+    }
+    const hop2Relations = newEntities.length > 0
+      ? await findRelationsForEntityNames(docIds, [...new Set(newEntities)].slice(0, 8))
+      : []
+
+    const allRelations = [...hop1Relations, ...hop2Relations].slice(0, 30)
+
+    // 格式化
+    const lines = ['【知识图谱上下文】', `查询实体：${uniqueEntities.join('、')}`, '关系链：']
+    for (const r of allRelations) {
+      lines.push(`  - ${r.source} --[${r.relation}]--> ${r.target}`)
+    }
+    return lines.join('\n')
+  } catch (e) {
+    console.warn('[GraphRAG] searchGraphContext error (skipped):', e)
+    return ''
+  }
+}
+
+/** 从查询语句中提取疑似文件名（含日期前缀或扩展名特征）*/
+function _detectFilenameHint(query: string): string {
+  const extMatch = query.match(/[\w\u4e00-\u9fff\-\.]+\.(pdf|xlsx?|csv|docx?|txt|pptx?)/i)
+  if (extMatch) return extMatch[0]
+  const dateMatch = query.match(/\d{8}[\w\u4e00-\u9fff_\-]+/)
+  if (dateMatch) return dateMatch[0]
+  return ''
+}
+
+/** 计算两个字符串的相似度（Dice 系数，字符级）*/
+function _strSimilarity(a: string, b: string): number {
+  if (a === b) return 1.0
+  if (!a || !b) return 0.0
+  const aL = a.toLowerCase()
+  const bL = b.toLowerCase()
+  const bArr = bL.split('')
+  let common = 0
+  for (const ch of aL) {
+    const idx = bArr.indexOf(ch)
+    if (idx !== -1) { common++; bArr.splice(idx, 1) }
+  }
+  return (2.0 * common) / (aL.length + bL.length)
+}
+
+/**
  * 搜索本地知识库，返回最相关的内容作为 AI 上下文。
  * 策略：
- *   1. 尝试向量相似度搜索（如果有 embedding）
- *   2. 降级到 FTS5 关键词搜索
+ *   1. 知识图谱关系检索（GraphRAG）
+ *   2. 向量相似度搜索（如果有 embedding）+ filename 模糊 boost
+ *   3. 降级到 FTS5 关键词搜索
  */
 export async function searchKnowledge(
   userId: number,
@@ -1064,7 +1527,12 @@ export async function searchKnowledge(
 ): Promise<string> {
   let chunks: KnowledgeChunk[] = []
 
-  // ── 策略 1：向量搜索 ────────────────────────────────────────────────────────
+  const filenameHint = _detectFilenameHint(query)
+
+  // ── 策略 1：知识图谱检索（GraphRAG）────────────────────────────────────────
+  const graphContext = await searchGraphContext(userId, sessionId, query)
+
+  // ── 策略 2：向量搜索 + filename boost ─────────────────────────────────────
   const embeddingConfig = await findEmbeddingKey(userId)
   if (embeddingConfig) {
     try {
@@ -1072,14 +1540,17 @@ export async function searchKnowledge(
       if (queryVec?.[0]) {
         const allChunks = await getChunksWithEmbeddings(userId, sessionId)
         if (allChunks.length > 0) {
+          const BOOST = 0.3
           const scored = allChunks
-            .map(c => ({
-              chunk: c,
-              score: cosineSimilarity(queryVec[0], JSON.parse(c.embedding!)),
-            }))
+            .map(c => {
+              const vecScore = cosineSimilarity(queryVec[0], JSON.parse(c.embedding!))
+              const fnRatio = filenameHint ? _strSimilarity(filenameHint, c.doc_name || '') : 0
+              const finalScore = vecScore + (fnRatio > 0.4 ? BOOST * fnRatio : 0)
+              return { chunk: c, score: finalScore }
+            })
             .sort((a, b) => b.score - a.score)
-            .slice(0, RAG_TOP_K)
-          chunks = scored.map(s => s.chunk)
+            .slice(0, RAG_TOP_K + 3) // 多取候选，boost 后再截
+          chunks = scored.slice(0, RAG_TOP_K).map(s => s.chunk)
         }
       }
     } catch {
@@ -1087,18 +1558,29 @@ export async function searchKnowledge(
     }
   }
 
-  // ── 策略 2：FTS5 降级 ───────────────────────────────────────────────────────
+  // ── 策略 3：FTS5 降级 ───────────────────────────────────────────────────────
   if (chunks.length === 0) {
-    chunks = await searchKnowledgeFTS(userId, sessionId, query, RAG_TOP_K)
+    const ftsChunks = await searchKnowledgeFTS(userId, sessionId, query, RAG_TOP_K + 3)
+    if (filenameHint && ftsChunks.length > 0) {
+      // FTS 无分数，对 filename 命中的 chunk 排到前面
+      const boosted = ftsChunks.filter(c => _strSimilarity(filenameHint, c.doc_name || '') > 0.4)
+      const rest = ftsChunks.filter(c => _strSimilarity(filenameHint, c.doc_name || '') <= 0.4)
+      chunks = [...boosted, ...rest].slice(0, RAG_TOP_K)
+    } else {
+      chunks = ftsChunks.slice(0, RAG_TOP_K)
+    }
   }
 
-  if (chunks.length === 0) return ''
+  const parts: string[] = []
+  if (graphContext) parts.push(graphContext)
+  if (chunks.length > 0) {
+    const chunkContext = chunks
+      .map((c, i) => `[${i + 1}] (来自《${c.doc_name}》)\n${c.content}`)
+      .join('\n\n---\n\n')
+    parts.push(`以下是从用户本地知识库中检索到的相关内容：\n\n${chunkContext}`)
+  }
 
-  const context = chunks
-    .map((c, i) => `[${i + 1}] (来自《${c.doc_name}》)\n${c.content}`)
-    .join('\n\n---\n\n')
-
-  return `以下是从用户本地知识库中检索到的相关内容：\n\n${context}`
+  return parts.join('\n\n')
 }
 
 /**

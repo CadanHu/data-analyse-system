@@ -22,7 +22,7 @@ export type TranslationKey =
   // Login/Register
   | 'login.welcome' | 'login.subtitle' | 'login.email' | 'login.password'
   | 'login.submit' | 'login.loading' | 'login.noAccount' | 'login.register'
-  | 'login.backToHome' | 'login.failed' | 'login.formatError'
+  | 'login.backToHome' | 'login.failed' | 'login.formatError' | 'login.offlineMode'
   | 'register.title' | 'register.username' | 'register.confirmPassword'
   | 'register.submit' | 'register.loading' | 'register.haveAccount' | 'register.login'
   | 'localRegister.title' | 'localRegister.subtitle' | 'localRegister.success'
@@ -41,7 +41,7 @@ export type TranslationKey =
   | 'panel.funnel' | 'panel.gauge' | 'panel.candlestick' | 'panel.heatmap' | 'panel.treemap' | 'panel.sankey'
   | 'panel.boxplot' | 'panel.waterfall' | 'panel.map' | 'panel.gantt' | 'panel.table'
   | 'panel.noData' | 'panel.unsupported' | 'panel.executedSql' | 'panel.export' | 'panel.filter'
-  | 'panel.shareChart'
+  | 'panel.shareChart' | 'panel.mapMissingCoords'
   // Features Categories
   | 'feature.core' | 'feature.ai' | 'feature.data' | 'feature.enhanced' | 'feature.ux'
   // Feature Items
@@ -87,6 +87,7 @@ export type TranslationKey =
   | 'chat.thinkingView' | 'chat.thinkingHide' | 'chat.codeExpand' | 'chat.codeCollapse' | 'chat.codeClickExpand'
   | 'chat.fullTextHide' | 'chat.fullTextView' | 'chat.scientistModeChartBtn' | 'chat.dataInsightThumb'
   | 'chat.editQuestion' | 'chat.showSQL' | 'chat.hideSQL' | 'chat.vizBoard' | 'chat.copyContent' | 'chat.sideBySideView'
+  | 'chat.tapToEnlarge'
   // Previews
   | 'preview.sideBySide' | 'preview.original' | 'preview.markdown' | 'preview.copyResult'
   // Session List Extra
@@ -193,6 +194,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'login.backToHome': '返回首页',
     'login.failed': '登录失败，请检查邮箱和密码',
     'login.formatError': '登录响应格式错误',
+    'login.offlineMode': '离线使用 / 无需服务器',
     'register.title': '创建账号',
     'register.username': '用户名',
     'register.confirmPassword': '确认密码',
@@ -261,7 +263,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'panel.export': '导出',
     'panel.filter': '过滤数据...',
     'panel.shareChart': '导出图表图片',
-    
+    'panel.mapMissingCoords': 'SQL 缺少坐标字段，已降级为柱状图。请在 SQL 中 SELECT latitude, longitude 字段。',
+
     // Features Categories
     'feature.core': '核心功能',
     'feature.ai': 'AI 能力',
@@ -401,6 +404,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.fullTextView': '查看完整解析结果',
     'chat.scientistModeChartBtn': '点击查看 AI 生成的高清分析图表',
     'chat.dataInsightThumb': '数据洞察缩略图 (点击放大)',
+    'chat.tapToEnlarge': '点击放大',
     'chat.editQuestion': '修改问题',
     'chat.showSQL': '显示 SQL',
     'chat.hideSQL': '隐藏 SQL',
@@ -566,6 +570,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'login.backToHome': 'Back to Home',
     'login.failed': 'Login failed, please check your email and password',
     'login.formatError': 'Login response format error',
+    'login.offlineMode': 'Offline mode / No server needed',
     'register.title': 'Create Account',
     'register.username': 'Username',
     'register.confirmPassword': 'Confirm Password',
@@ -634,7 +639,8 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'panel.export': 'Export',
     'panel.filter': 'Filter data...',
     'panel.shareChart': 'Export Chart Image',
-    
+    'panel.mapMissingCoords': 'SQL missing coordinate columns, fell back to bar chart. Please SELECT latitude, longitude in your SQL.',
+
     // Features Categories
     'feature.core': 'Core Features',
     'feature.ai': 'AI Capabilities',
@@ -774,6 +780,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.fullTextView': 'View Full Analysis Result',
     'chat.scientistModeChartBtn': 'View AI-generated High-Res Chart',
     'chat.dataInsightThumb': 'Data Insight Thumbnail (Click to enlarge)',
+    'chat.tapToEnlarge': 'Tap to enlarge',
     'chat.editQuestion': 'Edit Question',
     'chat.showSQL': 'Show SQL',
     'chat.hideSQL': 'Hide SQL',

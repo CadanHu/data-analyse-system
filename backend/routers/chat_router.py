@@ -3,12 +3,15 @@
 """
 import uuid
 import json
+import logging
 import traceback
 import asyncio
 import os
 from datetime import datetime
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse, FileResponse
@@ -24,6 +27,57 @@ from services.stream_service import StreamableHTTPService
 from services.pdf_service import pdf_service
 from services.user_context import set_user_api_keys
 from utils.json_utils import json_dumps
+from config import DEFAULT_PROVIDER
+import re
+from difflib import SequenceMatcher
+
+
+def _detect_filename_hint(question: str) -> str:
+    """从问题中提取疑似文件名（含日期前缀、扩展名或中文报告名等特征）。"""
+    # 优先匹配带扩展名的文件名
+    m = re.search(r'[\w\u4e00-\u9fff\-\.]+\.(pdf|xlsx?|csv|docx?|txt|pptx?)', question, re.IGNORECASE)
+    if m:
+        return m.group(0)
+    # 其次匹配 8 位日期打头的字符串（如 20260320_棕榈油研报）
+    m = re.search(r'\d{8}[\w\u4e00-\u9fff_\-]+', question)
+    if m:
+        return m.group(0)
+    return ""
+
+
+def _boost_by_filename(results: list, hint: str, boost: float = 0.3) -> list:
+    """对文件名与 hint 模糊匹配的 chunk 加权重排，boost 值叠加到最终得分上。"""
+    if not hint:
+        return results
+    hint_lower = hint.lower()
+    scored = []
+    for r in results:
+        fname = r.get("metadata", {}).get("filename", "")
+        base = r.get("scores", {}).get("final", 0.5)
+        if fname:
+            ratio = SequenceMatcher(None, hint_lower, fname.lower()).ratio()
+            final = base + boost * ratio if ratio > 0.4 else base
+        else:
+            final = base
+        scored.append((final, r))
+    return [r for _, r in sorted(scored, key=lambda x: x[0], reverse=True)]
+
+
+def _format_rag_chunks(results: list) -> list:
+    """在 chunk 内容前附加来源文件名，让 AI 知道每段数据出处。"""
+    formatted = []
+    for r in results:
+        fname = r.get("metadata", {}).get("filename", "")
+        header = r.get("metadata", {}).get("header_path", "")
+        prefix = ""
+        if fname:
+            prefix = f"[来源: {fname}"
+            if header:
+                prefix += f" > {header}"
+            prefix += "]\n"
+        formatted.append(prefix + r["content"])
+    return formatted
+
 
 class ExportPDFRequest(BaseModel):
     title: str
@@ -46,10 +100,49 @@ def get_sql_agent():
 
 # ==================== 0. 辅助函数 (Helpers) ====================
 
+async def _fetch_rag_context(
+    question: str,
+    session_id: str,
+    user_id: int,
+    rag_scope: str,
+    provider: str,
+    model_name: str,
+    language: str,
+    agent_instance,
+    history_str: str,
+    top_k: int = 5,
+) -> str:
+    """
+    公共 RAG 检索函数，供 Standard/Thinking/RAG 模式复用。
+    返回拼接好的 RAG 上下文字符串（可能为空）。
+    """
+    try:
+        from services.vector_store import VectorStore
+        from agents.context_budget import ContextBudget
+
+        vs = VectorStore()
+        search_query = await agent_instance.rewrite_query_for_rag(question, history_str, language=language)
+        search_session_id = None if rag_scope == "global" else session_id
+        fname_hint = _detect_filename_hint(question)
+        results = await vs.search(search_query, top_k=top_k + 3, session_id=search_session_id, user_id=user_id)
+        if fname_hint and results:
+            results = _boost_by_filename(results, fname_hint)
+        results = results[:top_k]
+        if not results:
+            return ""
+        budget = ContextBudget(provider=provider, model_name=model_name or "")
+        return budget.fit_rag_chunks(_format_rag_chunks(results), max_single_chunk_chars=1500)
+    except Exception as e:
+        logger.warning(f"[RAG-fetch] 检索失败: {e}")
+        return ""
+
+
 async def _handle_session_auto_title(session_id: str, user_id: int, question: str, agent_instance, language: str, provider: str = None, model_name: str = None):
     """
     [Shared Helper] 异步生成并更新会话标题
     逻辑：仅当会话标题为空或为默认占位符时，触发 AI 生成新标题。
+    注意：标题生成始终使用 provider 的默认标准模型（model_name=None），
+    避免在 thinking 模式下使用重型推理模型（如 deepseek-reasoner）生成标题，速度慢且无必要。
     """
     try:
         async with session_db.async_session() as session:
@@ -59,9 +152,9 @@ async def _handle_session_auto_title(session_id: str, user_id: int, question: st
             )
             current_title = result.scalar_one_or_none()
 
-            # 2. 如果标题为空，则由 AI 生成新标题
+            # 2. 如果标题为空，则由 AI 生成新标题（强制 model_name=None，用标准模型）
             if not current_title or current_title.strip() == "":
-                new_title = await agent_instance.generate_ai_title(question, provider=provider, model_name=model_name, language=language)
+                new_title = await agent_instance.generate_ai_title(question, provider=provider, model_name=None, language=language)
                 if new_title:
                     await session_db.update_session_title(session_id, user_id, new_title)
                     print(f"✅ [Auto-Rename] 会话 {session_id[:8]} 已自动重命名: {new_title}")
@@ -130,15 +223,43 @@ async def run_scientist_mode(request: ChatRequest, current_user: dict):
             elif isinstance(df_to_analyze, list):
                 df_to_analyze = pd.DataFrame(df_to_analyze)
 
+            # RAG 检索：科学家模式也需要 PDF 知识库内容
+            rag_knowledge = ""
+            try:
+                from services.vector_store import VectorStore
+                vs = VectorStore()
+                sql_agent_tmp = get_sql_agent()
+                history_str_tmp = await memory_manager.get_history_text(request.session_id)
+                search_query = await sql_agent_tmp.rewrite_query_for_rag(request.question, history_str_tmp, language=request.language)
+                search_session_id = None if request.rag_scope == "global" else request.session_id
+                fname_hint = _detect_filename_hint(request.question)
+                search_results = await vs.search(search_query, top_k=8, session_id=search_session_id, user_id=user_id)
+                if fname_hint and search_results:
+                    search_results = _boost_by_filename(search_results, fname_hint)
+                search_results = search_results[:5]
+                if search_results:
+                    from agents.context_budget import ContextBudget
+                    budget = ContextBudget(
+                        provider=request.model_provider or DEFAULT_PROVIDER,
+                        model_name=request.model_name or "",
+                    )
+                    rag_knowledge = budget.fit_rag_chunks(_format_rag_chunks(search_results), max_single_chunk_chars=1500)
+                    if rag_knowledge:
+                        hint_tip = f"（文件名匹配: {fname_hint}）" if fname_hint else ""
+                        yield {"event": "thinking", "data": {"content": f"已检索到 {len(search_results)} 条 PDF 知识{hint_tip}，注入数据科学家上下文..."}}
+            except Exception as rag_err:
+                print(f"⚠️ [Scientist RAG] 检索失败: {rag_err}")
+
             from agents.advanced_data_agent import AdvancedDataAgent
             agent_instance = AdvancedDataAgent()
-            
+
             # 执行流
             async for event in agent_instance.process_analysis_flow(
-                df_input=df_to_analyze, 
-                question=request.question, 
+                df_input=df_to_analyze,
+                question=request.question,
                 history=await memory_manager.get_history(request.session_id),
-                language=request.language
+                language=request.language,
+                knowledge_context=rag_knowledge
             ):
                 event_type = event["event"]
                 event_data = event.get("data", {})
@@ -221,9 +342,25 @@ async def run_thinking_mode(request: ChatRequest, current_user: dict):
             print(f"💾 [DB] 用户消息已存储 → messages.id={user_message_id[:8]}，session={request.session_id[:8]}")
 
             history_str = await memory_manager.get_history_text(request.session_id)
-            
+
+            # ── RAG 检索（思考模式同样需要，用于 rag_sufficient 路由判断）────
+            rag_context = await _fetch_rag_context(
+                question=request.question,
+                session_id=request.session_id,
+                user_id=user_id,
+                rag_scope=request.rag_scope or "session",
+                provider=request.model_provider or DEFAULT_PROVIDER,
+                model_name=request.model_name or "",
+                language=request.language,
+                agent_instance=agent_instance,
+                history_str=history_str,
+            )
+            if rag_context:
+                yield {"event": "thinking", "data": {"content": "已检索到相关知识，正在判断是否需要查询数据库..."}}
+
             async for event in agent_instance.process_question_with_history(
-                request.question, history_str, 
+                request.question, history_str,
+                knowledge_context=rag_context,
                 enable_thinking=True, # 强制开启
                 provider=request.model_provider,
                 model_name=request.model_name,
@@ -237,10 +374,17 @@ async def run_thinking_mode(request: ChatRequest, current_user: dict):
                 elif event_type == "sql_generated": assistant_sql = event_data.get("sql", "")
                 elif event_type == "sql_result": assistant_data_obj = event_data
                 elif event_type == "chart_ready": assistant_chart_cfg = json_dumps(event_data.get("option", {}))
+                elif event_type == "db_confirmation_needed":
+                    assistant_data_obj = {"db_confirmation_needed": True}
 
-                if event_type != "done":
+                if event_type not in ["done", "db_confirmation_needed"]:
+                    yield event
+                elif event_type == "db_confirmation_needed":
                     yield event
                 else:
+                    save_data = assistant_data_obj if assistant_data_obj else {}
+                    if event_data.get("db_confirmation_needed"):
+                        save_data = {"db_confirmation_needed": True}
                     await session_db.create_message({
                         "id": assistant_message_id,
                         "session_id": request.session_id,
@@ -251,18 +395,18 @@ async def run_thinking_mode(request: ChatRequest, current_user: dict):
                         "sql": assistant_sql,
                         "chart_cfg": assistant_chart_cfg,
                         "thinking": assistant_reasoning,
-                        "data": json_dumps(assistant_data_obj)
+                        "data": json_dumps(save_data)
                     })
                     print(f"💾 [DB] 用户消息已存储 → messages.id={user_message_id[:8]}")
                     print(f"💾 [DB] 助手消息已存储 → messages.id={assistant_message_id[:8]}，thinking={len(assistant_reasoning)}字，content={len(assistant_content)}字")
-                    yield {
-                        "event": "done",
-                        "data": {
-                            "message_id": assistant_message_id,
-                            "user_message_id": user_message_id,
-                            "session_title": (request.question or "Deep Analysis")[:50]
-                        }
+                    done_payload: dict = {
+                        "message_id": assistant_message_id,
+                        "user_message_id": user_message_id,
+                        "session_title": (request.question or "Deep Analysis")[:50]
                     }
+                    if event_data.get("db_confirmation_needed"):
+                        done_payload["db_confirmation_needed"] = True
+                    yield {"event": "done", "data": done_payload}
 
                     # 异步更新标题
                     asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
@@ -286,32 +430,90 @@ async def run_rag_mode(request: ChatRequest, current_user: dict):
 
     async def event_generator():
         yield {"event": "thinking", "data": {"content": "Retrieving Context (正在检索相关知识)..."}}
-        
-        # 1. 执行 RAG 检索
+
+        # 1. 执行 RAG 检索（向量 + 知识图谱）
         rag_context = ""
+        history_str = await memory_manager.get_history_text(request.session_id)
         try:
             from services.vector_store import VectorStore
+            from agents.context_router import get_context_profile
+            from agents.context_budget import ContextBudget
+
+            q_preview = request.question[:60].replace('\n', ' ')
+            logger.info(f"[RAG] 🔍 开始检索 | user={user_id} | 问题: 「{q_preview}」")
+
+            # ── 意图路由 ──────────────────────────────────────────
+            ctx_profile = get_context_profile(request.question)
+            logger.info(
+                f"[RAG] 意图判断: intent={ctx_profile.intent_hint} | "
+                f"needs_graph={ctx_profile.needs_graph} | "
+                f"needs_global_graph={ctx_profile.needs_global_graph}"
+            )
+
+            # ── 向量检索 ──────────────────────────────────────────
             vs = VectorStore()
-            history_str = await memory_manager.get_history_text(request.session_id)
             search_query = await agent_instance.rewrite_query_for_rag(request.question, history_str, language=request.language)
-            # global 模式不传 session_id，检索当前用户全部会话的知识
+            logger.info(f"[RAG] 向量检索 | 改写查询: 「{search_query[:80]}」")
             search_session_id = None if request.rag_scope == "global" else request.session_id
-            search_results = await vs.search(search_query, top_k=4, session_id=search_session_id)
+            fname_hint = _detect_filename_hint(request.question)
+            search_results = await vs.search(search_query, top_k=8, session_id=search_session_id, user_id=user_id)
+            if fname_hint and search_results:
+                search_results = _boost_by_filename(search_results, fname_hint)
+                logger.info(f"[RAG] 文件名提示命中: {fname_hint}，已对结果重排序")
+            search_results = search_results[:5]
+            logger.info(f"[RAG] ✔ 向量检索完成: 命中 {len(search_results)} 条片段")
+
+            budget = ContextBudget(
+                provider=request.model_provider or DEFAULT_PROVIDER,
+                model_name=request.model_name or "",
+            )
+            vector_context = ""
             if search_results:
-                # 每条片段最多保留 600 字符，总 RAG 内容不超过 3000 字符，避免 prompt 过长超时
-                MAX_CHUNK = 600
-                MAX_TOTAL = 3000
-                parts = []
-                total = 0
-                for r in search_results:
-                    chunk = r['content'][:MAX_CHUNK]
-                    if total + len(chunk) > MAX_TOTAL:
-                        break
-                    parts.append(f"- {chunk}")
-                    total += len(chunk)
-                rag_context = "\n".join(parts)
-                yield {"event": "thinking", "data": {"content": f"Found {len(parts)} related snippets (已检索到 {len(parts)} 条相关背景)."}}
+                raw_chunks = _format_rag_chunks(search_results)
+                vector_context = budget.fit_rag_chunks(raw_chunks, max_single_chunk_chars=1500)
+                logger.info(f"[RAG] 向量上下文: {len(vector_context)} 字符注入 Prompt")
+            else:
+                logger.info("[RAG] 向量检索无命中，跳过向量上下文注入")
+
+            # ── 知识图谱检索 ──────────────────────────────────────
+            graph_context = ""
+            if ctx_profile.needs_global_graph:
+                logger.info("[RAG] 🌐 触发全局图谱搜索（宏观问题 → 社区摘要）")
+                from services.graph_rag_service import graph_rag_service
+                graph_context = await graph_rag_service.global_search(user_id)
+                if graph_context:
+                    logger.info(f"[RAG] ✔ 社区摘要注入: {len(graph_context)} 字符")
+                    yield {"event": "thinking", "data": {"content": "Found community summaries (已加载知识图谱社区摘要)."}}
+                else:
+                    logger.info("[RAG] 社区摘要为空（可能尚未完成社区检测）")
+            elif ctx_profile.needs_graph:
+                logger.info("[RAG] 🔗 触发本地图谱搜索（关系型问题 → 实体 BFS 遍历）")
+                from services.graph_rag_service import graph_rag_service
+                graph_context = await graph_rag_service.search(
+                    request.question, history_str, user_id,
+                    provider=request.model_provider, model_name=request.model_name
+                )
+                if graph_context:
+                    logger.info(f"[RAG] ✔ 图谱关系注入: {len(graph_context)} 字符")
+                    yield {"event": "thinking", "data": {"content": "Found graph relations (已找到相关图谱关系)."}}
+                else:
+                    logger.info("[RAG] 图谱遍历无结果（实体未入库或图谱为空）")
+            else:
+                logger.info("[RAG] 本次问题不触发知识图谱检索")
+
+            # ── 汇总上下文 ────────────────────────────────────────
+            rag_context = "\n\n".join(filter(None, [graph_context, vector_context]))
+            if rag_context:
+                snippet_count = vector_context.count("\n- ") + (1 if vector_context else 0)
+                logger.info(
+                    f"[RAG] ✅ 上下文汇总完成: 总长度={len(rag_context)} 字符 "
+                    f"(图谱={len(graph_context)}, 向量={len(vector_context)})"
+                )
+                yield {"event": "thinking", "data": {"content": f"Found {snippet_count} related snippets (已检索到 {snippet_count} 条相关背景)."}}
+            else:
+                logger.info("[RAG] ⚠ 本次检索无任何上下文，将直接回答")
         except Exception as re:
+            logger.warning(f"[RAG] ❌ 检索流程异常: {re}")
             print(f"⚠️ [RAG] Retrieval failed: {re}")
 
         assistant_content = ""
@@ -327,13 +529,12 @@ async def run_rag_mode(request: ChatRequest, current_user: dict):
                 "parent_id": request.parent_id
             })
 
-            history_str = await memory_manager.get_history_text(request.session_id)
-            
             async for event in agent_instance.process_question_with_history(
-                request.question, history_str, 
-                knowledge_context=rag_context, # 注入 RAG 背景
+                request.question, history_str,
+                knowledge_context=rag_context, # 注入 RAG 背景（向量 + 图谱）
                 enable_thinking=request.enable_thinking,
-                language=request.language
+                language=request.language,
+                force_chat=True  # RAG 模式永远走 chat 路径，禁止触发 HITL SQL 流程
             ):
                 event_type = event["event"]
                 event_data = event.get("data", {})
@@ -462,7 +663,7 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
 
     async def event_generator():
         yield {"event": "thinking", "data": {"content": "Starting (正在启动)..."}}
-        
+
         assistant_content = ""
         assistant_sql = ""
         assistant_chart_cfg = ""
@@ -482,8 +683,26 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
 
             history_str = await memory_manager.get_history_text(request.session_id)
 
+            # ── RAG 检索（标准模式也需要，用于 rag_sufficient 路由判断）──────
+            rag_context = ""
+            if not request.no_database:
+                rag_context = await _fetch_rag_context(
+                    question=request.question,
+                    session_id=request.session_id,
+                    user_id=user_id,
+                    rag_scope=request.rag_scope or "session",
+                    provider=request.model_provider or DEFAULT_PROVIDER,
+                    model_name=request.model_name or "",
+                    language=request.language,
+                    agent_instance=agent_instance,
+                    history_str=history_str,
+                )
+                if rag_context:
+                    yield {"event": "thinking", "data": {"content": "已检索到相关知识，正在判断是否需要查询数据库..."}}
+
             async for event in agent_instance.process_question_with_history(
                 request.question, history_str,
+                knowledge_context=rag_context,
                 enable_thinking=request.enable_thinking,
                 provider=request.model_provider,
                 model_name=request.model_name,
@@ -498,10 +717,20 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
                 elif event_type == "sql_generated": assistant_sql = event_data.get("sql", "")
                 elif event_type == "sql_result": assistant_data_obj = event_data
                 elif event_type == "chart_ready": assistant_chart_cfg = json_dumps(event_data.get("option", {}))
+                elif event_type == "db_confirmation_needed":
+                    # 记录为特殊 data，前端据此渲染确认按钮
+                    assistant_data_obj = {"db_confirmation_needed": True}
 
-                if event_type != "done":
+                if event_type not in ["done", "db_confirmation_needed"]:
+                    yield event
+                elif event_type == "db_confirmation_needed":
+                    # 转发给前端
                     yield event
                 else:
+                    # 持久化消息（含 db_confirmation_needed 标记）
+                    save_data = assistant_data_obj if assistant_data_obj else {}
+                    if event_data.get("db_confirmation_needed"):
+                        save_data = {"db_confirmation_needed": True}
                     await session_db.create_message({
                         "id": assistant_message_id,
                         "session_id": request.session_id,
@@ -512,18 +741,18 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
                         "sql": assistant_sql,
                         "chart_cfg": assistant_chart_cfg,
                         "thinking": assistant_reasoning,
-                        "data": json_dumps(assistant_data_obj)
+                        "data": json_dumps(save_data)
                     })
                     print(f"💾 [DB] 用户消息已存储 → messages.id={user_message_id[:8]}")
                     print(f"💾 [DB] 助手消息已存储 → messages.id={assistant_message_id[:8]}，sql={'有' if assistant_sql else '无'}，content={len(assistant_content)}字")
-                    yield {
-                        "event": "done",
-                        "data": {
-                            "message_id": assistant_message_id,
-                            "user_message_id": user_message_id,
-                            "session_title": (request.question or "New Chat")[:50]
-                        }
+                    done_payload: dict = {
+                        "message_id": assistant_message_id,
+                        "user_message_id": user_message_id,
+                        "session_title": (request.question or "New Chat")[:50]
                     }
+                    if event_data.get("db_confirmation_needed"):
+                        done_payload["db_confirmation_needed"] = True
+                    yield {"event": "done", "data": done_payload}
 
                     # 异步更新标题
                     asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))

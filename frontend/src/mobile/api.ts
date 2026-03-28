@@ -62,4 +62,63 @@ mobileApi.interceptors.response.use(
   }
 );
 
+/**
+ * 局域网自动发现后端 IP
+ * 扫描常见子网的 1-20，找到第一个响应 /sync/ping 的地址，保存到 localStorage
+ */
+const SCAN_SUBNETS = [
+  '172.20.10',    // iPhone 个人热点
+  '192.168.137',  // Android 热点
+  '192.168.1',    // 家用路由器
+  '192.168.0',    // 家用路由器
+  '10.0.0',       // 企业/VPN
+]
+const SCAN_TIMEOUT_MS = 2000
+
+let _discovering = false  // 防止并发多次扫描
+
+export async function autoDiscoverBackendIP(): Promise<string | null> {
+  if (_discovering) return null
+  _discovering = true
+  console.log('[AutoDiscover] 开始扫描局域网后端...')
+
+  const candidates: string[] = []
+  for (const subnet of SCAN_SUBNETS) {
+    for (let i = 1; i <= 20; i++) {
+      candidates.push(`${subnet}.${i}`)
+    }
+  }
+
+  try {
+    // 所有候选地址并行 ping，取最快响应的那个
+    const found = await new Promise<string | null>((resolve) => {
+      let settled = 0
+      let resolved = false
+      candidates.forEach(ip => {
+        axios.get(`http://${ip}:8000/api/sync/ping`, { timeout: SCAN_TIMEOUT_MS })
+          .then(() => {
+            if (!resolved) {
+              resolved = true
+              resolve(ip)
+            }
+          })
+          .catch(() => {
+            settled++
+            if (settled === candidates.length && !resolved) resolve(null)
+          })
+      })
+    })
+
+    if (found) {
+      localStorage.setItem('MOBILE_DEBUG_IP', found)
+      console.log(`[AutoDiscover] ✅ 发现后端: ${found}，已自动保存`)
+    } else {
+      console.warn('[AutoDiscover] ❌ 未找到后端，请确认电脑和手机在同一网络')
+    }
+    return found
+  } finally {
+    _discovering = false
+  }
+}
+
 export default mobileApi;

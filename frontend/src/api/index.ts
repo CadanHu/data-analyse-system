@@ -181,6 +181,8 @@ export const uploadApi = {
       timeout: 172800000
     }).then(res => res.data);
   },
+  cancelKnowledgeExtraction: (sessionId: string) =>
+    api.post(`/upload/knowledge/cancel/${sessionId}`).then(res => res.data),
 };
 
 export const apiKeyApi = {
@@ -195,9 +197,14 @@ export const apiKeyApi = {
 }
 
 export const ragApi = {
-  listChunks: (sessionId?: string) =>
+  listChunks: (sessionId?: string, limit?: number, offset?: number) =>
     api.get<{ chunks: Array<{ id: string; content: string; metadata: Record<string, any> }>; total: number }>(
-      '/rag/chunks', { params: sessionId ? { session_id: sessionId } : {} }
+      '/rag/chunks', {
+        params: {
+          ...(sessionId ? { session_id: sessionId } : {}),
+          ...(limit !== undefined ? { limit, offset: offset ?? 0 } : {}),
+        }
+      }
     ).then(res => res.data),
   deduplicate: (sessionId?: string, similarityThreshold: number = 0.85) =>
     api.post<{ removed: number; remaining: number; total_before: number }>(
@@ -207,6 +214,15 @@ export const ragApi = {
     api.post<{ success: boolean }>('/rag/chunk/delete', { chunk_id: chunkId }).then(res => res.data),
   deleteDoc: (sessionId: string | undefined, filename: string) =>
     api.post<{ success: boolean; deleted: number }>('/rag/doc/delete', { session_id: sessionId || null, filename }).then(res => res.data),
+  listDocs: (sessionId?: string) =>
+    api.get<{ docs: string[]; total: number }>(
+      '/rag/docs', { params: sessionId ? { session_id: sessionId } : {} }
+    ).then(res => res.data),
+};
+
+export const parsedApi = {
+  deleteParsed: (stem: string) =>
+    api.delete<{ success: boolean; deleted_paths: string[] }>(`/parsed-output/${encodeURIComponent(stem)}`).then(res => res.data),
 };
 
 export const messageApi = {
@@ -220,5 +236,112 @@ export const messageApi = {
   getMessage: (sessionId: string, messageId: string) =>
     api.get<Message>(`/sessions/${sessionId}/messages/${messageId}`).then(res => res.data),
 };
+
+// ─────────────────────────────────────
+// 知识图谱管理 API
+// ─────────────────────────────────────
+
+export interface KGEntity {
+  id: string
+  text: string
+  type: string
+  doc_id?: string
+  description?: string
+  created_at?: string
+}
+
+export interface KGRelation {
+  id: string
+  source: string
+  target: string
+  label: string
+  doc_id?: string
+  created_at?: string
+}
+
+export interface KGFullGraph {
+  entities: KGEntity[]
+  relations: KGRelation[]
+}
+
+export interface KGStats {
+  total_entities: number
+  total_relations: number
+  total_docs: number
+  entity_type_counts: Record<string, number>
+  top_relation_types: Array<{ type: string; count: number }>
+}
+
+export interface KGDocInfo {
+  doc_id: string
+  entity_count: number
+  relation_count: number
+}
+
+export interface KGPathResult {
+  found: boolean
+  hops: number
+  path: Array<{ from: string; relation: string; to: string }> | null
+}
+
+export interface KGCommunity {
+  id: number
+  doc_id: string
+  community_id: number
+  title: string
+  summary: string
+  entity_texts: string[]
+  size: number
+  created_at?: string
+}
+
+export const knowledgeGraphApi = {
+  getFullGraph: (docId?: string, limit?: number) =>
+    api.get<KGFullGraph>('/knowledge-graph/graph', {
+      params: { ...(docId ? { doc_id: docId } : {}), ...(limit ? { limit } : {}) }
+    }).then(r => r.data),
+
+  getStats: () =>
+    api.get<KGStats>('/knowledge-graph/stats').then(r => r.data),
+
+  search: (q: string, limit = 20) =>
+    api.get<KGFullGraph>('/knowledge-graph/search', { params: { q, limit } }).then(r => r.data),
+
+  listDocs: () =>
+    api.get<{ docs: KGDocInfo[]; total: number }>('/knowledge-graph/docs').then(r => r.data),
+
+  findPath: (source: string, target: string, maxHops = 5) =>
+    api.get<KGPathResult>('/knowledge-graph/path', {
+      params: { source, target, max_hops: maxHops }
+    }).then(r => r.data),
+
+  createEntity: (data: { text: string; entity_class: string; doc_id?: string; description?: string }) =>
+    api.post<KGEntity>('/knowledge-graph/entities', data).then(r => r.data),
+
+  updateEntity: (id: string, data: { text?: string; entity_class?: string; description?: string }) =>
+    api.put<{ success: boolean }>(`/knowledge-graph/entities/${id}`, data).then(r => r.data),
+
+  deleteEntity: (id: string) =>
+    api.delete<{ success: boolean }>(`/knowledge-graph/entities/${id}`).then(r => r.data),
+
+  createRelation: (data: { source_text: string; target_text: string; relation_type: string; doc_id?: string }) =>
+    api.post<KGRelation>('/knowledge-graph/relations', data).then(r => r.data),
+
+  updateRelation: (id: string, data: { source_text?: string; target_text?: string; relation_type?: string }) =>
+    api.put<{ success: boolean }>(`/knowledge-graph/relations/${id}`, data).then(r => r.data),
+
+  deleteRelation: (id: string) =>
+    api.delete<{ success: boolean }>(`/knowledge-graph/relations/${id}`).then(r => r.data),
+
+  exportGraph: (docId?: string) =>
+    api.get<KGFullGraph>('/knowledge-graph/export', {
+      params: docId ? { doc_id: docId } : {}
+    }).then(r => r.data),
+
+  getCommunities: (docId?: string) =>
+    api.get<{ communities: KGCommunity[]; total: number }>('/knowledge-graph/communities', {
+      params: docId ? { doc_id: docId } : {}
+    }).then(r => r.data),
+}
 
 export default api

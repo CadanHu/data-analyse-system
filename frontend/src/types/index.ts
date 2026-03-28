@@ -20,9 +20,11 @@ export interface Message {
   sql?: string
   chart_cfg?: string
   thinking?: string
-  data?: string
+  data?: any
   is_current?: number
   created_at: string
+  feedback?: number
+  feedback_text?: string
 }
 
 export interface User {
@@ -49,4 +51,6 @@ export interface RegisterCredentials {
 export interface TokenResponse {
   access_token: string
   token_type: string
+  // 某些服务端版本将 token 包装在 data 字段里
+  data?: { access_token: string }
 }

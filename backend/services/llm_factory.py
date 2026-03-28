@@ -104,6 +104,42 @@ class LLMFactory:
                     streaming=streaming
                 )
             else:
+                # 通用 OpenAI 兼容 provider
+                _DEFAULT_BASE_URLS = {
+                    # 国内直连
+                    "zhipu":     "https://open.bigmodel.cn/api/paas/v4",
+                    "qwen":      "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "minimax":   "https://api.minimax.chat/v1",
+                    "kimi":      "https://api.moonshot.cn/v1",
+                    "doubao":    "https://ark.volcengineapi.com/api/v3",
+                    "hunyuan":   "https://api.hunyuan.cloud.tencent.com/v1",
+                    "baidu":     "https://aistudio.baidu.com/llm/lmapi/v3",
+                    "sensenova": "https://api.sensenova.cn/v1",
+                    # 需要VPN
+                    "xai":       "https://api.x.ai/v1",
+                    "mistral":   "https://api.mistral.ai/v1",
+                }
+                _DEFAULT_MODELS = {
+                    "zhipu":     "glm-4-flash",
+                    "qwen":      "qwen3-max",
+                    "minimax":   "MiniMax-M2.5",
+                    "kimi":      "moonshot-v1-128k",
+                    "doubao":    "doubao-seed-2.0-lite",
+                    "hunyuan":   "hunyuan-standard",
+                    "baidu":     "ERNIE-4.5",
+                    "sensenova": "SenseNova-V6.5-Turbo",
+                    "xai":       "grok-4.1-fast",
+                    "mistral":   "mistral-large-latest",
+                }
+                resolved_base_url = base_url or _DEFAULT_BASE_URLS.get(provider)
+                if api_key and resolved_base_url:
+                    return ChatOpenAI(
+                        model=model_name or _DEFAULT_MODELS.get(provider, "unknown"),
+                        openai_api_key=api_key,
+                        openai_api_base=resolved_base_url,
+                        temperature=temperature,
+                        streaming=streaming
+                    )
                 raise ValueError(f"不支持的供应商: {provider}")
         except Exception as e:
             print(f"❌ [LLMFactory] 初始化 {provider} 失败: {str(e)}")
@@ -123,14 +159,29 @@ class LLMFactory:
         user_api_key = get_user_api_key(provider)
         user_base_url = get_user_base_url(provider)
 
-        # 用户自定义 Key：不走缓存
+        # 所有 OpenAI 兼容供应商的默认 base URL
+        _OAI_COMPAT_URLS = {
+            ModelProvider.DEEPSEEK: API_BASE_URL,
+            ModelProvider.OPENAI:   OPENAI_BASE_URL or "https://api.openai.com/v1",
+            "zhipu":     "https://open.bigmodel.cn/api/paas/v4",
+            "qwen":      "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "minimax":   "https://api.minimax.chat/v1",
+            "kimi":      "https://api.moonshot.cn/v1",
+            "doubao":    "https://ark.volcengineapi.com/api/v3",
+            "hunyuan":   "https://api.hunyuan.cloud.tencent.com/v1",
+            "baidu":     "https://aistudio.baidu.com/llm/lmapi/v3",
+
+            "sensenova": "https://api.sensenova.cn/v1",
+            "xai":       "https://api.x.ai/v1",
+            "mistral":   "https://api.mistral.ai/v1",
+        }
+
+        # 用户自定义 Key：不走缓存，直接构建
         if user_api_key:
-            if provider == ModelProvider.DEEPSEEK:
-                return AsyncOpenAI(api_key=user_api_key, base_url=user_base_url or API_BASE_URL, timeout=_STREAM_TIMEOUT)
-            elif provider == ModelProvider.OPENAI:
-                return AsyncOpenAI(api_key=user_api_key, base_url=user_base_url or OPENAI_BASE_URL, timeout=_STREAM_TIMEOUT)
-            else:
-                raise ValueError(f"供应商 {provider} 不支持原生 OpenAI 客户端调用")
+            resolved_url = user_base_url or _OAI_COMPAT_URLS.get(provider)
+            if resolved_url:
+                return AsyncOpenAI(api_key=user_api_key, base_url=resolved_url, timeout=_STREAM_TIMEOUT)
+            raise ValueError(f"供应商 {provider} 不支持原生 OpenAI 客户端调用")
 
         if provider not in cls._openai_clients:
             if provider == ModelProvider.DEEPSEEK:
@@ -146,7 +197,7 @@ class LLMFactory:
                     timeout=_STREAM_TIMEOUT
                 )
             else:
-                raise ValueError(f"供应商 {provider} 不支持原生 OpenAI 客户端调用")
+                raise ValueError(f"供应商 {provider} 未配置系统级 API Key，请用户自行配置")
 
         return cls._openai_clients[provider]
 
@@ -156,7 +207,7 @@ class LLMFactory:
         根据供应商获取默认模型参数
         """
         if provider == ModelProvider.DEEPSEEK:
-            from config import REASONER_MODEL, CHAT_MODEL
+            from config import REASONER_MODEL
             return {"model": REASONER_MODEL if is_reasoning else CHAT_MODEL}
         elif provider == ModelProvider.OPENAI:
             return {"model": OPENAI_MODEL}
@@ -164,6 +215,21 @@ class LLMFactory:
             return {"model": GEMINI_MODEL}
         elif provider == ModelProvider.CLAUDE:
             return {"model": CLAUDE_MODEL}
+        _PROVIDER_DEFAULTS = {
+            "zhipu":     "glm-4-flash",
+            "qwen":      "qwen3-max",
+            "minimax":   "MiniMax-M2.5",
+            "kimi":      "moonshot-v1-128k",
+            "doubao":    "doubao-seed-2.0-lite",
+            "hunyuan":   "hunyuan-standard",
+            "baidu":     "ERNIE-4.5",
+
+            "sensenova": "SenseNova-V6.5-Turbo",
+            "xai":       "grok-4.1-fast",
+            "mistral":   "mistral-large-latest",
+        }
+        if provider in _PROVIDER_DEFAULTS:
+            return {"model": _PROVIDER_DEFAULTS[provider]}
         return {"model": CHAT_MODEL}
 
 llm_factory = LLMFactory()

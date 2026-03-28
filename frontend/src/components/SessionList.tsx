@@ -22,7 +22,7 @@ import { exportReport } from '../services/pdfExportService'
 import { saveFile } from '../services/fileSaverService'
 import type { LocalMessage } from '../services/db'
 
-import { Terminal, Monitor, XCircle, LogOut, Database, HardDrive } from 'lucide-react'
+import { Terminal, Database, HardDrive } from 'lucide-react'
 import BizSyncModal from './BizSyncModal'
 import StorageModal from './StorageModal'
 
@@ -304,23 +304,15 @@ export default function SessionList({
 
   const loadSessions = async () => {
     try {
-      if (isOffline) {
+      if (isOffline || Capacitor.isNativePlatform()) {
+        // Native always reads from local SQLite — sync keeps it up to date.
+        // Never call sessionApi here: it routes to the desktop backend and
+        // hangs for 60s on a slow/unreachable hotspot, blocking the web pool too.
         const userId = localUserId ?? -1
         const localData = await localGetSessions(userId)
         setSessions(mapLocalSessions(localData))
         onSessionsUpdated?.()
         return
-      }
-
-      // Native: pre-load from local SQLite immediately so the list isn't blank
-      // during the server request (which may take 3-10s to timeout if offline)
-      if (Capacitor.isNativePlatform()) {
-        const userId = localUserId ?? -1
-        const localData = await localGetSessions(userId)
-        if (localData.length > 0) {
-          setSessions(mapLocalSessions(localData))
-          onSessionsUpdated?.()
-        }
       }
 
       console.log('📡 [SessionList] Fetching sessions...')
@@ -332,15 +324,6 @@ export default function SessionList({
       }
     } catch (error) {
       console.error('❌ [SessionList] Failed to load sessions:', error)
-      // Server unreachable and no pre-load was done → fall back to local SQLite
-      if (Capacitor.isNativePlatform()) {
-        try {
-          const userId = localUserId ?? -1
-          const localData = await localGetSessions(userId)
-          setSessions(mapLocalSessions(localData))
-          onSessionsUpdated?.()
-        } catch { /* ignore */ }
-      }
     }
   }
 

@@ -19,7 +19,6 @@ import Changelog from './components/Changelog'
 import UserSync from './components/UserSync'
 import LogViewer from './components/LogViewer'
 import MobileDebugPanel from './mobile/DebugPanel'
-import { Terminal } from 'lucide-react'
 import { useSessionStore } from './stores/sessionStore'
 import { useChatStore } from './stores/chatStore'
 import { useAuthStore } from './stores/authStore'
@@ -34,10 +33,10 @@ export default function App() {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const [showLogs, setShowLogs] = useState(false)
-  const { isAuthenticated, user, offlineMode } = useAuthStore()
+  const { isAuthenticated, offlineMode } = useAuthStore()
   const { connectionStatus } = useSyncStore()
-  const { sessions, currentSession, setSessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
-  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen, isMobile, setIsMobile, orientation, setOrientation, landscapeUiVisible, setLandscapeUiVisible, streamingSessionId } = useChatStore()
+  const { sessions, setCurrentSession, setLoading, setMessages, setAllMessages, clearMessages } = useSessionStore()
+  const { setChartOption, setSqlResult, setCurrentSql, setCurrentSessionId, isRightPanelVisible, activeTab, setActiveTab, isFullScreen, isMobile, setIsMobile, orientation, setOrientation, landscapeUiVisible, setLandscapeUiVisible, streamingSessionId, setIsLoading } = useChatStore()
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   // On native: treat 'checking' as offline to avoid remote API calls during ping cycle
   const isNativePlatform = Capacitor.isNativePlatform()
@@ -139,6 +138,7 @@ export default function App() {
     if (!sessionId) return
     console.log('[App] Loading Messages for:', sessionId)
 
+    setIsLoading(true)
     try {
       // Native always uses local AI → messages are in SQLite, not on server
       if (isOffline || isNativePlatform) {
@@ -158,7 +158,7 @@ export default function App() {
       }
 
       const data = await sessionApi.getMessages(sessionId)
-      
+
       sessionApi.getMessages(sessionId, true).then(allData => {
         if (Array.isArray(allData)) {
           const processedAll = allData.map(msg => {
@@ -186,7 +186,7 @@ export default function App() {
         }
         return msg
       })
-      
+
       setMessages(processedData)
       restoreChartFromMessages(processedData)
 
@@ -216,6 +216,8 @@ export default function App() {
         }
     } catch (error) {
       console.error('Failed to load history messages:', error)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -365,8 +367,8 @@ export default function App() {
                   </div>
                 ) : (
                   <ResizableSplit
-                    defaultLeftWidth={180}
-                    minLeftWidth={150}
+                    defaultLeftWidth={260}
+                    minLeftWidth={200}
                     left={
                       <div className="h-full bg-gradient-to-br from-[#E6E6FA]/40 to-[#BFFFD9]/30 backdrop-blur-md border-r border-white/40">
                         <SessionList

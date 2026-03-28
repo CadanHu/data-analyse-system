@@ -4,8 +4,8 @@ import { Capacitor } from '@capacitor/core'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 import { useAuthStore } from '../stores/authStore'
 import { useSessionStore } from '../stores/sessionStore'
-import { ragApi } from '@/api'
-import { getAllKnowledgeChunks, deleteKnowledgeChunkById, updateKnowledgeChunkContent } from '../services/db'
+import { ragApi, parsedApi } from '@/api'
+import { getAllKnowledgeChunks, deleteKnowledgeChunkById, deleteKnowledgeChunksByDoc, updateKnowledgeChunkContent } from '../services/db'
 import { X, User, Database, ChevronDown, RefreshCw, Trash2, Loader2, Pencil, Check, FolderOpen } from 'lucide-react'
 
 interface ParsedFileInfo {
@@ -45,6 +45,8 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
   // RAG state
   const [allChunks, setAllChunks] = useState<RagChunk[]>([])   // 全量，用于推导下拉框
   const [loadingChunks, setLoadingChunks] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [totalChunks, setTotalChunks] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [threshold, setThreshold] = useState(0.85)
   const [selectedSessionId, setSelectedSessionId] = useState<string>('__all__')
@@ -52,19 +54,26 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
   const [dedupResult, setDedupResult] = useState<{ removed: number; remaining: number } | null>(null)
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
+  const [deletingDocs, setDeletingDocs] = useState<Set<string>>(new Set())
+  const [confirmingKey, setConfirmingKey] = useState<string | null>(null)
 
   const sessionMap = Object.fromEntries(sessions.map(s => [s.id, s.title || s.id.slice(0, 8)]))
 
-  // 始终拉全量（不传 session_id），在前端过滤；刷新时也重置选择
+  const PAGE_SIZE = 50
+
+  // 始终拉全量（不传 session_id），在前端过滤；分页加载，第一页立即展示
   const loadChunks = useCallback(async () => {
     setLoadingChunks(true)
+    setLoadingMore(false)
     setLoadError(null)
     setDedupResult(null)
+    setAllChunks([])
+    setTotalChunks(0)
     try {
       if (Capacitor.isNativePlatform()) {
-        // 移动端：从本地 SQLite 读取
+        // 移动端：从本地 SQLite 读取（数据量小，一次性加载）
         const localChunks = await getAllKnowledgeChunks(user?.id ?? 0)
-        setAllChunks(localChunks.map(c => ({
+        const mapped = localChunks.map(c => ({
           id: c.id,
           content: c.content,
           metadata: {
@@ -73,10 +82,28 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
             chunk_index: c.chunk_index,
             ...(c.metadata ? JSON.parse(c.metadata) : {}),
           }
-        })))
+        }))
+        setAllChunks(mapped)
+        setTotalChunks(mapped.length)
       } else {
-        const data = await ragApi.listChunks()   // 不传 session_id → 当前用户全部
-        setAllChunks(data.chunks)
+        // 第一页：立即展示
+        const first = await ragApi.listChunks(undefined, PAGE_SIZE, 0)
+        setAllChunks(first.chunks)
+        setTotalChunks(first.total)
+        setLoadingChunks(false)
+
+        // 后续页：后台静默加载，逐批 append
+        if (first.total > PAGE_SIZE) {
+          setLoadingMore(true)
+          let offset = PAGE_SIZE
+          while (offset < first.total) {
+            const page = await ragApi.listChunks(undefined, PAGE_SIZE, offset)
+            setAllChunks(prev => [...prev, ...page.chunks])
+            offset += PAGE_SIZE
+          }
+          setLoadingMore(false)
+        }
+        return  // finally 里的 setLoadingChunks 不需要再执行
       }
     } catch (e: any) {
       console.error('获取RAG片段失败:', e)
@@ -84,6 +111,7 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
       setLoadError(msg)
     } finally {
       setLoadingChunks(false)
+      setLoadingMore(false)
     }
   }, [user?.id])
 
@@ -167,6 +195,66 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
     }
   }
 
+  const handleDeleteDoc = async (filename: string, sessionId: string) => {
+    const key = `doc_${sessionId}_${filename}`
+    setDeletingDocs(prev => new Set(prev).add(key))
+    setConfirmingKey(null)
+    try {
+      if (Capacitor.isNativePlatform()) {
+        await deleteKnowledgeChunksByDoc(
+          user?.id ?? localUserId ?? 0,
+          sessionId === '__unknown__' ? null : sessionId,
+          filename
+        )
+      } else {
+        await ragApi.deleteDoc(sessionId === '__unknown__' ? undefined : sessionId, filename)
+      }
+      setAllChunks(prev => prev.filter(c => !(c.metadata?.filename === filename && (c.metadata?.session_id || '__unknown__') === sessionId)))
+    } catch (e) {
+      console.error('删除文档失败:', e)
+    } finally {
+      setDeletingDocs(prev => { const s = new Set(prev); s.delete(key); return s })
+    }
+  }
+
+  // ── 解析文件 Tab 删除 ──
+  const [deletingParsedDocs, setDeletingParsedDocs] = useState<Set<string>>(new Set())
+
+  const handleDeleteParsedDoc = async (filename: string) => {
+    const key = `parsed_${filename}`
+    setDeletingParsedDocs(prev => new Set(prev).add(key))
+    setConfirmingKey(null)
+    try {
+      if (Capacitor.isNativePlatform()) {
+        // 删除本地 SQLite 知识块
+        await deleteKnowledgeChunksByDoc(user?.id ?? localUserId ?? 0, null, filename)
+        // 删除 Capacitor 文件系统中的解析目录
+        const safeDocName = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const baseDir = `parsed/${localUserId ?? user?.id}/${safeDocName}`
+        try {
+          await Filesystem.rmdir({ path: baseDir, directory: Directory.Data, recursive: true })
+        } catch { /* 目录不存在时静默 */ }
+      } else {
+        const stem = filename.replace(/\.[^.]+$/, '')
+        // 删除解析文件（不阻断后续）
+        try { await parsedApi.deleteParsed(stem) } catch { /* 非致命 */ }
+        // 删除 RAG 知识块（不指定 session，清除所有会话的该文档）
+        await ragApi.deleteDoc(undefined, filename)
+      }
+      setParsedDocs(prev => prev.filter(d => d !== filename))
+      if (selectedParsedDoc === filename) {
+        setSelectedParsedDoc(null)
+        setParsedFilesList([])
+      }
+      // 同步更新 RAG tab 的缓存
+      setAllChunks(prev => prev.filter(c => c.metadata?.filename !== filename))
+    } catch (e) {
+      console.error('删除解析文档失败:', e)
+    } finally {
+      setDeletingParsedDocs(prev => { const s = new Set(prev); s.delete(key); return s })
+    }
+  }
+
   // Chunk viewer / editor state
   const [viewingChunk, setViewingChunk] = useState<RagChunk | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -224,8 +312,8 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
         const localChunks = await getAllKnowledgeChunks(localUserId ?? user?.id ?? 0)
         docs = [...new Set(localChunks.map(c => c.doc_name).filter(Boolean))] as string[]
       } else {
-        const data = await ragApi.listChunks()
-        docs = [...new Set((data.chunks as RagChunk[]).map(c => c.metadata?.filename).filter(Boolean))] as string[]
+        const data = await ragApi.listDocs()
+        docs = data.docs
       }
       setParsedDocs(docs)
     } catch (e) {
@@ -486,7 +574,7 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
 
               {/* 片段列表 */}
               <div className="flex-1 overflow-y-auto">
-                {loadingChunks ? (
+                {loadingChunks && allChunks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-48 text-gray-400 gap-3">
                     <Loader2 className="w-6 h-6 animate-spin" />
                     <p className="text-sm">加载中...</p>
@@ -537,19 +625,46 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                               const isFileExpanded = expandedKeys.has(fileKey)
                               return (
                                 <div key={fileKey}>
-                                  <button
-                                    onClick={() => toggleKey(fileKey)}
-                                    className="w-full flex items-center justify-between px-4 sm:px-8 py-3 hover:bg-white/50 transition-colors text-left"
-                                  >
-                                    <div className="flex items-center gap-3 min-w-0">
-                                      <span className="text-base flex-shrink-0">📄</span>
-                                      <span className="text-sm font-medium text-gray-700 truncate" title={filename}>{filename}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                                      <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{fileChunks.length} 片段</span>
-                                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isFileExpanded ? 'rotate-180' : ''}`} />
-                                    </div>
-                                  </button>
+                                  <div className="flex items-center hover:bg-white/50 transition-colors group/file">
+                                    <button
+                                      onClick={() => toggleKey(fileKey)}
+                                      className="flex-1 flex items-center justify-between px-4 sm:px-8 py-3 text-left min-w-0"
+                                    >
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <span className="text-base flex-shrink-0">📄</span>
+                                        <span className="text-sm font-medium text-gray-700 truncate" title={filename}>{filename}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                        <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{fileChunks.length} 片段</span>
+                                        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isFileExpanded ? 'rotate-180' : ''}`} />
+                                      </div>
+                                    </button>
+                                    {/* 文档级删除按钮 */}
+                                    {confirmingKey === fileKey ? (
+                                      <div className="flex items-center gap-1 pr-3 flex-shrink-0">
+                                        <button
+                                          onClick={() => handleDeleteDoc(filename, sid)}
+                                          disabled={deletingDocs.has(`doc_${sid}_${filename}`)}
+                                          className="px-2.5 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition-colors flex items-center gap-1"
+                                        >
+                                          {deletingDocs.has(`doc_${sid}_${filename}`) ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                                          确认删除
+                                        </button>
+                                        <button
+                                          onClick={() => setConfirmingKey(null)}
+                                          className="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 rounded-lg"
+                                        >取消</button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        onClick={e => { e.stopPropagation(); setConfirmingKey(fileKey) }}
+                                        className="opacity-0 group-hover/file:opacity-100 flex-shrink-0 mr-3 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all"
+                                        title="删除该文档的全部片段"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
 
                                   {isFileExpanded && (
                                     <div className="bg-gray-50/60">
@@ -583,6 +698,13 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                         </div>
                       )
                     })}
+                  </div>
+                )}
+                {/* 后台加载更多进度提示 */}
+                {loadingMore && (
+                  <div className="flex items-center justify-center gap-2 py-3 text-gray-400 text-xs">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>已加载 {allChunks.length} / {totalChunks} 条</span>
                   </div>
                 )}
               </div>
@@ -622,21 +744,48 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                   {parsedDocs.map(filename => (
                     <div key={filename} className="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/60 shadow-sm overflow-hidden">
                       {/* 文档行 */}
-                      <button
-                        onClick={() => loadParsedFiles(filename)}
-                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-blue-50/40 transition-colors text-left"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="text-xl flex-shrink-0">📄</span>
-                          <span className="text-sm font-medium text-gray-700 truncate">{filename}</span>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                          {selectedParsedDoc === filename && parsedFilesLoading
-                            ? <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-                            : <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${selectedParsedDoc === filename ? 'rotate-180' : ''}`} />
-                          }
-                        </div>
-                      </button>
+                      <div className="flex items-center group/parsed">
+                        <button
+                          onClick={() => loadParsedFiles(filename)}
+                          className="flex-1 flex items-center justify-between px-5 py-4 hover:bg-blue-50/40 transition-colors text-left min-w-0"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-xl flex-shrink-0">📄</span>
+                            <span className="text-sm font-medium text-gray-700 truncate">{filename}</span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                            {selectedParsedDoc === filename && parsedFilesLoading
+                              ? <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                              : <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${selectedParsedDoc === filename ? 'rotate-180' : ''}`} />
+                            }
+                          </div>
+                        </button>
+                        {/* 解析文档删除按钮 */}
+                        {confirmingKey === `parsed_${filename}` ? (
+                          <div className="flex items-center gap-1 pr-3 flex-shrink-0">
+                            <button
+                              onClick={() => handleDeleteParsedDoc(filename)}
+                              disabled={deletingParsedDocs.has(`parsed_${filename}`)}
+                              className="px-2.5 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition-colors flex items-center gap-1"
+                            >
+                              {deletingParsedDocs.has(`parsed_${filename}`) ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                              确认删除
+                            </button>
+                            <button
+                              onClick={() => setConfirmingKey(null)}
+                              className="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 rounded-lg"
+                            >取消</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={e => { e.stopPropagation(); setConfirmingKey(`parsed_${filename}`) }}
+                            className="opacity-0 group-hover/parsed:opacity-100 flex-shrink-0 mr-3 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400 transition-all"
+                            title="删除解析文件及知识库内容"
+                          >
+                            {deletingParsedDocs.has(`parsed_${filename}`) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                          </button>
+                        )}
+                      </div>
 
                       {/* 文件列表面板 */}
                       {selectedParsedDoc === filename && !parsedFilesLoading && (

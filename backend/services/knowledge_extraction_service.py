@@ -419,50 +419,346 @@ async def extract_knowledge_graph_for_web(text: str, user_id: int, filename: str
         logger.info('⚠️ [KG-Web] 未找到可用 LLM Key，跳过知识图谱抽取')
         return None
 
-    # 2. 构建 prompt（和移动端保持一致）
-    combined = text[:6000]
-    prompt = (
-        f'请从以下文本中抽取关键实体和它们之间的关系，用于构建知识图谱。\n\n'
-        f'文本内容：\n"""\n{combined}\n"""\n\n'
-        f'请严格输出 JSON 格式（不要有任何其他文字）：\n'
-        f'{{\n'
-        f'  "entities": [\n'
-        f'    {{"id": "e1", "text": "实体名称", "type": "Person|Organization|Concept|Event|Location|Other", "description": "简短描述"}}\n'
-        f'  ],\n'
-        f'  "relations": [\n'
-        f'    {{"id": "r1", "source": "e1", "target": "e2", "label": "关系描述"}}\n'
-        f'  ]\n'
-        f'}}\n\n'
-        f'要求：\n'
-        f'- 实体数量 5-20 个，选最重要的\n'
-        f'- 关系数量 5-15 个，只包含确定存在的关系\n'
-        f'- id 从 e1/r1 开始递增\n'
-        f'- 类型只能是 Person/Organization/Concept/Event/Location/Other 之一'
-    )
+    # 构建备用模型列表（排除已选主模型）
+    fallback_providers = []
+    for provider in PREFERRED:
+        if provider not in key_map or provider not in DEFAULT_ENDPOINTS:
+            continue
+        default_url, default_model = DEFAULT_ENDPOINTS[provider]
+        if default_url is None:
+            continue
+        rec = key_map[provider]
+        if rec['api_key'] == chosen_key:
+            continue  # 跳过主模型
+        fb_key = rec['api_key']
+        fb_model = rec.get('model_name') or default_model
+        base = (rec.get('base_url') or '').rstrip('/')
+        if base:
+            if base.endswith('/chat/completions'):
+                fb_url = base
+            elif '/v1' in base or 'compatible-mode' in base or 'paas' in base:
+                fb_url = base + '/chat/completions'
+            else:
+                fb_url = base + '/v1/chat/completions'
+        else:
+            fb_url = default_url
+        fallback_providers.append((provider, fb_url, fb_key, fb_model))
 
-    # 3. 调用 LLM
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+    logger.info(f'🚀 [KG-Web] 开始抽取知识图谱: {filename} | 模型: {chosen_model}')
+
+    # 2. 分块处理全文
+    CHUNK_SIZE = 4000   # 每块字符数
+    OVERLAP    = 200    # 块间重叠，避免实体在边界处丢失
+    chunks = []
+    start = 0
+    while start < len(text):
+        chunks.append(text[start: start + CHUNK_SIZE])
+        start += CHUNK_SIZE - OVERLAP
+    logger.info(f'[KG-Web] 文本共 {len(text)} 字符，切分为 {len(chunks)} 块 (块大小={CHUNK_SIZE}, 重叠={OVERLAP})')
+
+    def build_prompt(chunk: str) -> str:
+        return (
+            f'请从以下文本中抽取所有实体和它们之间的关系，用于构建知识图谱。\n\n'
+            f'文本内容：\n"""\n{chunk}\n"""\n\n'
+            f'请严格输出 JSON 格式（不要有任何其他文字）：\n'
+            f'{{\n'
+            f'  "entities": [\n'
+            f'    {{"id": "e1", "text": "实体名称", "type": "Person|Organization|Concept|Event|Location|Other", "description": "简短描述"}}\n'
+            f'  ],\n'
+            f'  "relations": [\n'
+            f'    {{"id": "r1", "source": "e1", "target": "e2", "label": "关系描述"}}\n'
+            f'  ]\n'
+            f'}}\n\n'
+            f'要求：\n'
+            f'- 尽量抽取文本中出现的所有实体，不要遗漏\n'
+            f'- 尽量抽取所有确定存在的关系\n'
+            f'- id 从 e1/r1 开始递增\n'
+            f'- 类型只能是 Person/Organization/Concept/Event/Location/Other 之一'
+        )
+
+    # 3. 逐块调用 LLM，合并结果
+    all_entities: Dict[str, Dict] = {}   # text（小写）-> entity dict，用于去重
+    all_relations: Dict[str, Dict] = {}  # (src_text, tgt_text, label) -> relation dict
+
+    async def _call_llm(client, chunk, chunk_idx, total, url=None, key=None, model=None):
+        _url   = url   or chosen_url
+        _key   = key   or chosen_key
+        _model = model or chosen_model
+        try:
             resp = await client.post(
-                chosen_url,
-                headers={'Authorization': f'Bearer {chosen_key}', 'Content-Type': 'application/json'},
-                json={'model': chosen_model, 'messages': [{'role': 'user', 'content': prompt}], 'max_tokens': 2000}
+                _url,
+                headers={'Authorization': f'Bearer {_key}', 'Content-Type': 'application/json'},
+                json={'model': _model, 'messages': [{'role': 'user', 'content': build_prompt(chunk)}], 'max_tokens': 4000}
             )
             resp.raise_for_status()
-            raw = resp.json()['choices'][0]['message']['content']
+            return resp.json()['choices'][0]['message']['content']
+        except Exception as chunk_err:
+            logger.warning(f'[KG-Web] ❌ 块 {chunk_idx+1}/{total} 调用失败 ({_model}): {chunk_err}')
+            return None
 
-        match = re.search(r'\{[\s\S]*\}', raw)
-        if not match:
-            raise ValueError('No JSON found in LLM response')
-        parsed = json.loads(match.group(0))
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            failed_chunks = []  # 收集失败的块，最后统一重试
+            pending = list(enumerate(chunks))
+
+            for chunk_idx, chunk in pending:
+                logger.info(f'[KG-Web] ⏳ 正在处理块 {chunk_idx+1}/{len(chunks)} ({len(chunk)} 字符)...')
+                raw = await _call_llm(client, chunk, chunk_idx, len(chunks))
+                if raw is None:
+                    failed_chunks.append((chunk_idx, chunk))
+                    continue
+
+                match = re.search(r'\{[\s\S]*\}', raw)
+                if not match:
+                    logger.warning(f'[KG-Web] ⚠️ 块 {chunk_idx+1}/{len(chunks)} 未找到 JSON，跳过')
+                    continue
+
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError as je:
+                    logger.warning(f'[KG-Web] ⚠️ 块 {chunk_idx+1}/{len(chunks)} JSON 解析失败: {je}')
+                    continue
+
+                # 收集本块实体，建立块内 id -> text 映射
+                chunk_id_to_text: Dict[str, str] = {}
+                chunk_new_entities = 0
+                for e in parsed.get('entities', []):
+                    e_text = (e.get('text') or '').strip()
+                    if not e_text:
+                        continue
+                    chunk_id_to_text[e.get('id', '')] = e_text
+                    key = e_text.lower()
+                    if key not in all_entities:
+                        all_entities[key] = {
+                            'text': e_text,
+                            'type': e.get('type', 'Other'),
+                            'description': e.get('description', ''),
+                        }
+                        chunk_new_entities += 1
+
+                # 收集本块关系，用块内 id 解析出文本
+                chunk_new_relations = 0
+                for r in parsed.get('relations', []):
+                    raw_src = r.get('source') or r.get('from') or ''
+                    raw_tgt = r.get('target') or r.get('to') or ''
+                    src_text = chunk_id_to_text.get(raw_src, raw_src).strip()
+                    tgt_text = chunk_id_to_text.get(raw_tgt, raw_tgt).strip()
+                    label    = (r.get('label') or '').strip()
+                    if not src_text or not tgt_text or not label:
+                        continue
+                    rel_key = (src_text.lower(), tgt_text.lower(), label.lower())
+                    if rel_key not in all_relations:
+                        all_relations[rel_key] = {
+                            'source': src_text,
+                            'target': tgt_text,
+                            'label':  label,
+                        }
+                        chunk_new_relations += 1
+
+                logger.info(
+                    f'[KG-Web] ✔ 块 {chunk_idx+1}/{len(chunks)} 完成 '
+                    f'(新增实体 +{chunk_new_entities}, 新增关系 +{chunk_new_relations}) '
+                    f'| 累计: 实体 {len(all_entities)}, 关系 {len(all_relations)}'
+                )
+
+            # 所有块处理完后，重试失败的块（只重试一次）
+            if failed_chunks:
+                logger.info(f'[KG-Web] 🔁 开始重试 {len(failed_chunks)} 个失败块...')
+            still_failed = []  # 重试后依然失败的块
+            for chunk_idx, chunk in failed_chunks:
+                logger.info(f'[KG-Web] 🔁 重试块 {chunk_idx+1}/{len(chunks)} ({len(chunk)} 字符)...')
+                raw = await _call_llm(client, chunk, chunk_idx, len(chunks))
+                if raw is None:
+                    still_failed.append((chunk_idx, chunk))
+                    continue
+
+                match = re.search(r'\{[\s\S]*\}', raw)
+                if not match:
+                    logger.warning(f'[KG-Web] ⚠️ 块 {chunk_idx+1}/{len(chunks)} 重试未找到 JSON，跳过')
+                    continue
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError as je:
+                    logger.warning(f'[KG-Web] ⚠️ 块 {chunk_idx+1}/{len(chunks)} 重试 JSON 解析失败: {je}')
+                    continue
+
+                chunk_id_to_text: Dict[str, str] = {}
+                chunk_new_entities = 0
+                for e in parsed.get('entities', []):
+                    e_text = (e.get('text') or '').strip()
+                    if not e_text:
+                        continue
+                    chunk_id_to_text[e.get('id', '')] = e_text
+                    key = e_text.lower()
+                    if key not in all_entities:
+                        all_entities[key] = {
+                            'text': e_text,
+                            'type': e.get('type', 'Other'),
+                            'description': e.get('description', ''),
+                        }
+                        chunk_new_entities += 1
+
+                chunk_new_relations = 0
+                for r in parsed.get('relations', []):
+                    raw_src = r.get('source') or r.get('from') or ''
+                    raw_tgt = r.get('target') or r.get('to') or ''
+                    src_text = chunk_id_to_text.get(raw_src, raw_src).strip()
+                    tgt_text = chunk_id_to_text.get(raw_tgt, raw_tgt).strip()
+                    label    = (r.get('label') or '').strip()
+                    if not src_text or not tgt_text or not label:
+                        continue
+                    rel_key = (src_text.lower(), tgt_text.lower(), label.lower())
+                    if rel_key not in all_relations:
+                        all_relations[rel_key] = {
+                            'source': src_text,
+                            'target': tgt_text,
+                            'label':  label,
+                        }
+                        chunk_new_relations += 1
+
+                logger.info(
+                    f'[KG-Web] ✔ 块 {chunk_idx+1}/{len(chunks)} 重试完成 '
+                    f'(新增实体 +{chunk_new_entities}, 新增关系 +{chunk_new_relations})'
+                )
+
+            # 对重试仍失败的块，依次尝试备用模型
+            if still_failed and fallback_providers:
+                logger.info(f'[KG-Web] 🔄 {len(still_failed)} 个块尝试备用模型...')
+            permanently_failed = []
+            for chunk_idx, chunk in still_failed:
+                succeeded = False
+                for fb_provider, fb_url, fb_key, fb_model in fallback_providers:
+                    logger.info(f'[KG-Web] 🔄 块 {chunk_idx+1}/{len(chunks)} 切换备用模型: {fb_model}')
+                    raw = await _call_llm(client, chunk, chunk_idx, len(chunks), fb_url, fb_key, fb_model)
+                    if raw is None:
+                        continue
+
+                    match = re.search(r'\{[\s\S]*\}', raw)
+                    if not match:
+                        continue
+                    try:
+                        parsed = json.loads(match.group(0))
+                    except json.JSONDecodeError:
+                        continue
+
+                    chunk_id_to_text: Dict[str, str] = {}
+                    chunk_new_entities = 0
+                    for e in parsed.get('entities', []):
+                        e_text = (e.get('text') or '').strip()
+                        if not e_text:
+                            continue
+                        chunk_id_to_text[e.get('id', '')] = e_text
+                        key = e_text.lower()
+                        if key not in all_entities:
+                            all_entities[key] = {
+                                'text': e_text,
+                                'type': e.get('type', 'Other'),
+                                'description': e.get('description', ''),
+                            }
+                            chunk_new_entities += 1
+
+                    chunk_new_relations = 0
+                    for r in parsed.get('relations', []):
+                        raw_src = r.get('source') or r.get('from') or ''
+                        raw_tgt = r.get('target') or r.get('to') or ''
+                        src_text = chunk_id_to_text.get(raw_src, raw_src).strip()
+                        tgt_text = chunk_id_to_text.get(raw_tgt, raw_tgt).strip()
+                        label    = (r.get('label') or '').strip()
+                        if not src_text or not tgt_text or not label:
+                            continue
+                        rel_key = (src_text.lower(), tgt_text.lower(), label.lower())
+                        if rel_key not in all_relations:
+                            all_relations[rel_key] = {
+                                'source': src_text,
+                                'target': tgt_text,
+                                'label':  label,
+                            }
+                            chunk_new_relations += 1
+
+                    logger.info(
+                        f'[KG-Web] ✔ 块 {chunk_idx+1}/{len(chunks)} 备用模型 {fb_model} 成功 '
+                        f'(新增实体 +{chunk_new_entities}, 新增关系 +{chunk_new_relations})'
+                    )
+                    succeeded = True
+                    break
+
+                if not succeeded:
+                    permanently_failed.append((chunk_idx, chunk))
+
+            # 所有模型均失败 → 存盘待补跑
+            if permanently_failed:
+                from database.knowledge_db import knowledge_db
+                logger.warning(f'[KG-Web] 💾 {len(permanently_failed)} 个块所有模型均失败，已存盘待补跑')
+                for chunk_idx, chunk in permanently_failed:
+                    await knowledge_db.save_failed_chunk(user_id, filename, chunk_idx, len(chunks), chunk)
+
+        # 4. 重新分配全局 ID
+        entities_list = []
+        text_to_gid: Dict[str, str] = {}
+        for idx, (key, e) in enumerate(all_entities.items(), start=1):
+            gid = f'e{idx}'
+            text_to_gid[e['text'].lower()] = gid
+            entities_list.append({'id': gid, **e})
+
+        relations_list = []
+        for idx, (_, r) in enumerate(all_relations.items(), start=1):
+            src_gid = text_to_gid.get(r['source'].lower(), r['source'])
+            tgt_gid = text_to_gid.get(r['target'].lower(), r['target'])
+            relations_list.append({'id': f'r{idx}', 'source': src_gid, 'target': tgt_gid, 'label': r['label']})
 
         graph = {
-            'entities':     parsed.get('entities', []),
-            'relations':    parsed.get('relations', []),
+            'entities':     entities_list,
+            'relations':    relations_list,
             'doc_name':     filename,
             'extracted_at': datetime.datetime.utcnow().isoformat(),
         }
         logger.info(f'✅ [KG-Web] 抽取完成: {len(graph["entities"])} 实体, {len(graph["relations"])} 关系')
+
+        # 同步写入 PostgreSQL，供 GraphRAG 检索使用
+        try:
+            from database.knowledge_db import knowledge_db
+            logger.info(f'[KG-Web] 📝 正在写入 PostgreSQL ({len(graph["entities"])} 实体, {len(graph["relations"])} 关系)...')
+            id_to_text = {e['id']: e['text'] for e in graph['entities']}
+            knowledge_items = []
+            for e in graph['entities']:
+                knowledge_items.append({
+                    'class': e.get('type', 'Other'),
+                    'text': e['text'],
+                    'attributes': {'description': e.get('description', '')},
+                })
+            for r in graph['relations']:
+                raw_src = r.get('source') or r.get('from') or ''
+                raw_tgt = r.get('target') or r.get('to') or ''
+                src = id_to_text.get(raw_src, raw_src)
+                tgt = id_to_text.get(raw_tgt, raw_tgt)
+                knowledge_items.append({
+                    'class': 'relationship',
+                    'text': r.get('label', ''),
+                    'attributes': {'source': src, 'target': tgt, 'type': r.get('label', '')},
+                })
+            await knowledge_db.save_knowledge(filename, knowledge_items, user_id)
+            logger.info(f'[KG-Web] ✅ PostgreSQL 写入完成')
+        except Exception as pg_err:
+            logger.warning(f'⚠️ [KG-Web] 写入 PostgreSQL 失败（不影响前端展示）: {pg_err}')
+
+        # 社区检测 + 摘要（后台静默运行，不影响前端展示）
+        try:
+            logger.info(f'[KG-Web] 🏘️ 开始社区检测与摘要生成...')
+            from services.community_service import detect_and_summarize_communities
+            community_count = await detect_and_summarize_communities(
+                doc_id=filename,
+                user_id=user_id,
+                entities=entities_list,
+                relations=relations_list,
+                llm_url=chosen_url,
+                llm_key=chosen_key,
+                llm_model=chosen_model,
+            )
+            if community_count:
+                logger.info(f'[KG-Web] 🏘️ 社区检测完成: {community_count} 个社区已生成摘要')
+        except Exception as comm_err:
+            logger.warning(f'⚠️ [KG-Web] 社区检测失败（不影响前端展示）: {comm_err}')
+
         return graph
     except Exception as e:
         logger.warning(f'⚠️ [KG-Web] 知识图谱抽取失败: {e}')

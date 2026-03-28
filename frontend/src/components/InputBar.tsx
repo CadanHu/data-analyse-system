@@ -17,16 +17,29 @@ import RagManagerModal from './RagManagerModal'
 
 // 支持思考模式的模型（和后端 THINKING_SUPPORTED 保持一致）
 const THINKING_SUPPORTED_MODELS = new Set([
+  // DeepSeek
   'deepseek-reasoner',
+  // 通义千问 Qwen
+  'qwen3-thinking', 'qwen3-max', 'qwen3-coder', 'qwen3.5-plus',
+  // 智谱 GLM
+  'glm-4.7', 'glm-4.5',
+  // MiniMax
+  'MiniMax-M1',
+  // Kimi 月之暗面
+  'kimi-k2.5', 'kimi-k2-thinking',
+  // 豆包 Doubao
+  'doubao-seed-2.0-pro', 'doubao-seed-1.6',
+  // 百度文心
+  'ERNIE-4.5-Think',
+  // 商汤 SenseNova
+  'SenseNova-V6.5-Pro', 'SenseNova-V6-Reasoner',
   // OpenAI o-series
-  'o3', 'o3-mini', 'o4-mini',
-  // Google
+  'o3', 'o4-mini',
+  // Google Gemini
   'gemini-3.1-pro-preview',
-  // Anthropic
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-  'claude-opus-4-5',
-  'claude-sonnet-4-5',
+  // Anthropic Claude
+  'claude-opus-4-6', 'claude-sonnet-4-6',
+  'claude-opus-4-5', 'claude-sonnet-4-5',
   'claude-3-7-sonnet-20250219',
 ])
 
@@ -76,8 +89,12 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       console.log('🔄 [InputBar] 正在从会话恢复模式状态:', currentSession.title);
       setThinkingMode(!!currentSession.enable_thinking)
       setDataScienceMode(!!currentSession.enable_data_science_agent)
-      // 切换会话时 RAG 重置为 off，sessionHasFiles 也重置
-      setRagScope('off')
+      // 从会话恢复 RAG 状态（enable_rag=true 时还原为 global，否则 off）
+      if (currentSession.enable_rag) {
+        setRagScope('global')
+      } else {
+        setRagScope('off')
+      }
       setSessionHasFiles(false)
       // 优先用会话自身保存的模型，否则回退全局默认（localStorage）
       const provider = currentSession.model_provider || localStorage.getItem('DEFAULT_PROVIDER') || null
@@ -109,7 +126,6 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       // 离线/原生场景下后端不可达，忽略
     }
   }
-  const [isKnowledgeMode, setKnowledgeMode] = useState(false)
   const [useHighPrecision, setUseHighPrecision] = useState(false) // 🚀 高精度 OCR 开关
   const [ragEngine, setRagEngine] = useState<'light' | 'pro'>('light')
   const [showEngineSelect, setShowEngineSelect] = useState(false)
@@ -138,6 +154,17 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [pageRangeStart, setPageRangeStart] = useState<string>('1')
   const [pageRangeEnd, setPageRangeEnd] = useState<string>('')
   const mineruAbortRef = useRef<AbortController | null>(null)
+  // 后台任务轮询定时器 + 对应的 session_id（用于停止时取消后台任务）
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const bgTaskSessionRef = useRef<string | null>(null)
+  const [isBgProcessing, setIsBgProcessing] = useState(false)  // 后台解析任务是否进行中
+
+  // 组件卸载时清理轮询定时器
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     const processPending = async () => {
@@ -294,26 +321,13 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
         return
       }
 
-      if (isKnowledgeMode) {
-        if (isPDF || isOtherDoc || isImage) {
-          if (isMobileNative || isOffline) {
-            await handleMobileLocalProcess(file, 'knowledge')
-          } else {
-            startKnowledgeExtraction(file)
-          }
-        } else {
-          alert(t('alert.fileTypeNotSupported'))
-        }
+      // 如果是 PDF、图片、文本或 MD，弹出引擎选择框以供深度分析
+      if (isPDF || isImage || isOtherDoc) {
+        console.log('Showing engine select modal for:', fileName)
+        setPendingFile(file)
+        setShowEngineSelect(true)
       } else {
-        // 普通模式逻辑：如果是 PDF、图片、文本或 MD，弹出引擎选择框以供深度分析
-        if (isPDF || isImage || isOtherDoc) {
-          console.log('Showing engine select modal for:', fileName)
-          setPendingFile(file)
-          setShowEngineSelect(true)
-        } else {
-          // 其他格式暂不支持深度引擎，仅限标准上传 (虽然目前 isOtherDoc 已覆盖 txt/md)
-          handleStandardUpload(file)
-        }
+        handleStandardUpload(file)
       }
       
       // 关键：重置 input 以便可以连续选择同一个文件
@@ -357,7 +371,6 @@ const handleStandardUpload = async (file: File) => {
     
     try {
       setIsLoading(true)
-      setKnowledgeMode(true)
       setShowEngineSelect(false)
       
       const statuses = language === 'zh' ? [
@@ -417,8 +430,13 @@ const handleStandardUpload = async (file: File) => {
           updateSession(sessionId, { title: newTitle })
         }
 
+        // 记录后台任务 session_id，用于停止时取消
+        bgTaskSessionRef.current = sessionId!
+        setIsBgProcessing(true)
+
         // 开启一个轮询，每 8 秒从服务端拉取最新消息，直到看到完成或失败消息
-        const pollInterval = setInterval(async () => {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = setInterval(async () => {
           try {
             const freshMsgs = await sessionApi.getMessages(sessionId!, true)
             if (Array.isArray(freshMsgs) && freshMsgs.length > 0) {
@@ -431,15 +449,19 @@ const handleStandardUpload = async (file: File) => {
               useSessionStore.getState().setMessages(processed)
               const lastMsg = processed[processed.length - 1]
               if (lastMsg?.content?.includes('完成') || lastMsg?.content?.includes('失败') ||
+                  lastMsg?.content?.includes('取消') ||
                   lastMsg?.content?.includes('Complete') || lastMsg?.content?.includes('Failed') ||
                   lastMsg?.data?.is_background_completed) {
-                clearInterval(pollInterval)
+                clearInterval(pollIntervalRef.current!)
+                pollIntervalRef.current = null
+                bgTaskSessionRef.current = null
+                setIsBgProcessing(false)
                 if (onMessageSent) onMessageSent()
               }
             }
           } catch { /* ignore poll errors */ }
         }, 8000)
-        
+
         return
       }
 
@@ -513,7 +535,6 @@ const handleStandardUpload = async (file: File) => {
       if (!isTimeout) alert(`${t('alert.exception')}: ${errorMsg}`)
     } finally {
       setIsLoading(false)
-      setKnowledgeMode(false)
     }
   }
 
@@ -540,7 +561,7 @@ const handleStandardUpload = async (file: File) => {
       // 持久化到本地 SQLite，切换会话后不丢失
       localSaveMessage(userMsg).catch(console.error)
 
-      const preview = await processDocument(file, {
+      const { preview, fullText, localPdfUri } = await processDocument(file, {
         engine,
         userId: localUserId ?? -1,
         sessionId,
@@ -556,7 +577,8 @@ const handleStandardUpload = async (file: File) => {
       setSessionHasFiles(true)
       setRagScope('session')
 
-      const hasGraph = engine === 'knowledge' && !!loadKnowledgeGraph(file.name, localUserId ?? -1)
+      const graph = loadKnowledgeGraph(file.name, localUserId ?? -1)
+      const hasGraph = engine === 'knowledge' && !!graph
       const graphHint = hasGraph ? '\n\n💡 点击下方「知识图谱」按钮可查看抽取的实体关系图' : ''
 
       const assistantRespId = `resp_kb_${Date.now()}`
@@ -565,7 +587,14 @@ const handleStandardUpload = async (file: File) => {
         session_id: sessionId!,
         role: 'assistant' as const,
         content: `✅ 已完成本地知识索引\n文件：《${file.name}》\n\n**内容预览：**\n> ${preview.slice(0, 200)}...${graphHint}\n\n文档已索引到本地知识库，后续对话将自动检索相关内容。`,
-        data: hasGraph ? JSON.stringify({ is_knowledge_extraction: true, doc_name: file.name, has_graph: true }) : undefined,
+        // 将图谱数据、完整解析文本内嵌到消息 data 字段，确保同步到 PC 后也能显示对照预览
+        data: JSON.stringify({
+          is_knowledge_extraction: true,
+          doc_name: file.name,
+          markdown_full: fullText,
+          ...(localPdfUri ? { local_pdf_uri: localPdfUri } : {}),
+          ...(hasGraph ? { has_graph: true, knowledge_graph: graph } : {}),
+        }),
         created_at: new Date().toISOString(),
       }
       addMessage(assistantResp)
@@ -600,6 +629,20 @@ const handleStandardUpload = async (file: File) => {
 
   const cancelMineruProcess = () => {
     mineruAbortRef.current?.abort()
+  }
+
+  // 取消 Web 端后台解析任务（停止轮询 + 通知后端取消 asyncio.Task）
+  const cancelBgExtractionTask = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+    const sid = bgTaskSessionRef.current
+    bgTaskSessionRef.current = null
+    setIsBgProcessing(false)
+    if (sid) {
+      uploadApi.cancelKnowledgeExtraction(sid).catch(() => {})
+    }
   }
 
   const selectEngine = async (engine: 'light' | 'pro' | 'knowledge') => {
@@ -860,9 +903,7 @@ const handleStandardUpload = async (file: File) => {
                 ? t('chat.noSession')
                 : !currentDb && !isOffline
                   ? '⚠️ Please select a database in the top right'
-                  : isKnowledgeMode
-                    ? t('feature.file.title')
-                    : t('chat.placeholder')
+                  : t('chat.placeholder')
             }
             disabled={isLoading || !sessionId || (!currentDb && !isOffline)}
             className="flex-1 bg-transparent text-gray-700 placeholder-gray-400 resize-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed data-[mobile=true]:data-[orientation=landscape]:text-xs data-[mobile=true]:data-[orientation=landscape]:leading-tight"
@@ -892,33 +933,15 @@ const handleStandardUpload = async (file: File) => {
 
           <div className={`flex items-center gap-1.5 ${isMobilePortrait ? 'flex-1 justify-around' : 'ml-auto mr-3'}`}>
             <button
-              onClick={() => {
-                if (isLoading) return
-                setKnowledgeMode(!isKnowledgeMode)
-                if (!isKnowledgeMode) {
-                  setRagScope('off')
-                  syncModes({ enable_rag: false })
-                }
-              }}
-              disabled={isLoading}
-              className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${
-                isLoading ? 'opacity-50 cursor-not-allowed' : ''
-              } ${
-                isKnowledgeMode
-                  ? 'bg-purple-500 text-white font-medium shadow-purple-200'
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-              }`}
-              title="MinerU Deep Knowledge Extraction"
-            >
-              <span className="text-[10px] data-[mobile=true]:data-[orientation=landscape]:text-[9px]">{t('chat.proMode')}</span>
-            </button>
-            <button
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
                 if (!isLoading) {
+                  if (!isThinkingMode && isDataScienceMode) {
+                    alert('Scientist 模式已开启，两者不能同时使用。\n如需启用思考模式，请先关闭 Scientist 模式。')
+                    return
+                  }
                   if (!isThinkingMode && !thinkingSupported) {
-                    // 提示用户当前模型不支持思考模式
                     alert(`当前模型 ${currentModelNameLocal} 不支持思考模式。\n请先在「Key」按钮中切换到支持推理的模型。`)
                     return
                   }
@@ -954,6 +977,10 @@ const handleStandardUpload = async (file: File) => {
                 e.preventDefault()
                 e.stopPropagation()
                 if (!isLoading) {
+                  if (!isDataScienceMode && isThinkingMode) {
+                    alert('思考模式已开启，两者不能同时使用。\n如需启用 Scientist 模式，请先关闭思考模式。')
+                    return
+                  }
                   const newVal = !isDataScienceMode
                   setDataScienceMode(newVal)
                   syncModes({ enable_data_science_agent: newVal })
@@ -977,7 +1004,6 @@ const handleStandardUpload = async (file: File) => {
                 e.preventDefault()
                 e.stopPropagation()
                 if (isLoading) return
-                setKnowledgeMode(false)
                 if (ragScope === 'off') {
                   // 有文件则进 session，否则直接进 global
                   const next: RagScope = sessionHasFiles ? 'session' : 'global'
@@ -1018,28 +1044,40 @@ const handleStandardUpload = async (file: File) => {
 
           {/* 手机竖屏：停止按钮（仅加载时显示） */}
           {isMobilePortrait ? (
-            isLoading && (
+            (isLoading || isBgProcessing) && (
               <button
-                onClick={disconnect}
+                onClick={() => { disconnect(); cancelBgExtractionTask() }}
                 className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all active:scale-95 border border-red-100"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                <span className="text-xs font-medium">Stop</span>
+                <span className="text-xs font-medium">{isBgProcessing && !isLoading ? '取消解析' : 'Stop'}</span>
               </button>
             )
           ) : (
             <div className="flex items-center gap-2">
               {isLoading && (
                 <button
-                  onClick={disconnect}
+                  onClick={() => { disconnect(); cancelBgExtractionTask() }}
                   className="flex items-center gap-2 px-4 py-2 data-[mobile=true]:data-[orientation=landscape]:px-3 data-[mobile=true]:data-[orientation=landscape]:py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-all active:scale-95 border border-red-100"
                 >
                   <svg className="w-4 h-4 data-[mobile=true]:data-[orientation=landscape]:w-3 data-[mobile=true]:data-[orientation=landscape]:h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                   <span className="text-sm font-medium data-[mobile=true]:data-[orientation=landscape]:text-xs">Stop</span>
+                </button>
+              )}
+              {!isLoading && isBgProcessing && (
+                <button
+                  onClick={cancelBgExtractionTask}
+                  className="flex items-center gap-2 px-4 py-2 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-xl transition-all active:scale-95 border border-orange-200"
+                  title="取消后台解析任务"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span className="text-sm font-medium">取消解析</span>
                 </button>
               )}
               <button

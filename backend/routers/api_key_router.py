@@ -12,21 +12,47 @@ from routers.auth_router import get_current_user
 router = APIRouter()
 
 SUPPORTED_PROVIDERS = {
-    "deepseek", "openai", "gemini", "claude",
-    "zhipu", "zhipu_embedding",
+    # 国内直连
+    "deepseek",
     "qwen", "qwen_embedding",
+    "zhipu", "zhipu_embedding",
     "minimax",
+    "kimi",
+    "doubao",
+    "hunyuan",
+    "baidu",
+
+    "sensenova",
+    # 需要VPN
+    "openai",
+    "gemini", "google_embedding",
+    "claude",
+    "xai",
+    "mistral", "mistral_embedding",
+    # 工具
     "mineru",
     "jina_embedding",
-    "google_embedding",
 }
 
-# 哪些模型支持思考模式 (前端校验时也用同样逻辑)
+# 哪些模型支持思考模式（前端和后端保持一致）
 THINKING_SUPPORTED = {
     "deepseek": ["deepseek-reasoner"],
-    "claude": ["claude-3-5-sonnet-20241022", "claude-3-7-sonnet-20250219", "claude-opus-4-5", "claude-sonnet-4-5"],
-    "openai": [],
-    "gemini": [],
+    "qwen":     ["qwen3-thinking", "qwen3-max", "qwen3-coder", "qwen3.5-plus"],
+    "zhipu":    ["glm-5-turbo", "glm-4.7", "glm-4.7-flashx", "glm-4.5"],
+    "minimax":  ["MiniMax-M1"],
+    "kimi":     ["kimi-k2.5", "kimi-k2-thinking"],
+    "doubao":   ["doubao-seed-2.0-pro", "doubao-seed-1.6"],
+    "baidu":    ["ERNIE-4.5-Think"],
+    "sensenova":["SenseNova-V6.5-Pro", "SenseNova-V6-Reasoner"],
+    "openai":   ["o3", "o4-mini"],
+    "gemini":   ["gemini-3.1-pro-preview"],
+    "claude":   [
+        "claude-opus-4-6", "claude-sonnet-4-6",
+        "claude-opus-4-5", "claude-sonnet-4-5",
+        "claude-3-7-sonnet-20250219",
+    ],
+    "xai":      [],
+    "mistral":  [],
 }
 
 

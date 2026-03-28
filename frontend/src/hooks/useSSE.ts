@@ -59,7 +59,7 @@ export function useSSE() {
     setStreamingSessionId
   } = useChatStore()
   const { language } = useLanguageStore()
-  const { addMessage, updateLastMessage, updateSession, updateMessageId, messages } = useSessionStore()
+  const { addMessage, updateLastMessage, updateSession, updateMessageId } = useSessionStore()
   const { connectionStatus } = useSyncStore()
   const { localUserId, offlineMode } = useAuthStore()
 
@@ -241,12 +241,29 @@ export function useSSE() {
               dataContext = `数据库结构（仅 Schema）：\n${schemaInfo}`
             }
 
+            // RAG 知识注入：当没有 SQL 结果时（PDF/文档分析场景），检索本地知识库注入上下文
+            let ragOnlyMode = false
+            if (scientistQueryResults.length === 0) {
+              try {
+                const localKnowledge = await searchKnowledge(userId, sessionId, question)
+                if (localKnowledge) {
+                  dataContext += `\n\n【参考知识库内容 (RAG)】\n${localKnowledge}`
+                  setThinkingContent('📚 已检索到知识库内容，注入数据科学家上下文...')
+                  ragOnlyMode = true
+                }
+              } catch { /* ignore */ }
+            }
+
             setThinkingContent('📊 正在生成分析报告...')
+
+            const ragOnlyExtra = ragOnlyMode
+              ? `\n\n⚠️ 【强制执行——无数据库 RAG 分析模式】\n当前没有数据库查询结果，所有数据必须从上方 RAG 知识库内容中提取。\n你的回复必须同时包含：\n① analysis 字段：详细的文字分析\n② chart_type 和 chart_option：从 RAG 内容中找出所有数值（价格、日期、百分比、涨跌幅等），将它们硬编码到 ECharts series.data 数组中，绘制趋势图或对比图。\n**绝对禁止**将 chart_type 设为 "none"，除非 RAG 内容中确实没有任何数值。预测类问题可用折线图 + 标注区域（markArea/markLine）展示预测区间。`
+              : ''
 
             // Step 2: AI 基于真实数据生成分析 + ECharts 图表（流式）
             aiMessages.unshift({
               role: 'system',
-              content: `你是数据科学分析师。以下是用户问题对应的真实查询数据：\n${dataContext}\n\n请基于以上数据进行深度分析，生成 ECharts 图表配置。必须以严格的 JSON 格式回复（不能包含 JavaScript 函数，tooltip 中不要写 formatter 函数）：\n{"analysis":"详细分析文字...","chart_type":"bar|line|pie|area|scatter|table|none","chart_option":{"xAxis":{...},"yAxis":{...},"series":[...],"tooltip":{"trigger":"axis"}}}\n如无合适数据则 chart_type 为 "none"，chart_option 为 null。\nECharts 约束：visualMap 只允许 type 为 "continuous" 或 "piecewise"，禁止使用 type:"size"（该类型不存在）；如需按数值映射气泡大小，请用 type:"continuous" 并设置 inRange.symbolSize。`,
+              content: `你是数据科学分析师。以下是用户问题对应的真实查询数据：\n${dataContext}\n\n请基于以上数据进行深度分析，生成 ECharts 图表配置。必须以严格的 JSON 格式回复（不能包含 JavaScript 函数，tooltip 中不要写 formatter 函数）：\n{"analysis":"详细分析文字...","chart_type":"bar|line|pie|area|scatter|table|none","chart_option":{"xAxis":{...},"yAxis":{...},"series":[...],"tooltip":{"trigger":"axis"}}}\n如无合适数据则 chart_type 为 "none"，chart_option 为 null。\nECharts 约束：visualMap 只允许 type 为 "continuous" 或 "piecewise"，禁止使用 type:"size"（该类型不存在）；如需按数值映射气泡大小，请用 type:"continuous" 并设置 inRange.symbolSize。${ragOnlyExtra}`,
             })
           } else if (localTables.length > 0) {
             // Collect up to 3 sample rows per table so AI knows actual values (e.g. product names)
@@ -589,14 +606,13 @@ export function useSSE() {
                     updateLastMessage({
                       content: displayContent,
                       sql: rawSql,
-                      sql_result: JSON.stringify(sqlResult),
                       chart_cfg: offlineChartOption ? JSON.stringify(offlineChartOption) : undefined,
                       data: offlineData,
                     })
                     await localUpdateMessage(assistantMessageId, {
                       content: displayContent,
                       sql: rawSql,
-                      sql_result: JSON.stringify(sqlResult),
+                      // sql_result 不在 LocalMessage schema 里，data 字段已包含该信息
                       chart_cfg: offlineChartOption ? JSON.stringify(offlineChartOption) : undefined,
                       data: JSON.stringify(offlineData),
                     }).catch(() => {})
@@ -789,6 +805,18 @@ export function useSSE() {
                   if (assistantModelThinking) console.log('💭 [SSE] Model thinking:', assistantModelThinking)
                   if (assistantSql) console.log('🗄️ [SSE] SQL:', assistantSql)
                   setIsLoading(false)
+                  // db_confirmation_needed 场景：消息已由专用 case 设置，done 不再覆盖 data
+                  if (eventData.db_confirmation_needed) {
+                    if (eventData.session_title) updateSession(sessionId, { title: eventData.session_title })
+                    if (eventData.user_message_id) updateMessageId(userMessageId, eventData.user_message_id)
+                    if (eventData.message_id) {
+                      updateMessageId(assistantMessageId, eventData.message_id)
+                      assistantMessageId = eventData.message_id
+                    }
+                    handlers?.onDone?.(eventData)
+                    options?.onMessageSent?.()
+                    break
+                  }
                   if (eventData.session_title) {
                     console.log('📝 [SSE] 收到新标题，正在更新 UI:', eventData.session_title);
                     updateSession(sessionId, { title: eventData.session_title });
@@ -824,6 +852,28 @@ export function useSSE() {
                   options?.onMessageSent?.()
                   break
                 
+                case 'db_confirmation_needed': {
+                  // RAG 不足以回答，询问用户是否查数据库
+                  const confirmText = eventData.message || '知识库中未找到完整答案，是否允许我从数据库查询？'
+                  if (!assistantMessageAdded) {
+                    addMessage({
+                      id: assistantMessageId,
+                      session_id: sessionId,
+                      parent_id: userMessageId,
+                      role: 'assistant',
+                      content: confirmText,
+                      data: JSON.stringify({ db_confirmation_needed: true }),
+                      created_at: new Date().toISOString()
+                    })
+                    assistantMessageAdded = true
+                  } else {
+                    updateLastMessage({
+                      content: confirmText,
+                      data: JSON.stringify({ db_confirmation_needed: true })
+                    })
+                  }
+                  break
+                }
                 case 'error':
                   setIsLoading(false)
                   setThinkingContent('')

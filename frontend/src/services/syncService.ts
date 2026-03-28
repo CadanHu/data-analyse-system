@@ -5,28 +5,25 @@
  */
 
 import { Capacitor } from '@capacitor/core'
+import axios from 'axios'
 import { getBaseURL } from '../api'
 import { useAuthStore } from '../stores/authStore'
 import { useSyncStore } from '../stores/syncStore'
 import {
-  localGetSessions,
-  localGetApiKeys,
   getDirtyRows,
   clearDirtyFlags,
   webMergeFromServer,
 } from './localStore'
 import dbService, { isDbInitialized } from './db'
 
-const PING_TIMEOUT_MS = 3000
+const SYNC_TIMEOUT_MS = 15000       // ping / pull 超时
+const PUSH_TIMEOUT_MS = 60000       // push 可能携带大量 chunks，热点传输给足时间
 const LAST_SYNC_TS_KEY = 'dp_last_sync_ts'
 
 function getToken(): string {
   return useAuthStore.getState().token || ''
 }
 
-function getUserId(): number {
-  return useAuthStore.getState().user?.id ?? -1
-}
 
 function getApiBaseUrl(): string {
   const base = getBaseURL()
@@ -36,13 +33,12 @@ function getApiBaseUrl(): string {
 // ==================== Ping ====================
 
 export async function ping(): Promise<boolean> {
+  const url = `${getApiBaseUrl()}/sync/ping`
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS)
-    const res = await fetch(`${getApiBaseUrl()}/sync/ping`, { signal: controller.signal })
-    clearTimeout(timer)
-    return res.ok
-  } catch {
+    const res = await axios.get(url, { timeout: SYNC_TIMEOUT_MS })
+    return res.status === 200
+  } catch (e) {
+    console.warn(`[Sync] ping failed (${url}):`, e)
     return false
   }
 }
@@ -53,6 +49,7 @@ interface PullResponse {
   sessions: any[]
   messages: any[]
   api_keys: any[]
+  knowledge_chunks: any[]
   server_time: string
 }
 
@@ -64,11 +61,12 @@ export async function pull(since?: string): Promise<PullResponse | null> {
     ? `${getApiBaseUrl()}/sync/pull?since=${encodeURIComponent(since)}`
     : `${getApiBaseUrl()}/sync/pull`
 
-  const res = await fetch(url, {
+  const res = await axios.get<PullResponse>(url, {
     headers: { Authorization: `Bearer ${token}` },
+    timeout: SYNC_TIMEOUT_MS,
   })
-  if (!res.ok) return null
-  return res.json()
+  if (res.status !== 200) return null
+  return res.data
 }
 
 // ==================== Push ====================
@@ -77,32 +75,28 @@ interface PushPayload {
   sessions: any[]
   messages: any[]
   api_keys: any[]
+  knowledge_chunks: any[]
   deleted_sessions: string[]
   deleted_messages: string[]
   deleted_api_keys: string[]
+  deleted_knowledge_chunks: string[]
 }
 
 export async function push(payload: PushPayload): Promise<boolean> {
   const token = getToken()
   if (!token) return false
 
-  const res = await fetch(`${getApiBaseUrl()}/sync/push`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
+  const res = await axios.post(`${getApiBaseUrl()}/sync/push`, payload, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: PUSH_TIMEOUT_MS,
   })
-  return res.ok
+  return res.status === 200
 }
 
 // ==================== Full sync ====================
 
 export async function fullSync(): Promise<void> {
   const { setSyncing, setSyncError, setLastSyncAt, setConnectionStatus } = useSyncStore.getState()
-  const userId = getUserId()
-
   // Only sync when authenticated with a real token (not offline mode)
   const authState = useAuthStore.getState()
   if (!authState.isAuthenticated || authState.offlineMode) return
@@ -128,9 +122,11 @@ export async function fullSync(): Promise<void> {
     const online = await ping()
     if (!online) {
       setConnectionStatus('offline')
+      console.warn('[Sync] ❌ Ping failed — backend unreachable')
       return
     }
     setConnectionStatus('online')
+    console.log('[Sync] ✅ Ping OK')
 
     const since = localStorage.getItem(LAST_SYNC_TS_KEY) || undefined
 
@@ -163,6 +159,12 @@ export async function fullSync(): Promise<void> {
           await dbService.upsertApiKey({ ...serverKey, _sync_dirty: 0, _deleted: 0 })
         }
       }
+
+      for (const serverChunk of (pulled.knowledge_chunks || [])) {
+        try {
+          await dbService.upsertKnowledgeChunkFromServer(serverChunk)
+        } catch { /* ignore */ }
+      }
     } else {
       // Web platform: populate memory Maps so offline-fallback reads are warm
       webMergeFromServer(pulled)
@@ -176,9 +178,11 @@ export async function fullSync(): Promise<void> {
     // Snapshot dirty rows BEFORE push to avoid clearing flags for writes that
     // happen concurrently during the network round-trip (race condition fix).
     const dirty = await getDirtyRows()
+    console.log(`[Sync] 📦 Dirty rows — sessions:${dirty.sessions.length} msgs:${dirty.messages.length} keys:${dirty.apiKeys.length} chunks:${dirty.knowledgeChunks.length}`)
     const snapshotSessionIds = dirty.sessions.map(s => s.id)
     const snapshotMessageIds = dirty.messages.map(m => m.id)
     const snapshotApiKeyIds = dirty.apiKeys.map(k => k.id)
+    const snapshotChunkIds = dirty.knowledgeChunks.map(c => c.id)
 
     const activeSessions = dirty.sessions.filter(s => !s._deleted)
     const deletedSessionIds = dirty.sessions.filter(s => s._deleted).map(s => s.id)
@@ -186,30 +190,64 @@ export async function fullSync(): Promise<void> {
     const deletedMessageIds = dirty.messages.filter(m => m._deleted).map(m => m.id)
     const activeKeys = dirty.apiKeys.filter(k => !k._deleted)
     const deletedKeyIds = dirty.apiKeys.filter(k => k._deleted).map(k => k.id)
+    // Strip local embeddings before pushing — backend re-embeds with its own model
+    const activeChunks = dirty.knowledgeChunks
+      .filter(c => !c._deleted)
+      .map(({ _sync_dirty: _sd, _deleted: _dl, embedding: _emb, embedding_provider: _ep, ...rest }) => rest)
+    const deletedChunkIds = dirty.knowledgeChunks.filter(c => c._deleted).map(c => c.id)
 
     const hasDirty = activeSessions.length || deletedSessionIds.length ||
       activeMessages.length || deletedMessageIds.length ||
-      activeKeys.length || deletedKeyIds.length
+      activeKeys.length || deletedKeyIds.length ||
+      activeChunks.length || deletedChunkIds.length
+
+    if (!hasDirty) {
+      console.log('[Sync] ✅ Nothing to push — all rows clean')
+    }
 
     if (hasDirty) {
-      const pushed = await push({
-        sessions: activeSessions,
-        messages: activeMessages,
-        api_keys: activeKeys,
-        deleted_sessions: deletedSessionIds,
-        deleted_messages: deletedMessageIds,
-        deleted_api_keys: deletedKeyIds,
-      })
+      console.log('[Sync] 📤 Pushing dirty rows...')
 
-      if (pushed) {
-        // 4. Clear dirty flags only for the rows snapshotted before push,
-        //    preserving dirty flags for any concurrent local writes.
-        await clearDirtyFlags({
-          sessionIds: snapshotSessionIds,
-          messageIds: snapshotMessageIds,
-          apiKeyIds: snapshotApiKeyIds,
+      // chunks 按批发送，避免大文件解析后单次 payload 过大导致超时
+      // 非 chunk 数据量少，随第一批一起发
+      const CHUNK_BATCH_SIZE = 20
+      const chunkBatches: any[][] = activeChunks.length === 0
+        ? [[]]
+        : Array.from({ length: Math.ceil(activeChunks.length / CHUNK_BATCH_SIZE) },
+            (_, i) => activeChunks.slice(i * CHUNK_BATCH_SIZE, (i + 1) * CHUNK_BATCH_SIZE))
+
+      let allPushed = true
+      for (let bi = 0; bi < chunkBatches.length; bi++) {
+        const isFirst = bi === 0
+        const batch = chunkBatches[bi]
+        const pushed = await push({
+          sessions:                  isFirst ? activeSessions    : [],
+          messages:                  isFirst ? activeMessages    : [],
+          api_keys:                  isFirst ? activeKeys        : [],
+          knowledge_chunks:          batch,
+          deleted_sessions:          isFirst ? deletedSessionIds  : [],
+          deleted_messages:          isFirst ? deletedMessageIds  : [],
+          deleted_api_keys:          isFirst ? deletedKeyIds      : [],
+          deleted_knowledge_chunks:  isFirst ? deletedChunkIds    : [],
         })
+        if (pushed) {
+          // 每批成功后立即清对应 dirty flag，避免整体失败时重复发
+          await clearDirtyFlags({
+            sessionIds:        isFirst ? snapshotSessionIds  : [],
+            messageIds:        isFirst ? snapshotMessageIds  : [],
+            apiKeyIds:         isFirst ? snapshotApiKeyIds   : [],
+            knowledgeChunkIds: batch.map(c => c.id),
+          })
+          if (chunkBatches.length > 1) {
+            console.log(`[Sync] ✅ Batch ${bi + 1}/${chunkBatches.length} pushed (${batch.length} chunks)`)
+          }
+        } else {
+          allPushed = false
+          break
+        }
       }
+
+      if (allPushed) console.log('[Sync] ✅ Push succeeded')
     }
 
     setLastSyncAt(new Date().toISOString())

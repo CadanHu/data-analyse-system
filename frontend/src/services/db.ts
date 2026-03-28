@@ -196,7 +196,9 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
   embedding          TEXT    NULL,
   embedding_provider TEXT    NULL,
   metadata           TEXT    NULL,
-  created_at         TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+  created_at         TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+  _sync_dirty        INTEGER NOT NULL DEFAULT 1,
+  _deleted           INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_kc_user_session ON knowledge_chunks(user_id, session_id);
 CREATE INDEX IF NOT EXISTS idx_kc_doc ON knowledge_chunks(doc_name);
@@ -221,7 +223,7 @@ CREATE TABLE IF NOT EXISTS biz_sync_meta (
 // ==================== DB Service ====================
 
 const DB_NAME = 'datapulse_local'
-const CURRENT_DB_VERSION = 2
+const CURRENT_DB_VERSION = 3
 
 let sqlite: SQLiteConnection | null = null
 let db: SQLiteDBConnection | null = null
@@ -243,6 +245,14 @@ export async function initDb(): Promise<boolean> {
     db = await sqlite.createConnection(DB_NAME, false, 'no-encryption', CURRENT_DB_VERSION, false)
     await db.open()
     await db.execute(DDL)
+    // v2→v3: add sync columns to knowledge_chunks (idempotent)
+    for (const col of [
+      'ALTER TABLE knowledge_chunks ADD COLUMN _sync_dirty INTEGER NOT NULL DEFAULT 1',
+      'ALTER TABLE knowledge_chunks ADD COLUMN _deleted INTEGER NOT NULL DEFAULT 0',
+      'CREATE INDEX IF NOT EXISTS idx_kc_sync ON knowledge_chunks(_sync_dirty)',
+    ]) {
+      try { await db.execute(col) } catch { /* column already exists */ }
+    }
     initialized = true
     console.log('✅ [DB] SQLite initialized:', DB_NAME)
     return true
@@ -347,6 +357,9 @@ export async function hardDeleteSyncedDeleted(): Promise<void> {
   )
   await requireDb().run(
     'DELETE FROM user_api_keys WHERE _deleted = 1 AND _sync_dirty = 0'
+  )
+  await requireDb().run(
+    'DELETE FROM knowledge_chunks WHERE _deleted = 1 AND _sync_dirty = 0'
   )
 }
 
@@ -546,17 +559,18 @@ export async function clearApiKeyDirty(id: string): Promise<void> {
 
 // ==================== Knowledge Chunks ====================
 
-export async function insertKnowledgeChunk(chunk: KnowledgeChunk): Promise<void> {
+export async function insertKnowledgeChunk(chunk: KnowledgeChunk & { _sync_dirty?: number }): Promise<void> {
   const d = requireDb()
   await d.run(
     `INSERT OR REPLACE INTO knowledge_chunks
-       (id, user_id, session_id, doc_name, chunk_index, content, embedding, embedding_provider, metadata, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+       (id, user_id, session_id, doc_name, chunk_index, content, embedding, embedding_provider, metadata, created_at, _sync_dirty, _deleted)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       chunk.id, chunk.user_id, chunk.session_id ?? null, chunk.doc_name,
       chunk.chunk_index, chunk.content,
       chunk.embedding ?? null, chunk.embedding_provider ?? null,
       chunk.metadata ?? null, chunk.created_at,
+      chunk._sync_dirty ?? 1,
     ]
   )
   // Keep FTS in sync (insert)
@@ -564,6 +578,59 @@ export async function insertKnowledgeChunk(chunk: KnowledgeChunk): Promise<void>
     `INSERT INTO knowledge_fts(rowid, content)
      SELECT rowid, content FROM knowledge_chunks WHERE id = ?`,
     [chunk.id]
+  )
+}
+
+/** 接收服务端 pull 下来的 chunk，不标记 dirty */
+export async function upsertKnowledgeChunkFromServer(chunk: KnowledgeChunk): Promise<void> {
+  const d = requireDb()
+  // Only update if not locally dirty (last-write-wins: local edits take priority)
+  const existing = await d.query('SELECT _sync_dirty FROM knowledge_chunks WHERE id = ?', [chunk.id])
+  const local = existing.values?.[0] as { _sync_dirty: number } | undefined
+  if (local && local._sync_dirty === 1) return  // local uncommitted change wins
+
+  await d.run(
+    `INSERT OR REPLACE INTO knowledge_chunks
+       (id, user_id, session_id, doc_name, chunk_index, content, embedding, embedding_provider, metadata, created_at, _sync_dirty, _deleted)
+     VALUES (?,?,?,?,?,?,?,?,?,?,0,0)`,
+    [
+      chunk.id, chunk.user_id, chunk.session_id ?? null, chunk.doc_name,
+      chunk.chunk_index, chunk.content,
+      chunk.embedding ?? null, chunk.embedding_provider ?? null,
+      chunk.metadata ?? null, chunk.created_at,
+    ]
+  )
+  // Refresh FTS
+  await d.run(
+    `INSERT OR IGNORE INTO knowledge_fts(rowid, content)
+     SELECT rowid, content FROM knowledge_chunks WHERE id = ?`,
+    [chunk.id]
+  )
+}
+
+export async function getDirtyKnowledgeChunks(): Promise<(KnowledgeChunk & { _sync_dirty: number; _deleted: number })[]> {
+  const result = await requireDb().query(
+    'SELECT * FROM knowledge_chunks WHERE _sync_dirty = 1'
+  )
+  return (result.values || []) as (KnowledgeChunk & { _sync_dirty: number; _deleted: number })[]
+}
+
+export async function clearKnowledgeChunkDirty(id: string): Promise<void> {
+  await requireDb().run('UPDATE knowledge_chunks SET _sync_dirty = 0 WHERE id = ?', [id])
+}
+
+/** 文档所有处理步骤（视觉识别 + 知识图谱）完成后，批量标记为待同步 */
+export async function markDocChunksDirty(userId: number, docName: string): Promise<void> {
+  await requireDb().run(
+    'UPDATE knowledge_chunks SET _sync_dirty = 1 WHERE user_id = ? AND doc_name = ? AND _deleted = 0',
+    [userId, docName]
+  )
+}
+
+export async function softDeleteKnowledgeChunk(id: string): Promise<void> {
+  await requireDb().run(
+    'UPDATE knowledge_chunks SET _deleted = 1, _sync_dirty = 1 WHERE id = ?',
+    [id]
   )
 }
 
@@ -930,6 +997,91 @@ export async function loadKnowledgeGraphFromDb(
   return { entities, relations }
 }
 
+// ─── 知识图谱 GraphRAG 检索辅助函数 ──────────────────────────────────────────
+
+/**
+ * 获取用户在指定 session 下已建立图谱的所有文档 docId 列表。
+ * 通过 knowledge_chunks 获取 doc_name，再构造 docId。
+ */
+export async function getGraphDocIdsForSession(
+  userId: number,
+  sessionId: string | null
+): Promise<string[]> {
+  const d = requireDb()
+  const sql = sessionId
+    ? 'SELECT DISTINCT doc_name FROM knowledge_chunks WHERE user_id = ? AND session_id = ? AND _deleted = 0'
+    : 'SELECT DISTINCT doc_name FROM knowledge_chunks WHERE user_id = ? AND _deleted = 0'
+  const params = sessionId ? [userId, sessionId] : [userId]
+  const res = await d.query(sql, params)
+  const rows = ((res.values || []).slice(1)) as any[]
+  return rows.map(r => `${userId}::${r.doc_name}`)
+}
+
+/**
+ * 在指定 docIds 范围内，找出所有「出现在 questionText 中」的实体名。
+ * 查询方向：已知实体 → 问题文本（question LIKE '%entity_text%'），
+ * 避免中文无分词时候选词提取不准确的问题。
+ */
+export async function findEntitiesInText(
+  docIds: string[],
+  questionText: string
+): Promise<Array<{ docId: string; entityText: string; entityClass: string; description: string }>> {
+  if (docIds.length === 0 || !questionText.trim()) return []
+  const d = requireDb()
+  const placeholders = docIds.map(() => '?').join(',')
+  // SQLite: instr(questionText, entity_text) > 0  ↔  entity_text 出现在问题中
+  const res = await d.query(
+    `SELECT doc_id, entity_text, entity_class, attributes
+     FROM knowledge_entities
+     WHERE doc_id IN (${placeholders})
+       AND instr(?, entity_text) > 0
+       AND length(entity_text) >= 2
+     LIMIT 15`,
+    [...docIds, questionText]
+  )
+  const rows = ((res.values || []).slice(1)) as any[]
+  return rows.map(r => {
+    let description = ''
+    try { description = JSON.parse(r.attributes || '{}').description || '' } catch { /* */ }
+    return { docId: r.doc_id, entityText: r.entity_text, entityClass: r.entity_class || 'Other', description }
+  })
+}
+
+/**
+ * 查询涉及给定实体名（source 或 target）的所有关系，限定在 docIds 范围内。
+ * 返回: [{source, relation, target}]
+ */
+export async function findRelationsForEntityNames(
+  docIds: string[],
+  entityTexts: string[]
+): Promise<Array<{ source: string; relation: string; target: string }>> {
+  if (docIds.length === 0 || entityTexts.length === 0) return []
+  const d = requireDb()
+  const docPlaceholders = docIds.map(() => '?').join(',')
+  const results: Array<{ source: string; relation: string; target: string }> = []
+  const seen = new Set<string>()
+
+  for (const et of entityTexts.slice(0, 15)) {
+    const res = await d.query(
+      `SELECT source_text, target_text, relation_type
+       FROM knowledge_relationships
+       WHERE doc_id IN (${docPlaceholders})
+         AND (source_text LIKE ? OR target_text LIKE ?)
+       LIMIT 20`,
+      [...docIds, `%${et}%`, `%${et}%`]
+    )
+    const rows = ((res.values || []).slice(1)) as any[]
+    for (const r of rows) {
+      const key = `${r.source_text}|${r.relation_type}|${r.target_text}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        results.push({ source: r.source_text, relation: r.relation_type || '', target: r.target_text })
+      }
+    }
+  }
+  return results.slice(0, 60)
+}
+
 export const dbService = {
   init: initDb,
   getSessions,
@@ -953,6 +1105,11 @@ export const dbService = {
   softDeleteApiKey,
   getDirtyApiKeys,
   clearApiKeyDirty,
+  insertKnowledgeChunk,
+  upsertKnowledgeChunkFromServer,
+  getDirtyKnowledgeChunks,
+  clearKnowledgeChunkDirty,
+  softDeleteKnowledgeChunk,
   migrateUserId,
   upsertUser,
   createBusinessTable,

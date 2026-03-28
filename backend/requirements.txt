@@ -35,6 +35,10 @@ openpyxl
 matplotlib
 seaborn
 
+# 图分析与社区检测
+networkx>=3.0
+python-louvain>=0.16
+
 # 工具库
 python-dotenv
 pydantic[email]>=2.0.0

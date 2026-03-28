@@ -31,15 +31,15 @@ function MetricCard({ value, label }: { value: any; label: string; unit?: string
  * 数据表格组件
  */
 function DataTable({ sqlResult, onExportCsv }: { sqlResult: any; onExportCsv: () => void }) {
-  const [sortColumn, setSortColumn] = useState<string | null>(null)
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
-  const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage, setItemsPerPage] = useState(10)
+  const [sortColumn, _setSortColumn] = useState<string | null>(null)
+  const [sortOrder, _setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [currentPage, _setCurrentPage] = useState(1)
+  const [itemsPerPage, _setItemsPerPage] = useState(10)
   const [filterText, setFilterText] = useState('')
   const { t } = useTranslation()
 
   const columns = sqlResult?.columns || []
-  const rows = sqlResult?.rows || []
+  const rows = Array.isArray(sqlResult?.rows) ? sqlResult.rows : []
 
   const filteredRows = useMemo(() => {
     if (!filterText) return rows
@@ -180,7 +180,8 @@ function fallbackGenerateChart(sqlResult: any, type: string, t: any): any | null
         }] 
       };
     case 'radar':
-      const indicators = numericCols.map((col: string) => ({ name: col, max: Math.max(...rows.map((r: any) => r[col])) * 1.2 }));
+      const niceMax = (val: number) => { if (val <= 0) return 1; const m = Math.pow(10, Math.floor(Math.log10(val))); return Math.ceil(val / m) * m; };
+      const indicators = numericCols.map((col: string) => ({ name: col, max: niceMax(Math.max(...rows.map((r: any) => r[col])) * 1.2) }));
       return {
         title: base.title,
         tooltip: {},
@@ -238,26 +239,30 @@ function fallbackGenerateChart(sqlResult: any, type: string, t: any): any | null
     case 'heatmap':
       const xData = Array.from(new Set(rows.map((r: any) => String(r[columns[0]]))))
       const yData = Array.from(new Set(rows.map((r: any) => String(r[columns[1]]))))
+      const heatValues = rows.map((r: any) => Number(r[y])).filter((v: number) => !isNaN(v))
+      const heatMin = heatValues.length > 0 ? Math.min(...heatValues) : 0
+      const heatMax = heatValues.length > 0 ? Math.max(...heatValues) : 1
       return {
         title: base.title,
         tooltip: { position: 'top' },
         grid: { top: 100, bottom: 100, left: 100, right: 50, containLabel: true },
         xAxis: { type: 'category', data: xData, axisLabel: { fontSize: 10, rotate: 30 } },
         yAxis: { type: 'category', data: yData, axisLabel: { fontSize: 10 } },
-        visualMap: { 
-          min: 0, 
-          max: Math.max(...rows.map((r: any) => r[y])), 
-          calculable: true, 
-          orient: 'horizontal', 
-          left: 'center', 
-          bottom: 20, 
+        visualMap: {
+          type: 'continuous',
+          min: heatMin,
+          max: heatMax !== heatMin ? heatMax : heatMin + 1,
+          calculable: true,
+          orient: 'horizontal',
+          left: 'center',
+          bottom: 20,
           itemHeight: 120,
           textStyle: { fontSize: 10 }
         },
-        series: [{ 
-          type: 'heatmap', 
-          data: rows.map((r: any) => [String(r[columns[0]]), String(r[columns[1]]), r[y]]), 
-          label: { show: rows.length < 20, fontSize: 9 } 
+        series: [{
+          type: 'heatmap',
+          data: rows.map((r: any) => [String(r[columns[0]]), String(r[columns[1]]), Number(r[y])]),
+          label: { show: rows.length < 20, fontSize: 9 }
         }]
       };
     case 'treemap':
@@ -302,7 +307,7 @@ function fallbackGenerateChart(sqlResult: any, type: string, t: any): any | null
             stack: 'Total',
             itemStyle: { borderColor: 'transparent', color: 'transparent' },
             emphasis: { itemStyle: { borderColor: 'transparent', color: 'transparent' } },
-            data: rows.map((r: any, i: number) => {
+            data: rows.map((_r: any, i: number) => {
               let sum = 0;
               for (let j = 0; j < i; j++) {
                 const val = rows[j][y];
@@ -464,7 +469,7 @@ export default function RightPanel() {
       const hasLat = cols.some((c) => /lat/i.test(c))
       const hasLng = cols.some((c) => /lon|lng/i.test(c))
       if (!hasLat || !hasLng) {
-        mapWarning = t('panel.mapMissingCoords', 'SQL 缺少坐标字段，已降级为柱状图。请在 SQL 中 SELECT latitude, longitude 字段（通过 JOIN customers 表获取）。')
+        mapWarning = t('panel.mapMissingCoords')
       }
     }
 
@@ -482,7 +487,7 @@ export default function RightPanel() {
 
     switch (displayConfig.type) {
       case 'card':
-        return <MetricCard value={displayConfig.value} label={displayConfig.label} />
+        return <MetricCard value={displayConfig.value} label={displayConfig.label ?? ''} />
       case 'table':
         return <DataTable sqlResult={currentSqlResult} onExportCsv={() => {}} />
       case 'chart':

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Key, Check, Trash2, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { X, Key, Check, Trash2, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink, Copy, ClipboardCheck } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { apiKeyApi, sessionApi } from '@/api'
 import { useAuthStore } from '@/stores/authStore'
@@ -18,18 +18,17 @@ const PROVIDER_MODELS: Record<string, {
   vpn: boolean
   baseUrlHint?: string
   getKeyUrl: string
-  freeTier?: string
-  models: { value: string; label: string; thinking?: boolean }[]
+  models: { value: string; label: string; thinking?: boolean; vision?: boolean }[]
 }> = {
+  // ── 国内直连 ──────────────────────────────────────────────────────────────
   deepseek: {
     label: 'DeepSeek',
     vpn: false,
     baseUrlHint: 'https://api.deepseek.com',
     getKeyUrl: 'https://platform.deepseek.com/api_keys',
-    freeTier: '有免费额度',
     models: [
       { value: 'deepseek-chat', label: 'DeepSeek V3 (标准)' },
-      { value: 'deepseek-reasoner', label: 'DeepSeek R1 (思考)', thinking: true },
+      { value: 'deepseek-reasoner', label: 'DeepSeek R1 (推理)', thinking: true },
     ],
   },
   qwen: {
@@ -37,12 +36,14 @@ const PROVIDER_MODELS: Record<string, {
     vpn: false,
     baseUrlHint: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     getKeyUrl: 'https://bailian.console.aliyun.com/',
-    freeTier: '有免费额度',
     models: [
-      { value: 'qwq-32b', label: 'QwQ-32B (思考)', thinking: true },
-      { value: 'qwen-max', label: 'Qwen-Max 旗舰' },
-      { value: 'qwen-plus', label: 'Qwen-Plus (免费额度)' },
-      { value: 'qwen-turbo', label: 'Qwen-Turbo 极速 (免费额度)' },
+      { value: 'qwen3-max', label: 'Qwen3-Max 旗舰' },
+      { value: 'qwen3-thinking', label: 'Qwen3-Thinking (深度推理)', thinking: true },
+      { value: 'qwen3-coder', label: 'Qwen3-Coder (代码专用)' },
+      { value: 'qwen3.5-plus', label: 'Qwen3.5-Plus 主力' },
+      { value: 'qwen3.5-flash', label: 'Qwen3.5-Flash 极速 (低成本)' },
+      { value: 'qwen3-vl', label: 'Qwen3-VL (多模态)', vision: true },
+      { value: 'qwen-vl-max', label: 'Qwen-VL-Max (视觉)', vision: true },
     ],
   },
   zhipu: {
@@ -50,11 +51,23 @@ const PROVIDER_MODELS: Record<string, {
     vpn: false,
     baseUrlHint: 'https://open.bigmodel.cn/api/paas/v4',
     getKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
-    freeTier: '赠送 600万 tokens',
     models: [
-      { value: 'glm-4.5-air', label: 'GLM-4.5 Air (推荐，免费额度)' },
-      { value: 'glm-4.6v', label: 'GLM-4.6V 视觉 (赠 600万 tokens)' },
-      { value: 'glm-4-flash', label: 'GLM-4 Flash 极速 (免费)' },
+      { value: 'glm-5', label: 'GLM-5 旗舰基座 (2026)' },
+      { value: 'glm-5-turbo', label: 'GLM-5 Turbo (深度推理+Agent)', thinking: true },
+      { value: 'glm-4.7', label: 'GLM-4.7 (推理+Agent)', thinking: true },
+      { value: 'glm-4.7-flashx', label: 'GLM-4.7 FlashX 30B 轻量推理', thinking: true },
+      { value: 'glm-4.6', label: 'GLM-4.6 (200K 长文本)' },
+      { value: 'glm-4.5', label: 'GLM-4.5 (Agent推理)', thinking: true },
+      { value: 'glm-4.5-air', label: 'GLM-4.5 Air (高性价比 免费额度)' },
+      { value: 'glm-4.7-flash', label: 'GLM-4.7 Flash (免费)' },
+      { value: 'glm-4.6v', label: 'GLM-4.6V 视觉旗舰 (128K)', vision: true },
+      { value: 'glm-4.6v-flashx', label: 'GLM-4.6V FlashX 轻量视觉', vision: true },
+      { value: 'glm-4.6v-flash', label: 'GLM-4.6V Flash (免费视觉)', vision: true },
+      { value: 'glm-4.5v', label: 'GLM-4.5V 视觉推理 (可开关思考)', vision: true },
+      { value: 'glm-4.1v-thinking-flashx', label: 'GLM-4.1V Thinking FlashX 小尺寸视觉', vision: true },
+      { value: 'glm-ocr', label: 'GLM-OCR (文档精准解析)', vision: true },
+      { value: 'glm-4-flash-250414', label: 'GLM-4 Flash 250414 (免费最新版)' },
+      { value: 'glm-4-flash', label: 'GLM-4 Flash (免费)' },
     ],
   },
   minimax: {
@@ -62,32 +75,113 @@ const PROVIDER_MODELS: Record<string, {
     vpn: false,
     baseUrlHint: 'https://api.minimax.chat/v1',
     getKeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
-    freeTier: '注册送额度',
     models: [
-      { value: 'MiniMax-Text-01', label: 'MiniMax Text-01 旗舰' },
-      { value: 'abab6.5s-chat', label: 'ABAB 6.5S 标准' },
+      { value: 'MiniMax-M2.7', label: 'M2.7 文本最新版' },
+      { value: 'MiniMax-M2.5', label: 'M2.5 文本主力' },
+      { value: 'MiniMax-M1', label: 'M1 开源推理', thinking: true },
+      { value: 'hailuo-02', label: 'Hailuo 02 视频最新版' },
+      { value: 'hailuo-2.3', label: 'Hailuo 2.3 视频 (API)' },
+      { value: 'speech-02-hd', label: 'Speech 2.6 语音合成' },
+      { value: 'music-01', label: 'Music 2.5 音乐生成' },
     ],
   },
+  kimi: {
+    label: '月之暗面 Kimi',
+    vpn: false,
+    baseUrlHint: 'https://api.moonshot.cn/v1',
+    getKeyUrl: 'https://platform.moonshot.cn/console/api-keys',
+    models: [
+      { value: 'kimi-k2.5', label: 'Kimi K2.5 旗舰 (多模态+推理)', thinking: true, vision: true },
+      { value: 'kimi-k2-thinking', label: 'Kimi K2 Thinking (深度推理)', thinking: true },
+      { value: 'moonshot-kimi-k2-instruct', label: 'Kimi K2 Instruct (极速直答)' },
+      { value: 'kimi-k2-turbo-preview', label: 'Kimi K2 Turbo (Agent开发)' },
+      { value: 'moonshot-v1-128k', label: 'Moonshot v1 128K (长文本稳定版)' },
+    ],
+  },
+  doubao: {
+    label: '豆包 Doubao (字节)',
+    vpn: false,
+    baseUrlHint: 'https://ark.volcengineapi.com/api/v3',
+    getKeyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+    models: [
+      { value: 'doubao-seed-2.0-pro', label: 'Seed 2.0 Pro 旗舰 (推理+视觉)', vision: true },
+      { value: 'doubao-seed-2.0-lite', label: 'Seed 2.0 Lite 性价比 (视觉)', vision: true },
+      { value: 'doubao-seed-2.0-mini', label: 'Seed 2.0 Mini 高并发低成本' },
+      { value: 'doubao-seed-1.8', label: 'Seed 1.8 多模态 Agent (视觉)', vision: true },
+      { value: 'doubao-seed-1.6', label: 'Seed 1.6 (支持 reasoning effort)' },
+      { value: 'seedream-5.0', label: 'Seedream 5.0 文生图/图编辑' },
+      { value: 'seedream-5.0-lite', label: 'Seedream 5.0 Lite 图像轻量版' },
+      { value: 'seedance-2.0', label: 'Seedance 2.0 文生/图生视频' },
+    ],
+  },
+  hunyuan: {
+    label: '腾讯混元 Hunyuan',
+    vpn: false,
+    baseUrlHint: 'https://api.hunyuan.cloud.tencent.com/v1',
+    getKeyUrl: 'https://console.cloud.tencent.com/hunyuan/start',
+    models: [
+      { value: 'hunyuan-pro', label: 'Hunyuan Pro 旗舰' },
+      { value: 'hunyuan-standard', label: 'Hunyuan Standard' },
+      { value: 'hunyuan-lite', label: 'Hunyuan Lite (免费)' },
+      { value: 'hunyuan-vision', label: 'Hunyuan Vision (视觉)', vision: true },
+    ],
+  },
+  baidu: {
+    label: '百度文心 ERNIE',
+    vpn: false,
+    baseUrlHint: 'https://aistudio.baidu.com/llm/lmapi/v3',
+    getKeyUrl: 'https://aistudio.baidu.com/index/accessToken',
+    models: [
+      { value: 'ERNIE-5.0', label: 'ERNIE 5.0 旗舰 (全模态 2.4T)', vision: true },
+      { value: 'ERNIE-4.5', label: 'ERNIE 4.5 通用文本' },
+      { value: 'ERNIE-4.5-VL', label: 'ERNIE 4.5 VL (图文多模态)', vision: true },
+      { value: 'ERNIE-4.5-Think', label: 'ERNIE 4.5 Think (深度推理)', thinking: true },
+      { value: 'ERNIE-4.0-8K', label: 'ERNIE 4.0 8K (赠 100万 tokens)' },
+      { value: 'ERNIE-3.5-8K', label: 'ERNIE 3.5 8K (永久免费)' },
+      { value: 'ERNIE-Speed-8K', label: 'ERNIE Speed 8K (免费极速)' },
+      { value: 'ERNIE-Lite', label: 'ERNIE Lite (轻量高并发)' },
+    ],
+  },
+  sensenova: {
+    label: '商汤日日新 SenseNova',
+    vpn: false,
+    baseUrlHint: 'https://api.sensenova.cn/v1',
+    getKeyUrl: 'https://platform.sensenova.cn/product/APIService/pricing/',
+    models: [
+      { value: 'SenseNova-V6.5-Pro', label: 'V6.5 Pro 旗舰多模态 (图文交错推理)', thinking: true, vision: true },
+      { value: 'SenseNova-V6.5-Turbo', label: 'V6.5 Turbo 轻量多模态 (图/文/视频)', vision: true },
+      { value: 'SenseNova-V6-Pro', label: 'V6 Pro 通用多模态 (视觉)', vision: true },
+      { value: 'SenseNova-V6-Reasoner', label: 'V6 Reasoner 深度推理 (图文思维链)', thinking: true, vision: true },
+      { value: 'SenseNova-V6-Turbo', label: 'V6 Turbo 轻量快速' },
+      { value: 'SenseNova-V6-Omni', label: 'V6 Omni 实时音视频对话', vision: true },
+    ],
+  },
+  // ── 需要 VPN ──────────────────────────────────────────────────────────────
   openai: {
     label: 'OpenAI',
     vpn: true,
     baseUrlHint: 'https://api.openai.com/v1',
     getKeyUrl: 'https://platform.openai.com/api-keys',
     models: [
-      { value: 'gpt-4o', label: 'GPT-4o' },
-      { value: 'gpt-4o-mini', label: 'GPT-4o Mini 轻量' },
+      { value: 'o3', label: 'o3 (深度推理)', thinking: true },
+      { value: 'o4-mini', label: 'o4 Mini (推理轻量)', thinking: true },
+      { value: 'gpt-4.1', label: 'GPT-4.1 (视觉)', vision: true },
+      { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini (视觉)', vision: true },
+      { value: 'gpt-4o', label: 'GPT-4o (视觉)', vision: true },
+      { value: 'gpt-4o-mini', label: 'GPT-4o Mini (视觉)', vision: true },
     ],
   },
   gemini: {
     label: 'Google Gemini',
     vpn: true,
     getKeyUrl: 'https://aistudio.google.com/apikey',
-    freeTier: '免费额度充足',
     models: [
-      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (思考)', thinking: true },
-      { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite 超轻量' },
-      { value: 'gemini-3.1-flash-image-preview', label: 'Gemini 3.1 Flash 图像生成' },
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (推理+视觉)', thinking: true, vision: true },
+      { value: 'gemini-3.1-flash-preview', label: 'Gemini 3.1 Flash (视觉)', vision: true },
+      { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite (视觉)', vision: true },
+      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (视觉)', vision: true },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (视觉)', vision: true },
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (视觉)', vision: true },
     ],
   },
   claude: {
@@ -95,12 +189,38 @@ const PROVIDER_MODELS: Record<string, {
     vpn: true,
     getKeyUrl: 'https://console.anthropic.com/settings/keys',
     models: [
-      { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (思考)', thinking: true },
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (思考)', thinking: true },
-      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 轻量' },
-      { value: 'claude-opus-4-5', label: 'Claude Opus 4.5 (思考)', thinking: true },
-      { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (思考)', thinking: true },
-      { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet (思考)', thinking: true },
+      { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (推理+视觉)', thinking: true, vision: true },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (推理+视觉)', thinking: true, vision: true },
+      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (视觉)', vision: true },
+      { value: 'claude-opus-4-5', label: 'Claude Opus 4.5 (推理+视觉)', thinking: true, vision: true },
+      { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (推理+视觉)', thinking: true, vision: true },
+      { value: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet (推理+视觉)', thinking: true, vision: true },
+    ],
+  },
+  xai: {
+    label: 'xAI Grok',
+    vpn: true,
+    baseUrlHint: 'https://api.x.ai/v1',
+    getKeyUrl: 'https://console.x.ai/',
+    models: [
+      { value: 'grok-4', label: 'Grok-4 旗舰 (视觉)', vision: true },
+      { value: 'grok-4.1-fast', label: 'Grok-4.1 Fast 主力 (视觉)', vision: true },
+      { value: 'grok-4.20', label: 'Grok-4.20 Multi-Agent (Beta)', vision: true },
+      { value: 'grok-3', label: 'Grok-3 (旧版)' },
+    ],
+  },
+  mistral: {
+    label: 'Mistral AI',
+    vpn: true,
+    baseUrlHint: 'https://api.mistral.ai/v1',
+    getKeyUrl: 'https://console.mistral.ai/api-keys/',
+    models: [
+      { value: 'mistral-large-latest', label: 'Mistral Large 旗舰' },
+      { value: 'mistral-medium-latest', label: 'Mistral Medium' },
+      { value: 'mistral-small-latest', label: 'Mistral Small 轻量' },
+      { value: 'codestral-latest', label: 'Codestral 代码旗舰' },
+      { value: 'devstral-latest', label: 'Devstral Agent开发 (2026)' },
+      { value: 'pixtral-large-latest', label: 'Pixtral Large (视觉)', vision: true },
     ],
   },
 }
@@ -111,35 +231,36 @@ const EMBEDDING_PROVIDERS: Record<string, {
   vpn: boolean
   getKeyUrl: string
   description: string
-  freeTier: string
 }> = {
   qwen_embedding: {
     label: 'Qwen Embedding',
     vpn: false,
     getKeyUrl: 'https://bailian.console.aliyun.com/',
     description: '与通义千问同一个 Key，无需额外申请',
-    freeTier: '1M tokens/天免费',
   },
   zhipu_embedding: {
     label: '智谱 Embedding',
     vpn: false,
     getKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
     description: '支持中文语义，效果优秀',
-    freeTier: '有免费额度',
   },
   jina_embedding: {
     label: 'Jina AI Embedding',
     vpn: false,
     getKeyUrl: 'https://jina.ai/',
     description: '国内通常可直连，无需 VPN',
-    freeTier: '1M tokens/月免费',
   },
   google_embedding: {
     label: 'Google Embedding',
     vpn: true,
     getKeyUrl: 'https://aistudio.google.com/apikey',
     description: '与 Gemini 同一个 Key，质量高',
-    freeTier: '1500次/天免费',
+  },
+  mistral_embedding: {
+    label: 'Mistral Embedding',
+    vpn: true,
+    getKeyUrl: 'https://console.mistral.ai/api-keys/',
+    description: '与 Mistral 同一个 Key，适合多语言 RAG',
   },
 }
 
@@ -150,7 +271,6 @@ const SPECIAL_PROVIDERS: Record<string, {
   getKeyUrl: string
   description: string
   placeholder: string
-  freeTier: string
 }> = {
   mineru: {
     label: 'MinerU PDF 解析',
@@ -158,7 +278,6 @@ const SPECIAL_PROVIDERS: Record<string, {
     getKeyUrl: 'https://mineru.net/',
     description: '用于深度模式和知识抽取，免费注册即可',
     placeholder: 'MinerU API Key（个人中心 → API Key）',
-    freeTier: '免费注册',
   },
 }
 
@@ -227,6 +346,49 @@ async function validateProviderKey(providerKey: string, apiKey: string, baseUrl?
       })
       return res.status === 200 || res.status === 402
     }
+
+    if (providerKey === 'sensenova') {
+      const res = await fetch('https://api.sensenova.cn/v1/models', {
+        headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000),
+      })
+      return res.status === 200 || res.status === 404
+    }
+    if (providerKey === 'baidu') {
+      // AI Studio OpenAI-compatible endpoint
+      const res = await fetch('https://aistudio.baidu.com/llm/lmapi/v3/models', {
+        headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000),
+      })
+      return res.status === 200 || res.status === 404
+    }
+    if (providerKey === 'kimi') {
+      const res = await fetch('https://api.moonshot.cn/v1/models', {
+        headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000),
+      })
+      return res.status === 200 || res.status === 404
+    }
+    if (providerKey === 'doubao') {
+      const url = `${base || 'https://ark.volcengineapi.com'}/api/v3/models`
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000) })
+      return res.status !== 401 && res.status !== 403
+    }
+    if (providerKey === 'hunyuan') {
+      const res = await fetch('https://api.hunyuan.cloud.tencent.com/v1/models', {
+        headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000),
+      })
+      return res.status !== 401 && res.status !== 403
+    }
+    if (providerKey === 'xai') {
+      const res = await fetch('https://api.x.ai/v1/models', {
+        headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000),
+      })
+      return res.status === 200 || res.status === 404
+    }
+    if (providerKey === 'mistral' || providerKey === 'mistral_embedding') {
+      const res = await fetch('https://api.mistral.ai/v1/models', {
+        headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(8000),
+      })
+      return res.status === 200 || res.status === 404
+    }
     // Default: basic format check
     return key.length > 8
   } catch {
@@ -253,13 +415,12 @@ interface ModelKeyModalProps {
 
 // ─── 单个 Key 卡片（可展开） ───────────────────────────────────────────────────
 function KeyCard({
-  providerKey, label, description, freeTier, getKeyUrl, placeholder, showBaseUrl,
+  providerKey, label, description, getKeyUrl, placeholder, showBaseUrl,
   savedKeys, isOffline, localUserId, onSaved,
 }: {
   providerKey: string
   label: string
   description?: string
-  freeTier?: string
   getKeyUrl: string
   placeholder?: string
   showBaseUrl?: boolean
@@ -276,8 +437,18 @@ function KeyCard({
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<'ok' | 'fail' | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const saved = savedKeys.find(k => k.provider === providerKey)
+
+  const handleCopyPreview = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!saved?.api_key_preview) return
+    navigator.clipboard.writeText(saved.api_key_preview).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -337,18 +508,13 @@ function KeyCard({
 
   return (
     <div className={`border rounded-2xl overflow-hidden transition-all ${saved ? 'border-emerald-300 bg-emerald-50/40' : 'border-gray-200 bg-white'}`}>
-      <button onClick={() => setExpanded(e => !e)} className="w-full flex items-center gap-3 p-3 text-left active:bg-gray-50">
+      {/* 标题行：点击展开/折叠 */}
+      <button onClick={() => setExpanded(e => !e)} className="w-full flex items-center gap-3 px-3 pt-3 pb-2 text-left active:bg-gray-50">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-gray-800">{label}</span>
-            {freeTier && (
-              <span className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded-md text-[10px] font-medium">{freeTier}</span>
-            )}
           </div>
           {description && <div className="text-[11px] text-gray-500 mt-0.5">{description}</div>}
-          {saved && (
-            <div className="text-[10px] text-emerald-600 font-mono mt-0.5">已配置 · {saved.api_key_preview}</div>
-          )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {saved && (
@@ -359,6 +525,21 @@ function KeyCard({
           {expanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
         </div>
       </button>
+      {/* Key 预览行：独立于 button 外，支持文字选中与复制 */}
+      {saved && (
+        <div className="flex items-center gap-1.5 px-3 pb-2.5">
+          <span className="text-[10px] text-emerald-600 font-mono select-text cursor-text flex-1 min-w-0 truncate">
+            已配置 · {saved.api_key_preview}
+          </span>
+          <button
+            onClick={handleCopyPreview}
+            title="复制预览"
+            className="p-1 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors flex-shrink-0"
+          >
+            {copied ? <ClipboardCheck size={12} className="text-emerald-500" /> : <Copy size={12} />}
+          </button>
+        </div>
+      )}
 
       {expanded && (
         <div className="px-3 pb-3 space-y-2 border-t border-gray-100 pt-3">
@@ -461,7 +642,6 @@ function KeyConfigPanel({ vpn, savedKeys, isOffline, localUserId, onSaved }: {
                 key={key}
                 providerKey={key}
                 label={info.label}
-                freeTier={info.freeTier}
                 getKeyUrl={info.getKeyUrl}
                 showBaseUrl={!!info.baseUrlHint}
                 {...sharedProps}
@@ -481,7 +661,6 @@ function KeyConfigPanel({ vpn, savedKeys, isOffline, localUserId, onSaved }: {
                 providerKey={key}
                 label={info.label}
                 description={info.description}
-                freeTier={info.freeTier}
                 getKeyUrl={info.getKeyUrl}
                 placeholder={info.placeholder}
                 {...sharedProps}
@@ -501,7 +680,6 @@ function KeyConfigPanel({ vpn, savedKeys, isOffline, localUserId, onSaved }: {
                 providerKey={key}
                 label={info.label}
                 description={info.description}
-                freeTier={info.freeTier}
                 getKeyUrl={info.getKeyUrl}
                 {...sharedProps}
               />
@@ -587,7 +765,6 @@ function MobileSheet({
                       >
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-semibold text-gray-800 truncate">{info.label}</div>
-                          {info.vpn && <div className="text-[9px] text-orange-500 mt-0.5">需要VPN</div>}
                           {hasSaved && (
                             <div className="flex items-center gap-1 mt-0.5">
                               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -615,10 +792,19 @@ function MobileSheet({
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-gray-800">{model.label}</div>
-                        {model.thinking && (
-                          <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-medium">
-                            💡 支持思考模式
-                          </span>
+                        {(model.thinking || model.vision) && (
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {model.thinking && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-medium">
+                                💡 推理
+                              </span>
+                            )}
+                            {model.vision && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-medium">
+                                👁 视觉
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                       {selectedModel === model.value && <Check size={14} className="text-emerald-500 flex-shrink-0" />}
@@ -646,10 +832,6 @@ function MobileSheet({
 
           {activeTab === 'domestic' && (
             <>
-              <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700">
-                <span>✅</span>
-                <span>以下服务无需科学上网，国内直连可用</span>
-              </div>
               {loading ? (
                 <div className="text-center text-gray-400 py-8 text-sm">加载中…</div>
               ) : (
@@ -663,10 +845,6 @@ function MobileSheet({
 
           {activeTab === 'vpn' && (
             <>
-              <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded-xl text-xs text-orange-700">
-                <span>🌐</span>
-                <span>以下服务在中国大陆需要科学上网才能访问</span>
-              </div>
               {loading ? (
                 <div className="text-center text-gray-400 py-8 text-sm">加载中…</div>
               ) : (
@@ -918,7 +1096,6 @@ export default function ModelKeyModal({
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-semibold text-gray-800 truncate">{info.label}</div>
-                        {info.vpn && <div className="text-[9px] text-orange-500 mt-0.5">需要VPN</div>}
                         {hasSaved && (
                           <div className="flex items-center gap-1 mt-0.5">
                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -946,10 +1123,19 @@ export default function ModelKeyModal({
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-gray-800">{model.label}</div>
-                      {model.thinking && (
-                        <span className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-medium">
-                          💡 支持思考模式
-                        </span>
+                      {(model.thinking || model.vision) && (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {model.thinking && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-medium">
+                              💡 推理
+                            </span>
+                          )}
+                          {model.vision && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-medium">
+                              👁 视觉
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                     {selectedModel === model.value && <Check size={14} className="text-emerald-500 flex-shrink-0" />}
@@ -977,10 +1163,6 @@ export default function ModelKeyModal({
 
         {activeTab === 'domestic' && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700">
-              <span>✅</span>
-              <span>以下服务无需科学上网，中国大陆直连可用</span>
-            </div>
             {loading ? (
               <div className="text-center text-gray-400 py-8 text-sm">加载中…</div>
             ) : (
@@ -994,10 +1176,6 @@ export default function ModelKeyModal({
 
         {activeTab === 'vpn' && (
           <div className="space-y-4">
-            <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded-xl text-xs text-orange-700">
-              <span>🌐</span>
-              <span>以下服务在中国大陆需要科学上网才能正常访问</span>
-            </div>
             {loading ? (
               <div className="text-center text-gray-400 py-8 text-sm">加载中…</div>
             ) : (

@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { Share } from '@capacitor/share'
+import { Filesystem, Directory } from '@capacitor/filesystem'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import remarkGfm from 'remark-gfm'
@@ -13,13 +15,11 @@ import { Capacitor } from '@capacitor/core'
 const isNativePlatform = Capacitor.isNativePlatform()
 const rehypePluginsWeb = [rehypeKatex, rehypeRaw]
 const rehypePluginsNative = [rehypeKatex]
-import { 
-  Terminal, 
-  BarChart3, 
-  ChevronRight, 
-  ChevronLeft, 
-  Maximize2, 
-  X, 
+import {
+  BarChart3,
+  ChevronRight,
+  Maximize2,
+  X,
   LayoutDashboard,
   Zap,
   Download,
@@ -203,9 +203,11 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   // Native: in-app image viewer (window.open is blocked in Capacitor WKWebView)
   const [imageModal, setImageModal] = useState<string | null>(null)
   // Native: in-app ECharts fullscreen viewer
-  const [chartModal, setChartModal] = useState<object | null>(null)
+  const [chartModal, setChartModal] = useState<any | null>(null)
   // Web: inline knowledge graph modal (from server-extracted graph data)
   const [inlineGraph, setInlineGraph] = useState<KnowledgeGraph | null>(null)
+  // Native: PDF download progress
+  const [isPdfDownloading, setIsPdfDownloading] = useState(false)
 
   const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
   const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
@@ -213,6 +215,51 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const { connect } = useSSE()
   const { t } = useTranslation()
   const { language } = useLanguageStore()
+
+  // 原生端：下载 PDF 后调起系统阅读器（iframe 在 Android WebView 不支持内嵌 PDF）
+  const handleOpenPdfNative = async (url: string) => {
+    if (isPdfDownloading) return
+    setIsPdfDownloading(true)
+    try {
+      const fileName = url.split('/').pop()?.split('?')[0] || 'document.pdf'
+
+      // 先检查缓存，命中则直接 Share，不重复下载
+      let fileUri: string
+      try {
+        const stat = await Filesystem.stat({ path: fileName, directory: Directory.Cache })
+        fileUri = stat.uri
+        console.log('[PDF] 命中缓存:', fileUri)
+      } catch {
+        // 缓存不存在，下载写入
+        const resp = await fetch(url)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const blob = await resp.blob()
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve((reader.result as string).split(',')[1])
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        })
+        const written = await Filesystem.writeFile({
+          path: fileName,
+          data: base64,
+          directory: Directory.Cache,
+        })
+        fileUri = written.uri
+        console.log('[PDF] 下载完成:', fileUri)
+      }
+
+      await Share.share({ url: fileUri, title: fileName })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // Share 被用户取消不是错误，静默忽略
+      if (msg.toLowerCase().includes('cancel') || msg.toLowerCase().includes('dismissed')) return
+      console.error('[PDF] 下载失败:', e)
+      alert('PDF 下载失败，请确认与电脑在同一网络。')
+    } finally {
+      setIsPdfDownloading(false)
+    }
+  }
 
   const handleOpenImage = (base64: string) => {
     // On native (iOS/Android), window.open is blocked — show in-app modal instead
@@ -394,6 +441,11 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const pdfServerUrl = parsedData?.file_url ? `${getBaseURL().replace('/api', '')}${parsedData.file_url}` : null
   const pdfUrl = pdfServerUrl ? resolveUrl(pdfServerUrl) : null
   const pdfIsLocal = pdfServerUrl ? isCached(pdfServerUrl) : false
+  // 手机本地处理：原始 PDF 保存在设备上，存储的是 native file:// URI，需转换为 WKWebView 可访问的 http URL
+  const _rawLocalPdfUri: string | null = parsedData?.local_pdf_uri ?? null
+  const localPdfUri: string | null = (_rawLocalPdfUri && isNativePlatform)
+    ? Capacitor.convertFileSrc(_rawLocalPdfUri)
+    : _rawLocalPdfUri
   const plotImageBase64 = parsedData?.plot_image_base64
 
   const displayContent = (isFullTextExpanded && parsedData?.markdown_full) 
@@ -465,7 +517,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
         try {
           const updatedMessage = await messageApi.getMessage(currentSession.id, message.id);
           if (updatedMessage) {
-            let newData = updatedMessage.data;
+            let newData: any = updatedMessage.data;
             if (typeof newData === 'string') {
               try { newData = JSON.parse(newData); } catch (e) { console.error('Parse failed in poll', e); }
             }
@@ -523,6 +575,23 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     }
 
     if (sqlData) {
+      // Scientist mode: message.data is metadata ({ is_data_science: true, ... }), not a SQLResult.
+      // Passing it as-is to setCurrentAnalysis would corrupt currentSqlResult (no columns/rows).
+      if (sqlData.is_data_science) {
+        if (Array.isArray(sqlData.rows) && sqlData.rows.length > 0) {
+          // execution_result payload has rows as an array — reconstruct a proper SQLResult
+          const cols = Object.keys(sqlData.rows[0])
+          setCurrentAnalysis(
+            message.sql || '',
+            { columns: cols, rows: sqlData.rows },
+            'table',
+            chartConfig
+          )
+        }
+        // else: keep the existing currentSqlResult (set during streaming) and just open the panel
+        setActiveTab('charts')
+        return
+      }
       setCurrentAnalysis(
         message.sql || '',
         sqlData,
@@ -535,7 +604,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   const preprocessContent = (content: string) => {
     if (!content) return ''
-    
+
     let processed = content
       .replace(/\\\[/g, '$$$$')
       .replace(/\\\]/g, '$$$$')
@@ -545,7 +614,51 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     if (parsedData?.is_data_science) {
       processed = processed.replace(/!\[.*?\]\(.*?\)/g, '')
     }
-    
+
+    // 原生端：补全相对路径 & 将 HTML img/table 转为 Markdown（rehypeRaw 在原生端禁用）
+    if (isNativePlatform) {
+      const baseOrigin = getBaseURL().replace('/api', '')
+
+      // 1. 将 /api/uploads/ 相对路径补全为绝对后端 URL（适用于 Markdown 语法 和 HTML src）
+      processed = processed
+        .replace(/(!\[[^\]]*\]\()(\/api\/uploads\/[^)]+)(\))/g, `$1${baseOrigin}$2$3`)
+        .replace(/(src=["'])(\/api\/uploads\/[^"']+)(["'])/g, `$1${baseOrigin}$2$3`)
+
+      // 2. HTML <img> → Markdown 图片语法
+      processed = processed.replace(/<img\s[^>]*>/gi, (imgTag) => {
+        const srcM = imgTag.match(/src=["']([^"']+)["']/)
+        const altM = imgTag.match(/alt=["']([^"']*)["']/)
+        const src = srcM ? srcM[1] : ''
+        const alt = altM ? altM[1] : ''
+        return src ? `![${alt}](${src})` : ''
+      })
+
+      // 3. HTML <table> → GFM 管道表格
+      processed = processed.replace(/<table[\s\S]*?<\/table>/gi, (tableHtml) => {
+        const rows: string[][] = []
+        const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+        let rowM: RegExpExecArray | null
+        while ((rowM = rowRe.exec(tableHtml)) !== null) {
+          const cellRe = /<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi
+          let cellM: RegExpExecArray | null
+          const cells: string[] = []
+          while ((cellM = cellRe.exec(rowM[1])) !== null) {
+            cells.push(cellM[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().replace(/\n+/g, ' '))
+          }
+          if (cells.length > 0) rows.push(cells)
+        }
+        if (rows.length === 0) return ''
+        const maxCols = Math.max(...rows.map(r => r.length))
+        const pad = (row: string[]) => Array.from({ length: maxCols }, (_, i) => row[i] ?? '').join(' | ')
+        return [
+          `| ${pad(rows[0])} |`,
+          `| ${Array(maxCols).fill('---').join(' | ')} |`,
+          ...rows.slice(1).map(r => `| ${pad(r)} |`),
+          '',
+        ].join('\n')
+      })
+    }
+
     return processed
   }
 
@@ -945,7 +1058,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </span>
             </div>
 
-            {isKnowledgeExtraction && pdfUrl && (
+            {isKnowledgeExtraction && (pdfUrl || parsedData?.markdown_full) && (
               <div className="relative group/action">
                 <button
                   onClick={() => setShowPreview(true)}
@@ -967,14 +1080,17 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                 <button
                   onClick={() => {
                     if (parsedData?.knowledge_graph) {
-                      // Web 模式：图谱数据内嵌在消息 data 中，直接展示
+                      // 图谱数据已内嵌（手机端新建 / Web 后台抽取），直接展示
                       setInlineGraph(parsedData.knowledge_graph as KnowledgeGraph)
-                    } else {
-                      // 移动端模式：从 localStorage/SQLite 加载
+                    } else if (isNativePlatform) {
+                      // 手机端旧消息：从 localStorage/SQLite 加载
                       const docName = parsedData?.doc_name
                       if (docName && (window as any).__showKnowledgeGraph) {
                         (window as any).__showKnowledgeGraph(docName)
                       }
+                    } else {
+                      // PC 端：图谱数据不在消息中（旧版手机端生成的消息）
+                      alert('此消息的知识图谱数据尚未同步。请在手机端重新索引该文档，再触发一次同步即可。')
                     }
                   }}
                   className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg border border-indigo-100 transition-all active:scale-95"
@@ -989,6 +1105,38 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </div>
             )}
           </div>
+
+          {parsedData?.db_confirmation_needed && !parsedData?.db_dismissed && (
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => {
+                  // 标记已关闭，防止重复渲染
+                  updateMessage(message.id, { data: JSON.stringify({ ...parsedData, db_dismissed: true }) })
+                  if (!currentSession) return
+                  connect(
+                    currentSession.id,
+                    language === 'zh' ? '可以，从数据库查询' : 'Yes, query from the database',
+                    {
+                      model_provider: currentSession.model_provider ?? undefined,
+                      model_name: currentSession.model_name ?? undefined,
+                      parent_id: message.parent_id,
+                    }
+                  )
+                }}
+                className="flex-1 py-2 px-4 rounded-xl bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors"
+              >
+                {language === 'zh' ? '查询数据库' : 'Query Database'}
+              </button>
+              <button
+                onClick={() => {
+                  updateMessage(message.id, { data: JSON.stringify({ ...parsedData, db_dismissed: true }) })
+                }}
+                className="flex-1 py-2 px-4 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm font-medium transition-colors"
+              >
+                {language === 'zh' ? '不需要' : 'No thanks'}
+              </button>
+            </div>
+          )}
 
           {parsedData?.is_data_science && (parsedData?.can_generate_report || isGeneratingReport || parsedData?.report_status === 'processing') && !htmlReport && (
             <div className="mt-4">
@@ -1051,23 +1199,91 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             </div>
             
             <div className="flex-1 flex overflow-hidden divide-x divide-gray-200">
-              <div className="w-1/2 h-full flex flex-col">
-                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                  {t('preview.original')}
-                  {pdfIsLocal && (
-                    <span className="text-[9px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
-                      📱 本机缓存
-                    </span>
+              {(pdfUrl || localPdfUri) && (
+                <div className="w-1/2 h-full flex flex-col">
+                  <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                    {t('preview.original')}
+                    {pdfIsLocal && (
+                      <span className="text-[9px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                        📱 本机缓存
+                      </span>
+                    )}
+                    {localPdfUri && !pdfUrl && (
+                      <span className="text-[9px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                        📱 本机文件
+                      </span>
+                    )}
+                  </div>
+                  {isNativePlatform ? (
+                    // iOS：本地 PDF 直接内联渲染；Android / 无本地文件：用系统阅读器打开
+                    localPdfUri && Capacitor.getPlatform() === 'ios' ? (
+                      <object
+                        data={localPdfUri}
+                        type="application/pdf"
+                        className="flex-1 w-full border-none"
+                      />
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-gray-50 p-6">
+                        <svg className="w-16 h-16 text-purple-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        {_rawLocalPdfUri && !pdfUrl ? (
+                          <>
+                            <p className="text-sm text-gray-500 text-center">原始 PDF 已保存在手机本地</p>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  // Share 需要原始 file:// URI，不能用 convertFileSrc 后的 http URL
+                                  await Share.share({ url: _rawLocalPdfUri, title: parsedData?.doc_name || 'document.pdf' })
+                                } catch (e: any) {
+                                  if (!String(e).toLowerCase().includes('cancel')) alert('打开失败：' + String(e))
+                                }
+                              }}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg active:scale-95 transition-all"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                              用系统应用打开 PDF
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm text-gray-500 text-center">PDF 文件存储在电脑端</p>
+                            <button
+                              onClick={() => handleOpenPdfNative(pdfUrl!)}
+                              disabled={isPdfDownloading}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg active:scale-95 transition-all disabled:opacity-60"
+                            >
+                              {isPdfDownloading ? (
+                                <><Loader2 size={16} className="animate-spin" />下载中...</>
+                              ) : (
+                                <><Download size={16} />下载并查看 PDF</>
+                              )}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )
+                  ) : pdfUrl ? (
+                    <iframe
+                      src={`${pdfUrl}#toolbar=0`}
+                      className="flex-1 w-full border-none"
+                      title="PDF Original"
+                    />
+                  ) : (
+                    // Web端：消息从手机同步过来，PDF仅存于移动设备，无法内联显示
+                    <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-gray-50 p-6">
+                      <svg className="w-16 h-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p className="text-sm text-gray-400 text-center">原始 PDF 存储在移动设备上<br />无法在网页端显示</p>
+                    </div>
                   )}
                 </div>
-                <iframe
-                  src={`${pdfUrl}#toolbar=0`}
-                  className="flex-1 w-full border-none"
-                  title="PDF Original"
-                />
-              </div>
-              
-              <div className="w-1/2 h-full flex flex-col bg-white">
+              )}
+
+              <div className={`${(pdfUrl || localPdfUri) ? 'w-1/2' : 'w-full'} h-full flex flex-col bg-white`}>
                 <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.markdown')}</div>
                 <div className="flex-1 overflow-y-auto p-8 markdown-body prose prose-sm max-w-none select-text">
                   <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={isNativePlatform ? rehypePluginsNative : rehypePluginsWeb}>

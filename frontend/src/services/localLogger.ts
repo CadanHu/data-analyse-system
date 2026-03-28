@@ -47,11 +47,16 @@ export function initLocalLogger() {
   _initialized = true
 
   const _log = console.log.bind(console)
+  const _info = console.info.bind(console)
   const _warn = console.warn.bind(console)
   const _error = console.error.bind(console)
 
   console.log = (...args: unknown[]) => {
     _log(...args)
+    appendLog({ ts: Date.now(), level: 'log', msg: formatArgs(args) })
+  }
+  console.info = (...args: unknown[]) => {
+    _info(...args)
     appendLog({ ts: Date.now(), level: 'log', msg: formatArgs(args) })
   }
   console.warn = (...args: unknown[]) => {

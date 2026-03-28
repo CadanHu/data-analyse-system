@@ -69,12 +69,20 @@ async def switch_database(request: SwitchDatabaseRequest, current_user: dict = D
     db_key = request.database_key
     session_id = request.session_id
     
+    # 特殊值：用户明确选择不使用数据库
+    if db_key == '__no_db__':
+        if session_id:
+            from database.session_db import session_db
+            user_id = current_user["id"]
+            await session_db.update_session_database(session_id, user_id, '__no_db__')
+        return {"message": "No database selected", "database": {"key": "__no_db__", "name": "无数据库"}}
+
     if db_key not in DATABASES:
         raise HTTPException(status_code=400, detail=f"Database {db_key} not found (数据库 {db_key} 不存在)")
-    
+
     # 1. 更新全局 SchemaService (即时生效)
     SchemaService.set_database(db_key)
-    
+
     # 2. 如果提供了会话 ID，持久化到数据库 (后续请求生效)
     if session_id:
         from database.session_db import session_db
@@ -83,7 +91,7 @@ async def switch_database(request: SwitchDatabaseRequest, current_user: dict = D
         success = await session_db.update_session_database(session_id, user_id, db_key)
         if not success:
             print(f"⚠️ [Database] 更新会话数据库失败 / Failed to update session DB")
-    
+
     return {
         "message": f"Switched to (已切换到) {DATABASES[db_key]['name']}",
         "database": {

@@ -1,5 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from 'react'
-import { translations, getStoredLanguage } from '../i18n/translations'
+import { translations, getStoredLanguage, type TranslationKey } from '../i18n/translations'
 
 interface Props {
   children: ReactNode
@@ -32,7 +32,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       }
 
       const lang = getStoredLanguage()
-      const t = (key: string) => translations[lang][key] || key
+      const t = (key: TranslationKey) => translations[lang][key] || key
 
       return (
         <div className="flex items-center justify-center min-h-[400px] p-4">

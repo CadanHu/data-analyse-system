@@ -45,4 +45,6 @@ export interface ChatState {
   setCurrentSql: (sql: string) => void
   setThinkingMode: (enabled: boolean) => void
   clearMessages: () => void
+  // 从历史消息同步分析结果到右侧面板（chatStore 已实现，此处补全声明）
+  setCurrentAnalysis: (sql: string, result: SQLResult | null, chartType?: string, chartOption?: ChartOption | null) => void
 }

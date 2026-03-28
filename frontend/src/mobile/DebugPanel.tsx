@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { getMobileBaseURL } from './api'
 import axios from 'axios'

@@ -47,11 +47,13 @@ async def sync_pull(
     sessions = await session_db.get_sessions_since(user_id, since_dt)
     messages = await session_db.get_messages_since(user_id, since_dt)
     api_keys = await session_db.get_api_keys_since(user_id, since_dt)
+    knowledge_chunks = await session_db.get_knowledge_chunks_since(user_id, since_dt)
 
     return {
         "sessions": sessions,
         "messages": messages,
         "api_keys": api_keys,
+        "knowledge_chunks": knowledge_chunks,
         "server_time": datetime.utcnow().isoformat(),
     }
 
@@ -102,13 +104,26 @@ class ApiKeyPushItem(BaseModel):
     updated_at: Optional[str] = None
 
 
+class KnowledgeChunkPushItem(BaseModel):
+    id: str
+    user_id: int
+    session_id: Optional[str] = None
+    doc_name: str
+    chunk_index: Optional[int] = 0
+    content: str
+    metadata: Optional[str] = None  # JSON string
+    created_at: Optional[str] = None
+
+
 class PushPayload(BaseModel):
     sessions: List[SessionPushItem] = []
     messages: List[MessagePushItem] = []
     api_keys: List[ApiKeyPushItem] = []
+    knowledge_chunks: List[KnowledgeChunkPushItem] = []
     deleted_sessions: List[str] = []
     deleted_messages: List[str] = []
     deleted_api_keys: List[str] = []
+    deleted_knowledge_chunks: List[str] = []
 
 
 @router.post("/push")
@@ -147,10 +162,21 @@ async def sync_push(
             errors.append(f"session {s.id}: {e}")
 
     # --- Upsert messages ---
+    # 批量预查 session，避免每条消息单独查一次 DB（N 次串行查询）
+    unique_session_ids = list({m.session_id for m in payload.messages})
+    session_cache: dict = {}
+    for sid in unique_session_ids:
+        try:
+            sess = await session_db.get_session_by_id(sid)
+            if sess:
+                session_cache[sid] = sess
+        except Exception:
+            pass
+
     for m in payload.messages:
         # Verify the session belongs to current_user
         try:
-            sess = await session_db.get_session_by_id(m.session_id)
+            sess = session_cache.get(m.session_id)
             if not sess:
                 errors.append(f"message {m.id}: session not found")
                 continue
@@ -218,6 +244,31 @@ async def sync_push(
             await session_db.delete_api_key_by_id(kid, user_id)
         except Exception as e:
             errors.append(f"delete api_key {kid}: {e}")
+
+    # --- Upsert knowledge chunks ---
+    for c in payload.knowledge_chunks:
+        if c.user_id != user_id:
+            errors.append(f"knowledge_chunk {c.id}: user_id mismatch")
+            continue
+        try:
+            await session_db.upsert_knowledge_chunk({
+                "id": c.id,
+                "user_id": c.user_id,
+                "session_id": c.session_id,
+                "doc_name": c.doc_name,
+                "chunk_index": c.chunk_index,
+                "content": c.content,
+                "metadata": c.metadata,
+            })
+        except Exception as e:
+            errors.append(f"knowledge_chunk {c.id}: {e}")
+
+    # --- Delete knowledge chunks ---
+    for cid in payload.deleted_knowledge_chunks:
+        try:
+            await session_db.delete_knowledge_chunk(cid, user_id)
+        except Exception as e:
+            errors.append(f"delete knowledge_chunk {cid}: {e}")
 
     return {
         "ok": True,

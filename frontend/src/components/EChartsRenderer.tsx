@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 
@@ -12,10 +12,10 @@ interface EChartsRendererProps {
 function sanitizeOption(option: EChartsOption): EChartsOption {
   let result = option
 
-  // Fix visualMap
+  // Fix visualMap — only remove entries with an explicitly invalid type
   if (result.visualMap) {
     const maps = Array.isArray(result.visualMap) ? result.visualMap : [result.visualMap]
-    const valid = maps.filter((vm: any) => vm.type === 'continuous' || vm.type === 'piecewise')
+    const valid = maps.filter((vm: any) => !vm.type || vm.type === 'continuous' || vm.type === 'piecewise')
     if (valid.length !== maps.length) {
       result = { ...result, visualMap: valid.length === 1 ? valid[0] : valid.length === 0 ? undefined : valid }
     }
@@ -102,17 +102,39 @@ function sanitizeOption(option: EChartsOption): EChartsOption {
 export default function EChartsRenderer({ option, style, onChartReady }: EChartsRendererProps) {
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
+  const [isVisible, setIsVisible] = useState(false)
 
+  // 懒初始化：只在图表容器进入视口后才执行 echarts.init()
+  // 避免会话加载时大量图表同时初始化阻塞主线程，导致滚动白屏
   useEffect(() => {
     if (!chartRef.current) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '150px' } // 提前 150px 预初始化，滚动到时已就绪
+    )
+    observer.observe(chartRef.current)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!isVisible || !chartRef.current) return
 
     chartInstanceRef.current = echarts.init(chartRef.current)
     onChartReady?.(chartInstanceRef.current)
 
+    if (option) {
+      chartInstanceRef.current.setOption(sanitizeOption(option), true)
+    }
+
     const handleResize = () => {
       chartInstanceRef.current?.resize()
     }
-    
+
     // 使用 ResizeObserver 监听容器大小变化
     const resizeObserver = new ResizeObserver(() => {
       handleResize()
@@ -127,12 +149,11 @@ export default function EChartsRenderer({ option, style, onChartReady }: ECharts
       chartInstanceRef.current?.dispose()
       chartInstanceRef.current = null
     }
-  }, [])
+  }, [isVisible])
 
   useEffect(() => {
     if (chartInstanceRef.current && option) {
-      const safeOption = sanitizeOption(option)
-      chartInstanceRef.current.setOption(safeOption, true)
+      chartInstanceRef.current.setOption(sanitizeOption(option), true)
     }
   }, [option])
 

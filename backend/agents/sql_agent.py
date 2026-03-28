@@ -159,9 +159,13 @@ class SQLAgent:
         """利用 AI 将用户问题重写为更精准的检索词 (解决追问场景)"""
         if not history or len(question) > 30:
             return question # 如果问题足够长或没历史，直接返回
-            
+
+        from agents.context_budget import ContextBudget
+        budget = ContextBudget(provider=provider or DEFAULT_PROVIDER, model_name=model_name or "")
+        safe_history = budget.fit_rewrite_history(history)
+
         prompt_tmpl = get_prompt("RAG_REWRITE", language)
-        prompt = prompt_tmpl.format(history=history[-500:], question=question)
+        prompt = prompt_tmpl.format(history=safe_history, question=question)
         
         try:
             # 使用同步 chat 接口快速获取结果
@@ -170,9 +174,11 @@ class SQLAgent:
         except:
             return question
 
-    async def _classify_intent(self, question: str, provider: str = None, model_name: str = None, language: str = "zh") -> str:
+    async def _classify_intent(self, question: str, provider: str = None, model_name: str = None, language: str = "zh", knowledge_context: str = "") -> str:
         prompt_tmpl = get_prompt("INTENT_CLASSIFICATION", language)
-        prompt = prompt_tmpl.format(question=question)
+        # 截取 RAG 摘要前 600 字，避免 token 浪费
+        snippet = knowledge_context[:600].strip() if knowledge_context else ""
+        prompt = prompt_tmpl.format(question=question, knowledge_context_snippet=snippet)
         system_msg = "你是一个智能助手，负责根据用户问题判断其意图。" if language == "zh" else "You are an AI assistant classified user intent."
         messages = [
             {"role": "system", "content": system_msg},
@@ -234,16 +240,17 @@ class SQLAgent:
         self,
         question: str,
         history: str = "",
-        knowledge_context: str = "", # 🚀 新增：知识库检索内容
+        knowledge_context: str = "",
         enable_thinking: bool = False,
         database_name: str = "未知",
         database_type: str = "未知",
         tables: str = "未知",
         provider: str = None,
         model_name: str = None,
-        language: str = "zh"
+        language: str = "zh",
+        prompt_template: str = "CHAT_RESPONSE",  # 由 ContextProfile 决定
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        prompt_tmpl = get_prompt("CHAT_RESPONSE", language)
+        prompt_tmpl = get_prompt(prompt_template, language)
         prompt = prompt_tmpl.format(
             history=history,
             question=question,
@@ -484,13 +491,21 @@ class SQLAgent:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """增强的处理逻辑：集成 SQL 引擎与 RAG 知识库"""
         from config import DATABASES
-        
+        from agents.context_router import get_context_profile
+
         # 统一 provider
         provider = provider or DEFAULT_PROVIDER
-        
-        schema = await SchemaService.get_full_schema(include_sample=True)
-        tables = await SchemaService.get_table_names()
-        db_version = await SchemaService.get_db_version()
+
+        # 意图预判（零延迟规则）→ 决定是否加载 DB schema
+        ctx_profile = get_context_profile(question, force_chat=force_chat)
+        print(f"🧭 [ContextRouter] intent_hint={ctx_profile.intent_hint}, needs_schema={ctx_profile.needs_schema}")
+
+        if ctx_profile.needs_schema:
+            schema = await SchemaService.get_full_schema(include_sample=True)
+            tables = await SchemaService.get_table_names()
+            db_version = await SchemaService.get_db_version()
+        else:
+            schema, tables, db_version = "", [], ""
         
         current_db_key = SchemaService.get_current_db_key()
         database_name = "业务数据库"
@@ -520,22 +535,29 @@ class SQLAgent:
         if force_chat:
             intent = "chat"
         else:
-            intent = await self._classify_intent(question, provider=provider, model_name=model_name, language=language)
+            intent = await self._classify_intent(question, provider=provider, model_name=model_name, language=language, knowledge_context=knowledge_context)
+
+        print(f"🎯 [Intent] 分类结果: {intent} | RAG长度: {len(knowledge_context)}")
+
+        # ── rag_sufficient：RAG 已有答案，直接回答，跳过一切 SQL 流程 ──────────
+        if intent == "rag_sufficient":
+            intent = "chat"  # 复用 chat 路径，RAG 内容已注入 knowledge_context
 
         if intent == "chat":
             full_summary_reasoning = ""
             summary_content = ""
             async for stream_event in self._generate_chat_response_stream(
-                question, 
-                history_str, 
-                knowledge_context=knowledge_context, # 🚀 传递 RAG 内容
-                enable_thinking=enable_thinking, 
-                database_name=database_name, 
-                database_type=db_type, 
+                question,
+                history_str,
+                knowledge_context=knowledge_context,
+                enable_thinking=enable_thinking,
+                database_name=database_name,
+                database_type=db_type,
                 tables=", ".join(tables),
                 provider=provider,
                 model_name=model_name,
-                language=language
+                language=language,
+                prompt_template=ctx_profile.prompt_template,
             ):
                 if stream_event["type"] == "reasoning":
                     full_summary_reasoning += stream_event["content"]
@@ -549,12 +571,22 @@ class SQLAgent:
         # HITL 逻辑：分支 1 - 生成方案
         is_executing_after_plan = (intent == "confirmation")
         if intent == "sql_query" and not is_executing_after_plan:
+            # ── 如果本次已有 RAG 检索结果但不足以直接回答，先告知用户 ──────────
+            if knowledge_context:
+                msg_zh = "知识库中未能找到完整答案，是否允许我从数据库中查询？"
+                msg_en = "The knowledge base does not contain a complete answer. Would you like me to query the database instead?"
+                confirm_msg = msg_zh if language == "zh" else msg_en
+                yield {"event": "db_confirmation_needed", "data": {"message": confirm_msg}}
+                yield {"event": "summary", "data": {"content": confirm_msg}}
+                yield {"event": "done", "data": {"summary": confirm_msg, "db_confirmation_needed": True}}
+                return
+
             plan_prompt_tmpl = get_prompt("PLAN_GENERATION", language)
             plan_prompt = plan_prompt_tmpl.format(
-                database_name=database_name, 
-                database_type=db_type, 
-                schema=schema, 
-                history=history_str, 
+                database_name=database_name,
+                database_type=db_type,
+                schema=schema,
+                history=history_str,
                 question=question,
                 knowledge_context=knowledge_context
             )

@@ -7,11 +7,13 @@
  */
 
 import { useEffect, useRef } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { useSyncStore } from '../stores/syncStore'
 import { useAuthStore } from '../stores/authStore'
 import { ping, fullSync } from '../services/syncService'
 import { initLocalStore } from '../services/localStore'
 import { cacheECharts } from '../services/fileCache'
+import { autoDiscoverBackendIP } from '../mobile/api'
 
 const PING_INTERVAL_MS = 60_000
 const DEBOUNCE_PUSH_MS = 300
@@ -37,7 +39,14 @@ export function useSyncManager() {
   useEffect(() => {
     const doPing = async () => {
       setConnectionStatus('checking')
-      const online = await ping()
+      let online = await ping()
+      // 原生端 ping 失败时自动扫描局域网
+      if (!online && Capacitor.isNativePlatform()) {
+        console.log('[SyncManager] ping 失败，尝试自动发现后端 IP...')
+        const found = await autoDiscoverBackendIP()
+        if (found) online = await ping()
+      }
+      console.log(`[SyncManager] ping → ${online ? '✅ online' : '❌ offline'}`)
       setConnectionStatus(online ? 'online' : 'offline')
     }
 
@@ -52,7 +61,9 @@ export function useSyncManager() {
 
   // When coming back online → full sync + cache ECharts for offline use
   useEffect(() => {
+    console.log(`[SyncManager] status=${connectionStatus} auth=${isAuthenticated} uid=${localUserId} prevOnline=${prevOnlineRef.current}`)
     if (connectionStatus === 'online' && !prevOnlineRef.current && isAuthenticated && localUserId >= 0) {
+      console.log('[SyncManager] → triggering fullSync()')
       fullSync()
       cacheECharts() // no-op if already cached
     }

@@ -5,7 +5,7 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
 import { useAuthStore } from '../stores/authStore'
 import { useSyncStore } from '../stores/syncStore'
-import { databaseApi } from '../api'
+import { databaseApi, sessionApi } from '../api'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
 import { getAllBizSyncMeta } from '../services/db'
@@ -64,8 +64,8 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       console.log(`🎯 [Session] 会话切换，同步数据库为: ${sessionDbKey}`)
       setCurrentDb(sessionDbKey)
       setShowDbSelector(false) // 已知数据库，关闭选择器
-      // 🚀 核心修复：会话切换时，必须强制后端同步切换到该会话绑定的库
-      if (!isOffline) switchDatabase(sessionDbKey, false)
+      // __no_db__ 不需要调后端切库
+      if (!isOffline && sessionDbKey !== '__no_db__') switchDatabase(sessionDbKey, false)
     } else {
       // 🚀 优化：新建对话默认不选择数据库，强制用户手动触发
       setCurrentDb(null)
@@ -86,10 +86,17 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
   }
 
   const switchDatabase = async (dbKey: string, shouldUpdateSession: boolean = true) => {
-    // 用户明确选择不使用数据库
+    // 用户明确选择不使用数据库，持久化到 session
     if (dbKey === '__no_db__') {
       setCurrentDb('__no_db__')
       setShowDbSelector(false)
+      if (shouldUpdateSession && selectedSessionId) {
+        updateSession(selectedSessionId, { database_key: '__no_db__' })
+        localUpdateSession(selectedSessionId, { database_key: '__no_db__' }).catch(() => {})
+        if (!isOffline) {
+          databaseApi.switchDatabase('__no_db__', selectedSessionId).catch(() => {})
+        }
+      }
       return
     }
     if (isOffline) {
@@ -120,28 +127,52 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
 
   const handleEditMessage = (content: string, parentId?: string) => {
     if (!selectedSessionId || isLoading) return
-    
-    // 如果是编辑消息，我们准备开启新分支
+
+    // 截断至父消息，确保新分支消息插入正确位置
     if (parentId) {
       const parentIndex = messages.findIndex(m => m.id === parentId)
       if (parentIndex !== -1) {
         setMessages(messages.slice(0, parentIndex + 1))
       }
     } else {
-      // 编辑第一条消息
       setMessages([])
     }
 
-    // 发起带 parent_id 的新分支请求
+    const sessionId = selectedSessionId
+
+    // 发起带 parent_id 的新分支请求（继承当前会话的模式标志）
     connect(
-      selectedSessionId,
+      sessionId,
       content,
-      { parent_id: parentId },
-      { 
+      {
+        parent_id: parentId,
+        enable_rag: currentSession?.enable_rag ?? false,
+        enable_data_science_agent: currentSession?.enable_data_science_agent ?? false,
+        enable_thinking: currentSession?.enable_thinking ?? false,
+        model_provider: currentSession?.model_provider ?? undefined,
+        model_name: currentSession?.model_name ?? undefined,
+      },
+      {
         onMessageSent,
         onError: (err) => {
           console.error('SSE Error:', err)
           alert('分析失败: ' + err)
+        },
+        // 流结束后从后端重新加载当前活跃分支，确保 1/2 ↔ 2/2 导航正确显示
+        onDone: async () => {
+          try {
+            const updated = await sessionApi.getMessages(sessionId)
+            if (Array.isArray(updated)) {
+              setMessages(updated.map(msg => {
+                if (typeof msg.data === 'string' && msg.data) {
+                  try { return { ...msg, data: JSON.parse(msg.data) } } catch { return msg }
+                }
+                return msg
+              }))
+            }
+          } catch (e) {
+            console.error('[EditReload] 重载分支失败:', e)
+          }
         }
       }
     )
@@ -183,7 +214,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
               {showDbSelector && Array.isArray(databases) && (
                 <div className="absolute right-0 top-full mt-2 bg-white/90 backdrop-blur-md rounded-xl border border-white/40 shadow-[0_8px_32px_rgba(0,0,0,0.12)] z-50 min-w-[160px]">
                   <button
-                    onClick={() => switchDatabase('__no_db__', false)}
+                    onClick={() => switchDatabase('__no_db__', true)}
                     className={`w-full text-left px-4 py-2 text-sm transition-all rounded-t-xl hover:bg-gray-100/60 border-b border-gray-100 ${
                       currentDb === '__no_db__' ? 'bg-gray-100 text-gray-500 font-medium' : 'text-gray-400'
                     }`}

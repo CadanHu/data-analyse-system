@@ -145,6 +145,8 @@ const PROVIDER_CONFIGS: Record<string, (apiKey: LocalApiKey) => ProviderConfig> 
 export async function streamDirectAi(opts: DirectAiOptions): Promise<void> {
   const configFactory = PROVIDER_CONFIGS[opts.provider]
   if (!configFactory) {
+    const msg = `❌ [DirectAI] 不支持的provider: ${opts.provider}，可用: ${Object.keys(PROVIDER_CONFIGS).join(', ')}`
+    console.error(msg)
     opts.onError?.(`Unsupported provider: ${opts.provider}`)
     return
   }
@@ -159,6 +161,10 @@ export async function streamDirectAi(opts: DirectAiOptions): Promise<void> {
   const useNonStream = Capacitor.isNativePlatform() && opts.provider !== 'gemini' && opts.provider !== 'claude'
   const bodyToSend = useNonStream ? { ...(body as object), stream: false } : body
 
+  const platform = Capacitor.getPlatform()
+  console.log(`🤖 [DirectAI] 开始调用 | provider=${opts.provider} model=${opts.model} platform=${platform} stream=${!useNonStream}`)
+  console.log(`🌐 [DirectAI] 请求URL: ${url}`)
+
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -169,16 +175,24 @@ export async function streamDirectAi(opts: DirectAiOptions): Promise<void> {
 
     if (!response.ok) {
       const errText = await response.text()
+      console.error(`❌ [DirectAI] HTTP错误 ${response.status} | provider=${opts.provider} | ${errText.slice(0, 200)}`)
       opts.onError?.(`HTTP ${response.status}: ${errText}`)
       return
     }
+
+    console.log(`✅ [DirectAI] HTTP响应OK ${response.status} | provider=${opts.provider}`)
 
     // iOS native: Gemini uses non-streaming generateContent endpoint
     // Parse the single JSON response directly instead of streaming
     if (opts.provider === 'gemini' && Capacitor.isNativePlatform()) {
       const json = await response.json()
       const text = json.candidates?.[0]?.content?.parts?.[0]?.text
-      if (text) opts.onSummary?.(text)
+      if (text) {
+        console.log(`✅ [DirectAI] Gemini非流式响应 | 长度=${text.length}`)
+        opts.onSummary?.(text)
+      } else {
+        console.warn(`⚠️ [DirectAI] Gemini响应无文本内容:`, JSON.stringify(json).slice(0, 200))
+      }
       opts.onDone?.()
       return
     }
@@ -187,19 +201,27 @@ export async function streamDirectAi(opts: DirectAiOptions): Promise<void> {
     if (useNonStream) {
       const json = await response.json()
       const text = json.choices?.[0]?.message?.content
-      if (text) opts.onSummary?.(text)
+      if (text) {
+        console.log(`✅ [DirectAI] 非流式响应 | provider=${opts.provider} 长度=${text.length}`)
+        opts.onSummary?.(text)
+      } else {
+        console.warn(`⚠️ [DirectAI] 非流式响应无文本:`, JSON.stringify(json).slice(0, 200))
+      }
       opts.onDone?.()
       return
     }
 
     const reader = response.body?.getReader()
     if (!reader) {
+      console.error(`❌ [DirectAI] 无法获取流reader | provider=${opts.provider}`)
       opts.onError?.('No stream reader')
       return
     }
 
+    console.log(`📡 [DirectAI] 开始读取流 | provider=${opts.provider}`)
     const decoder = new TextDecoder()
     let buffer = ''
+    let chunkCount = 0
 
     while (true) {
       const { done, value } = await reader.read()
@@ -212,21 +234,26 @@ export async function streamDirectAi(opts: DirectAiOptions): Promise<void> {
       for (const line of lines) {
         const trimmed = line.trim()
         if (!trimmed) continue
+        chunkCount++
         config.parseChunk(
           trimmed,
           opts.onModelThinking ?? (() => {}),
           opts.onSummary ?? (() => {})
         )
         if (config.isDone(trimmed)) {
+          console.log(`✅ [DirectAI] 流结束 | provider=${opts.provider} chunks=${chunkCount}`)
           opts.onDone?.()
           return
         }
       }
     }
 
+    console.log(`✅ [DirectAI] 流读取完毕 | provider=${opts.provider} chunks=${chunkCount}`)
     opts.onDone?.()
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') return
-    opts.onError?.(e instanceof Error ? e.message : 'Direct AI error')
+    const errMsg = e instanceof Error ? e.message : 'Direct AI error'
+    console.error(`❌ [DirectAI] 异常 | provider=${opts.provider} model=${opts.model} | ${errMsg}`)
+    opts.onError?.(errMsg)
   }
 }

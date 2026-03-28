@@ -83,23 +83,30 @@ SQL_GENERATION_PROMPT_ZH = """你是一个专业的数据分析助手，可以�
 INTENT_CLASSIFICATION_PROMPT_ZH = """你是一个智能助手，负责根据用户问题判断其意图。
 
 【核心背景】
-如果之前的对话中你提出了一个"分析方案"或"分析思路"，而用户现在的回答是非常简短的肯定词（如"可以"、"好的"、"行"、"OK"、"执行"、"开始吧"、"去做吧"、"按这个来"），那么用户的意图**必须**判定为 `confirmation`。
+如果之前的对话中你提出了一个"分析方案"或"分析思路"，而用户现在的回答是非常简短的肯定词或继续指令（如"可以"、"好的"、"行"、"OK"、"执行"、"开始吧"、"去做吧"、"按这个来"、"继续"、"继续执行"、"就这样"、"开始"、"按方案来"、"没问题"、"yes"、"yeah"、"sure"、"go ahead"、"proceed"），那么用户的意图**必须**判定为 `confirmation`。
+
+【知识库摘要（检索结果）】
+{knowledge_context_snippet}
+
+【最高优先规则 — rag_sufficient（直接回答，无需查数据库）】
+如果【知识库摘要】不为空，且其中已包含用户问题所需的具体数据（数值、表格内容、文字结论），可以直接作答，**无需**查询数据库，则返回 `rag_sufficient`。
 
 【关键判断规则】
-以下问题必须判断为 `chat`，不得判断为 `sql_query`：
+以下问题必须判断为 `chat`（或 `rag_sufficient`），不得判断为 `sql_query`：
 1. 关于已上传文档/解析结果的问题：如"图中显示什么"、"文件里提到了什么"、"解析到的图表是什么内容"、"刚刚的文档里..."、"这篇论文..."等。
 2. 关于图片内容、PDF页面内容、知识库文档内容的提问。
 3. 询问概念解释、方法论、通用知识的问题。
 4. 与业务数据库无直接关联的分析请求（如对已上传数据文件的解读）。
 
-只有明确需要查询关系型数据库中的业务数据（如销售额、订单量、客户数据等结构化记录）时，才判断为 `sql_query`。
+只有在【知识库摘要】为空或不足以回答、且问题明确需要查询关系型数据库中的业务数据（如销售额、订单量、客户数据等结构化记录）时，才判断为 `sql_query`。
 
 【输出要求】
 必须返回合法的 JSON 格式，不要包含任何其他文字。
-请从以下三个类别中选择一个作为 `intent`：
-- `sql_query`：用户的问题明确涉及对结构化数据库（MySQL/PostgreSQL）中业务数据的查询需求。
-- `confirmation`：用户对你之前提出的分析方案表示认可、授权或要求执行。
-- `chat`：关于文档/知识库内容的问题、通用闲聊、概念解释，或无法归类为上述两类的问题。
+请从以下四个类别中选择一个作为 `intent`：
+- `rag_sufficient`：知识库摘要已包含足够信息，可直接回答，无需查数据库。
+- `sql_query`：知识库无相关内容，且问题明确需要查询结构化数据库。
+- `confirmation`：用户对之前提出的分析方案表示认可、授权或要求执行。
+- `chat`：关于文档/知识库内容的问题、通用闲聊、概念解释，或无法归类为上述三类的问题。
 
 用户问题：{question}
 输出：
@@ -145,11 +152,12 @@ CHAT_RESPONSE_PROMPT_ZH = """你是一个智能数据分析助手的AI模型。
 
 【输出要求】
 以自然语言回答用户的问题。
-1. **核心指令**：如果【参考知识库内容 (RAG)】中有内容，请务必仔细阅读。如果其中包含用户需要的答案（如图片解析出的文本、表格等），请优先基于这些内容进行回答。
+1. **核心指令**：如果【参考知识库内容 (RAG)】中有内容，请务必仔细阅读全部内容（包括 `[上文衔接]` 和 `[正文]` 两个部分）。如果其中包含 HTML 表格（`<table>`、`<tr>`、`<td>` 标签），请解析表格中所有行和列的数据，不要遗漏任何行。如果其中包含用户需要的答案（如图片解析出的文本、表格等），请优先基于这些内容进行回答，列出所有相关数据。
 2. 如果用户询问关于当前数据库、表结构或你能做什么，请如实回答。
 3. 如果问题是通用的闲聊或关于你自己的，请礼貌回答。
 4. 不要生成任何 SQL 语句。
 5. 不要提及自己是 AI 模型或受限。
+6. **直接输出答案**：不要描述"分析思路"、"分析方案"或"信息提取步骤"，不要寻求用户确认。如知识库中有答案，直接给出结论和数据。
 
 用户问题：{question}
 """
@@ -287,16 +295,26 @@ Question: {question}
 
 INTENT_CLASSIFICATION_PROMPT_EN = """Classify user intent. Return JSON only.
 
-Key rules — these MUST be classified as `chat`:
+[Knowledge Base Snippet (RAG retrieval result)]
+{knowledge_context_snippet}
+
+TOP PRIORITY RULE — rag_sufficient:
+If the knowledge base snippet above is non-empty and already contains the specific data (numbers, tables, conclusions) needed to answer the user's question directly — without querying the database — return `rag_sufficient`.
+
+Key rule — classify as `confirmation` when:
+The user replies with a short affirmative or continuation phrase after a proposed analysis plan, such as: "ok", "okay", "yes", "sure", "go ahead", "proceed", "continue", "do it", "start", "sounds good", "no problem", "go for it".
+
+Key rules — these MUST be classified as `chat` (or `rag_sufficient`):
 1. Questions about uploaded documents, parsed PDF pages, or knowledge base content (e.g. "what does the chart show", "what did the document say", "what's in the file").
 2. Questions about image content, conceptual explanations, or general knowledge.
 3. Any question NOT requiring a SQL query against a relational database.
 
-Only classify as `sql_query` when the user explicitly needs business data from a structured database (e.g. sales figures, order counts, customer records).
+Only classify as `sql_query` when the knowledge base snippet is empty or insufficient AND the user explicitly needs business data from a structured database (e.g. sales figures, order counts, customer records).
 
 Intent options:
-- `sql_query`: Explicit query against structured business database.
-- `confirmation`: User confirms a previously proposed analysis plan.
+- `rag_sufficient`: Knowledge base already contains sufficient data to answer directly.
+- `sql_query`: Knowledge base has no relevant content; explicit database query needed.
+- `confirmation`: User confirms or continues a previously proposed analysis plan.
 - `chat`: Document/knowledge questions, general conversation, or anything else.
 
 User: {question}
@@ -373,11 +391,65 @@ PROMPTS = {
     }
 }
 
-RAG_REWRITE_PROMPT_ZH = """请将用户问题重写为 RAG 检索词。"""
-RAG_REWRITE_PROMPT_EN = """Rewrite user question for RAG."""
+RAG_REWRITE_PROMPT_ZH = """你是一个检索词优化专家。根据对话历史和当前问题，将用户问题改写为适合向量检索的关键词组合。只输出改写后的检索词，不要解释。
+
+【对话历史】
+{history}
+
+【当前问题】
+{question}
+
+【检索词】"""
+RAG_REWRITE_PROMPT_EN = """You are a search query optimizer. Based on the conversation history and current question, rewrite the user's question into keywords suitable for vector retrieval. Output only the rewritten query, no explanation.
+
+[Conversation History]
+{history}
+
+[Current Question]
+{question}
+
+[Search Query]"""
 
 PROMPTS["zh"]["RAG_REWRITE"] = RAG_REWRITE_PROMPT_ZH
 PROMPTS["en"]["RAG_REWRITE"] = RAG_REWRITE_PROMPT_EN
+
+# ─── 轻量闲聊模板（chitchat 场景：不注入 DB schema，节省 token）────────────────
+CHAT_SIMPLE_RESPONSE_PROMPT_ZH = """你是一个智能数据分析助手。
+
+【对话历史】
+{history}
+
+【参考知识库内容 (RAG)】
+{knowledge_context}
+
+【输出要求】
+以自然语言回答用户的问题。
+1. 若【参考知识库内容 (RAG)】中包含相关内容，请优先基于这些内容回答。
+2. 若是问候或闲聊，礼貌回应即可。
+3. 不要生成任何 SQL 语句。
+
+用户问题：{question}
+"""
+
+CHAT_SIMPLE_RESPONSE_PROMPT_EN = """You are an intelligent data analysis assistant.
+
+[Conversation History]
+{history}
+
+[Reference Knowledge Base (RAG)]
+{knowledge_context}
+
+[Requirements]
+Answer the user's question in natural language.
+1. If the RAG content contains relevant information, prioritize it in your answer.
+2. For greetings or casual chat, respond politely.
+3. Do not generate any SQL statements.
+
+User question: {question}
+"""
+
+PROMPTS["zh"]["CHAT_SIMPLE_RESPONSE"] = CHAT_SIMPLE_RESPONSE_PROMPT_ZH
+PROMPTS["en"]["CHAT_SIMPLE_RESPONSE"] = CHAT_SIMPLE_RESPONSE_PROMPT_EN
 
 def get_prompt(name: str, lang: str = "zh") -> str:
     lang = lang.lower() if lang else "zh"

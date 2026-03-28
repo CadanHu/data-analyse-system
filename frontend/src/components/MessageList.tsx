@@ -1,6 +1,5 @@
 import { useEffect, useRef, Component, ReactNode } from 'react'
 import MessageItem from './MessageItem'
-import ThinkingIndicator from './ThinkingIndicator'
 import MessageSkeleton from './MessageSkeleton'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'

@@ -136,3 +136,11 @@ RATE_LIMIT_WINDOW = 60
 LOG_LEVEL = "DEBUG"  # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_FILE = Path(__file__).parent.parent / "logs" / "app.log"  # 日志文件路径
 LOG_JSON_FORMAT = False  # 是否使用 JSON 格式日志
+
+# 图片视觉理解配置
+# ENABLE_IMAGE_VISION: 默认 true，有可用 Key 则自动启用；设为 false 可强制关闭
+# VISION_LLM_PROVIDER: zhipu | qwen | openai | claude | gemini（留空则按用户数据库 Key 自动选择）
+# VISION_LLM_MODEL:    视觉模型名称（留空用各 provider 默认：glm-4.6 / qwen-vl-plus / gpt-4o 等）
+# VISION_LLM_API_KEY:  可选，留空则从用户数据库 Key 读取
+# VISION_LLM_BASE_URL: 可选，OpenAI 兼容接口地址（支持自建中转）
+ENABLE_IMAGE_VISION = os.getenv("ENABLE_IMAGE_VISION", "true").lower() not in ("false", "0", "no")
