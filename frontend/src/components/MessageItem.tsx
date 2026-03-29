@@ -681,22 +681,25 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
         return src ? `\n\n![${alt}](${src})\n\n` : ''
       })
 
-      // 2. 补全 /api/uploads/ 相对路径为绝对后端 URL
+      // 2. 将 /api/uploads/ 相对路径补全为绝对后端 URL（适用于 Markdown 语法 和 HTML src）
       processed = processed
         .replace(/(!\[[^\]]*\]\()(\/api\/uploads\/[^)]+)(\))/g, `$1${baseOrigin}$2$3`)
+        .replace(/(src=["'])(\/api\/uploads\/[^"']+)(["'])/g, `$1${baseOrigin}$2$3`)
 
-      // 3. 重点：处理手机本地 MinerU 产生的相对路径 (images/xxx -> file://...)
+      // 3. 重点：动态修复手机本地 MinerU 图片的绝对/相对路径沙盒失效问题 (images/xxx -> capacitor://...)
       if (parsedData?.is_knowledge_extraction && localPdfUri) {
           const basePrefix = localPdfUri.replace('_original.pdf', '')
-          // 匹配 ![](images/...) 或 ![](./images/...)，且确保括号内开头不是 http/capacitor/file 等
-          // [^:(]+ 排除掉带冒号的完整协议 (like http:, capacitor:)
-          processed = processed.replace(/(!\[[^\]]*\]\()(\.?\/)?(images\/[^)]+)(\))/g, (_, p1, _p2, p3, p4) => {
-              // 检查 p1 后面是否已经是一个完整 URL (简单判断：括号后直接接 images)
-              // 如果 p1 是 "![]("，且 p3 是 "images/xxx"，中间没有协议头
-              let webSrc = basePrefix + '/' + p3
-              // 必须转为 Web 兼容协议 (capacitor://localhost/_capacitor_file_/) 否则 iOS 会因为 file:/// 的跨域限制拦截图片渲染，显示白问号蓝框
-              webSrc = Capacitor.convertFileSrc(webSrc)
-              return `${p1}${webSrc}${p4}`
+          // 灵活捕获所有可能带有本地前缀的路径，例如纯 images/xxx, 带老旧 UUID 的 capacitor://localhost/_capacitor_file_/.../images/xxx 
+          processed = processed.replace(/(!\[[^\]]*\]\()([^)]*?)(images\/[^)]+)(\))/g, (_, p1, pathPrefix, p3, p4) => {
+              // 仅当路径前缀为空、相对路径(./)、或者是明显的本地沙盒地址(capacitor://, file://)时，强制修正为当前会话最新的 basePrefix
+              if (!pathPrefix || pathPrefix === './' || pathPrefix === '/' || pathPrefix.startsWith('capacitor://') || pathPrefix.startsWith('file://')) {
+                  let webSrc = basePrefix + '/' + p3
+                  // 必须转为 Web 兼容协议 (capacitor://localhost/_capacitor_file_/) 否则 iOS 会拦截
+                  webSrc = Capacitor.convertFileSrc(webSrc)
+                  return `${p1}${webSrc}${p4}`
+              }
+              // 如果是 http:// 等外部地址则原样返回不变
+              return `${p1}${pathPrefix}${p3}${p4}`
           })
       }
 
@@ -1343,7 +1346,18 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                         <svg className="w-16 h-16 text-purple-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        {pdfFileUri && !pdfUrl ? (
+                        {pdfUrl ? (
+                          <>
+                            <p className="text-sm text-gray-500 text-center">PDF 文件存储在电脑端</p>
+                            <button
+                              onClick={() => handleOpenPdfNative(pdfUrl)}
+                              disabled={isPdfDownloading}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg active:scale-95 transition-all disabled:opacity-60"
+                            >
+                              {isPdfDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}下载并查看 PDF
+                            </button>
+                          </>
+                        ) : pdfFileUri ? (
                           <>
                             <p className="text-sm text-gray-500 text-center">原始 PDF 已保存在手机本地</p>
                             <button
@@ -1359,18 +1373,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                               用系统应用打开 PDF
                             </button>
                           </>
-                        ) : (
-                          <>
-                            <p className="text-sm text-gray-500 text-center">PDF 文件存储在电脑端</p>
-                            <button
-                              onClick={() => handleOpenPdfNative(pdfUrl!)}
-                              disabled={isPdfDownloading}
-                              className="flex items-center gap-2 px-5 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg active:scale-95 transition-all disabled:opacity-60"
-                            >
-                              {isPdfDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}下载并查看 PDF
-                            </button>
-                          </>
-                        )}
+                        ): null}
                       </div>
                     )
                   ) : pdfUrl ? (
@@ -1384,7 +1387,11 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                       <svg className="w-16 h-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      <p className="text-sm text-gray-400 text-center">无法显示</p>
+                      {_rawLocalPdfUriFromData || parsedData?.doc_name ? (
+                        <p className="text-sm text-gray-500 text-center">PDF 文件存储在手机端</p>
+                      ) : (
+                        <p className="text-sm text-gray-400 text-center">无法显示</p>
+                      )}
                     </div>
                   )}
                 </div>
