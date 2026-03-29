@@ -194,7 +194,9 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [showPreview, setShowPreview] = useState(false)
+  const [previewTab, setPreviewTab] = useState<'pdf' | 'markdown'>('pdf')
   const [isFullTextExpanded, setIsFullTextExpanded] = useState(false)
+  const [pdfZoom, setPdfZoom] = useState(1.0)
   
   const [localFeedback, setLocalFeedback] = useState<number>(message.feedback || 0)
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
@@ -209,7 +211,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   // Native: PDF download progress
   const [isPdfDownloading, setIsPdfDownloading] = useState(false)
 
-  const { setCurrentAnalysis, setActiveTab, isLoading } = useChatStore()
+  const { setCurrentAnalysis, setActiveTab, isLoading, isMobile } = useChatStore()
   const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
   const { token, localUserId } = useAuthStore()
   const { connect } = useSSE()
@@ -441,11 +443,59 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   const pdfServerUrl = parsedData?.file_url ? `${getBaseURL().replace('/api', '')}${parsedData.file_url}` : null
   const pdfUrl = pdfServerUrl ? resolveUrl(pdfServerUrl) : null
   const pdfIsLocal = pdfServerUrl ? isCached(pdfServerUrl) : false
-  // 手机本地处理：原始 PDF 保存在设备上，存储的是 native file:// URI，需转换为 WKWebView 可访问的 http URL
-  const _rawLocalPdfUri: string | null = parsedData?.local_pdf_uri ?? null
-  const localPdfUri: string | null = (_rawLocalPdfUri && isNativePlatform)
-    ? Capacitor.convertFileSrc(_rawLocalPdfUri)
-    : _rawLocalPdfUri
+  const _rawLocalPdfUriFromData: string | null = parsedData?.local_pdf_uri ?? null
+
+  const [resolvedLocalPdfUri, setResolvedLocalPdfUri] = useState<string | null>(null)
+  const [resolvedPdfFileUri, setResolvedPdfFileUri] = useState<string | null>(null)
+  
+  // 🚀 核心修复：自动修复/解析旧消息的本地 PDF 路径
+  useEffect(() => {
+    if (isNativePlatform && isKnowledgeExtraction && !resolvedLocalPdfUri) {
+      const resolve = async () => {
+        try {
+          const rawUri = _rawLocalPdfUriFromData
+          if (rawUri) {
+            const match = rawUri.match(/(parsed(?:_sessions)?\/.*)/)
+            if (match) {
+              try {
+                const { uri } = await Filesystem.getUri({ path: match[1], directory: Directory.Data })
+                setResolvedLocalPdfUri(Capacitor.convertFileSrc(uri))
+                setResolvedPdfFileUri(uri)
+                return
+              } catch (e) {
+                console.warn('[PDF] Extract relative path failed:', match[1])
+              }
+            }
+            const { uri } = await Filesystem.getUri({ path: rawUri, directory: Directory.Data })
+            setResolvedLocalPdfUri(Capacitor.convertFileSrc(uri))
+            setResolvedPdfFileUri(uri)
+          } else if (parsedData?.doc_name) {
+            // 被遗忘的消息：尝试通过 doc_name 重构路径
+            const userId = useAuthStore.getState().localUserId || 1
+            const safeName = parsedData.doc_name.replace(/[^a-zA-Z0-9._-]/g, '_')
+            const path = `parsed/${userId}/${safeName}_original.pdf`
+            try {
+              const { uri } = await Filesystem.getUri({ path, directory: Directory.Data })
+              setResolvedLocalPdfUri(Capacitor.convertFileSrc(uri))
+              setResolvedPdfFileUri(uri)
+            } catch {
+              console.warn('[PDF] 自动修复失败: 本地文件已丢失', path)
+            }
+          }
+        } catch (e) {
+          console.error('[PDF] 解析路径失败:', e)
+        }
+      }
+      resolve()
+    }
+  }, [isNativePlatform, isKnowledgeExtraction, parsedData, resolvedLocalPdfUri, _rawLocalPdfUriFromData])
+
+  const localPdfUri: string | null = resolvedLocalPdfUri || (
+    (_rawLocalPdfUriFromData && isNativePlatform)
+      ? Capacitor.convertFileSrc(_rawLocalPdfUriFromData)
+      : _rawLocalPdfUriFromData
+  )
+  const pdfFileUri = resolvedPdfFileUri || _rawLocalPdfUriFromData
   const plotImageBase64 = parsedData?.plot_image_base64
 
   const displayContent = (isFullTextExpanded && parsedData?.markdown_full) 
@@ -623,6 +673,16 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
       processed = processed
         .replace(/(!\[[^\]]*\]\()(\/api\/uploads\/[^)]+)(\))/g, `$1${baseOrigin}$2$3`)
         .replace(/(src=["'])(\/api\/uploads\/[^"']+)(["'])/g, `$1${baseOrigin}$2$3`)
+
+      // 1.5 重点：处理手机本地 MinerU 产生的相对路径 (images/xxx -> file://...)
+      if (parsedData?.is_knowledge_extraction && localPdfUri) {
+          const basePrefix = localPdfUri.replace('_original.pdf', '')
+          // 匹配 ![](images/...) 或 ![](./images/...)
+          processed = processed.replace(/(!\[[^\]]*\]\()(\.?\/)?(images\/[^)]+)(\))/g, (_, p1, _p2, p3, p4) => {
+              const webSrc = basePrefix + '/' + p3
+              return `${p1}${webSrc}${p4}`
+          })
+      }
 
       // 2. HTML <img> → Markdown 图片语法
       processed = processed.replace(/<img\s[^>]*>/gi, (imgTag) => {
@@ -1186,7 +1246,25 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
-                <h3 className="font-bold text-gray-800 text-lg">{t('preview.sideBySide')}</h3>
+                <h3 className="font-bold text-gray-800 text-lg hidden sm:block">{t('preview.sideBySide')}</h3>
+                
+                {/* 移动端切换标签（仅在移动设备显示） */}
+                {isMobile && (
+                  <div className="flex sm:hidden p-1 bg-gray-200/60 rounded-xl">
+                    <button 
+                      onClick={() => setPreviewTab('pdf')}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${previewTab === 'pdf' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}
+                    >
+                      PDF
+                    </button>
+                    <button 
+                      onClick={() => setPreviewTab('markdown')}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${previewTab === 'markdown' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}
+                    >
+                      Markdown
+                    </button>
+                  </div>
+                )}
               </div>
               <button 
                 onClick={() => setShowPreview(false)}
@@ -1198,52 +1276,75 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </button>
             </div>
             
-            <div className="flex-1 flex overflow-hidden divide-x divide-gray-200">
+            <div className="flex-1 flex flex-col sm:flex-row overflow-hidden divide-y sm:divide-y-0 sm:divide-x divide-gray-200">
               {(pdfUrl || localPdfUri) && (
-                <div className="w-1/2 h-full flex flex-col">
-                  <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-                    {t('preview.original')}
-                    {pdfIsLocal && (
-                      <span className="text-[9px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
-                        📱 本机缓存
-                      </span>
-                    )}
-                    {localPdfUri && !pdfUrl && (
-                      <span className="text-[9px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
-                        📱 本机文件
-                      </span>
+                <div className={`w-full sm:w-1/2 h-full flex flex-col ${previewTab === 'pdf' ? 'flex' : 'hidden sm:flex'}`}>
+                  <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {t('preview.original')}
+                      {pdfIsLocal && <span className="text-[9px] font-normal text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">📱 本机缓存</span>}
+                    </div>
+                    
+                    {/* 放缩 + 全屏控制面板 (仅限移动端) */}
+                    {isMobile && (
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1 bg-white/60 rounded-lg px-2 py-0.5 border border-gray-200">
+                          <button onClick={() => setPdfZoom(z => Math.max(0.5, z - 0.2))} className="p-1 hover:text-purple-600 active:scale-90 transition-all font-bold text-base">-</button>
+                          <span className="text-[10px] min-w-[30px] text-center">{Math.round(pdfZoom * 100)}%</span>
+                          <button onClick={() => setPdfZoom(z => Math.min(3.0, z + 0.2))} className="p-1 hover:text-purple-600 active:scale-90 transition-all font-bold text-base">+</button>
+                          {pdfZoom !== 1.0 && (
+                            <button onClick={() => setPdfZoom(1.0)} className="ml-1 text-[8px] text-gray-400 hover:text-purple-600">Reset</button>
+                          )}
+                        </div>
+
+                        {isNativePlatform && (
+                          <button 
+                            onClick={() => {
+                              if (pdfFileUri) {
+                                Share.share({ url: pdfFileUri, title: parsedData?.doc_name || 'PDF' })
+                              }
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-600 rounded-lg text-xs font-bold active:scale-95 transition-all border border-purple-100"
+                          >
+                            <Maximize2 size={12} /> 系统预览 (支持双指放缩)
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                   {isNativePlatform ? (
-                    // iOS：本地 PDF 直接内联渲染；Android / 无本地文件：用系统阅读器打开
+                    // iOS/Android 本地预览
                     localPdfUri && Capacitor.getPlatform() === 'ios' ? (
-                      <object
-                        data={localPdfUri}
-                        type="application/pdf"
-                        className="flex-1 w-full border-none"
-                      />
+                      <div className="flex-1 w-full overflow-auto bg-gray-200 relative">
+                        <object
+                          data={localPdfUri}
+                          type="application/pdf"
+                          className={`absolute origin-top-left border-none shadow-2xl ${isMobile ? 'transition-transform duration-200' : ''}`}
+                          style={{ 
+                            width: (isMobile && pdfZoom !== 1.0) ? `${100 / pdfZoom}%` : '100%',
+                            height: (isMobile && pdfZoom !== 1.0) ? `${100 / pdfZoom}%` : '100%',
+                            transform: isMobile ? `scale(${pdfZoom})` : 'none',
+                          }}
+                        />
+                      </div>
                     ) : (
                       <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-gray-50 p-6">
                         <svg className="w-16 h-16 text-purple-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        {_rawLocalPdfUri && !pdfUrl ? (
+                        {pdfFileUri && !pdfUrl ? (
                           <>
                             <p className="text-sm text-gray-500 text-center">原始 PDF 已保存在手机本地</p>
                             <button
                               onClick={async () => {
                                 try {
-                                  // Share 需要原始 file:// URI，不能用 convertFileSrc 后的 http URL
-                                  await Share.share({ url: _rawLocalPdfUri, title: parsedData?.doc_name || 'document.pdf' })
+                                  await Share.share({ url: pdfFileUri, title: parsedData?.doc_name || 'document.pdf' })
                                 } catch (e: any) {
                                   if (!String(e).toLowerCase().includes('cancel')) alert('打开失败：' + String(e))
                                 }
                               }}
                               className="flex items-center gap-2 px-5 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg active:scale-95 transition-all"
                             >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                              </svg>
                               用系统应用打开 PDF
                             </button>
                           </>
@@ -1255,11 +1356,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                               disabled={isPdfDownloading}
                               className="flex items-center gap-2 px-5 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg active:scale-95 transition-all disabled:opacity-60"
                             >
-                              {isPdfDownloading ? (
-                                <><Loader2 size={16} className="animate-spin" />下载中...</>
-                              ) : (
-                                <><Download size={16} />下载并查看 PDF</>
-                              )}
+                              {isPdfDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}下载并查看 PDF
                             </button>
                           </>
                         )}
@@ -1272,20 +1369,19 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
                       title="PDF Original"
                     />
                   ) : (
-                    // Web端：消息从手机同步过来，PDF仅存于移动设备，无法内联显示
                     <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-gray-50 p-6">
                       <svg className="w-16 h-16 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
-                      <p className="text-sm text-gray-400 text-center">原始 PDF 存储在移动设备上<br />无法在网页端显示</p>
+                      <p className="text-sm text-gray-400 text-center">无法显示</p>
                     </div>
                   )}
                 </div>
               )}
 
-              <div className={`${(pdfUrl || localPdfUri) ? 'w-1/2' : 'w-full'} h-full flex flex-col bg-white`}>
+              <div className={`${(pdfUrl || localPdfUri) ? 'w-full sm:w-1/2' : 'w-full'} h-full flex flex-col bg-white ${previewTab === 'markdown' ? 'flex' : 'hidden sm:flex'}`}>
                 <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.markdown')}</div>
-                <div className="flex-1 overflow-y-auto p-8 markdown-body prose prose-sm max-w-none select-text">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-8 markdown-body prose prose-sm max-w-none select-text">
                   <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={isNativePlatform ? rehypePluginsNative : rehypePluginsWeb}>
                     {preprocessContent(parsedData?.markdown_full || message.content.split('**解析内容预览:**\n')[1] || message.content)}
                   </ReactMarkdown>

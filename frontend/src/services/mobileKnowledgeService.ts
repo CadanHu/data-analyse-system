@@ -73,7 +73,7 @@ export interface KnowledgeGraph {
 // 完全绕过 Web Worker 创建，pdfjs 通过 workerPort 与"假 Worker"通信。
 //
 // 参考：https://github.com/mozilla/pdf.js/wiki/Frequently-Asked-Questions#faq-workerthread
-;(function setupPdfjsFakeWorker() {
+; (function setupPdfjsFakeWorker() {
   try {
     // initializeFromPort 是 pdfjs worker 的正规入口：
     //   1. 内部创建 MessageHandler("worker", "main", port1)
@@ -109,20 +109,20 @@ interface VisionProviderEntry {
 }
 const VISION_PROVIDER_TABLE: VisionProviderEntry[] = [
   // ── 国内直连（国内优先，无需 VPN）──────────────────────────────────────────────
-  { provider: 'zhipu',     base_url: 'https://open.bigmodel.cn/api/paas/v4',              vision_model: 'glm-4.6v-flash',           call_type: 'openai', request_delay_ms: 500  },
-  { provider: 'zhipu',     base_url: 'https://open.bigmodel.cn/api/paas/v4',              vision_model: 'glm-4.6v',                 call_type: 'openai', request_delay_ms: 500  },
-  { provider: 'qwen',      base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', vision_model: 'qwen3-vl-plus',            call_type: 'openai', request_delay_ms: 1000 },
-  { provider: 'doubao',    base_url: 'https://ark.volcengineapi.com/api/v3',               vision_model: 'doubao-seed-2.0-lite',     call_type: 'openai', request_delay_ms: 500  },
-  { provider: 'hunyuan',   base_url: 'https://api.hunyuan.cloud.tencent.com/v1',           vision_model: 'hunyuan-vision',           call_type: 'openai', request_delay_ms: 500  },
-  { provider: 'baidu',     base_url: 'https://aistudio.baidu.com/llm/lmapi/v3',            vision_model: 'ERNIE-4.5-VL',            call_type: 'openai', request_delay_ms: 500  },
-  { provider: 'kimi',      base_url: 'https://api.moonshot.cn/v1',                         vision_model: 'kimi-k2.5',               call_type: 'openai', request_delay_ms: 1000 },
-  { provider: 'sensenova', base_url: 'https://api.sensenova.cn/v1',                        vision_model: 'SenseNova-V6.5-Turbo',    call_type: 'openai', request_delay_ms: 500  },
+  { provider: 'zhipu', base_url: 'https://open.bigmodel.cn/api/paas/v4', vision_model: 'glm-4.6v-flash', call_type: 'openai', request_delay_ms: 500 },
+  { provider: 'zhipu', base_url: 'https://open.bigmodel.cn/api/paas/v4', vision_model: 'glm-4.6v', call_type: 'openai', request_delay_ms: 500 },
+  { provider: 'qwen', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', vision_model: 'qwen3-vl-plus', call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'doubao', base_url: 'https://ark.volcengineapi.com/api/v3', vision_model: 'doubao-seed-2.0-lite', call_type: 'openai', request_delay_ms: 500 },
+  { provider: 'hunyuan', base_url: 'https://api.hunyuan.cloud.tencent.com/v1', vision_model: 'hunyuan-vision', call_type: 'openai', request_delay_ms: 500 },
+  { provider: 'baidu', base_url: 'https://aistudio.baidu.com/llm/lmapi/v3', vision_model: 'ERNIE-4.5-VL', call_type: 'openai', request_delay_ms: 500 },
+  { provider: 'kimi', base_url: 'https://api.moonshot.cn/v1', vision_model: 'kimi-k2.5', call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'sensenova', base_url: 'https://api.sensenova.cn/v1', vision_model: 'SenseNova-V6.5-Turbo', call_type: 'openai', request_delay_ms: 500 },
   // ── 海外（需 VPN）──────────────────────────────────────────────────────────────
-  { provider: 'openai',    base_url: 'https://api.openai.com/v1',                          vision_model: 'gpt-4o',                  call_type: 'openai', request_delay_ms: 1000 },
-  { provider: 'gemini',    base_url: 'https://generativelanguage.googleapis.com/v1beta',   vision_model: 'gemini-2.0-flash',        call_type: 'gemini', request_delay_ms: 4500 },
-  { provider: 'claude',    base_url: 'https://api.anthropic.com',                          vision_model: 'claude-sonnet-4-6',       call_type: 'claude', request_delay_ms: 1000 },
-  { provider: 'xai',       base_url: 'https://api.x.ai/v1',                                vision_model: 'grok-4.1-fast',           call_type: 'openai', request_delay_ms: 1000 },
-  { provider: 'mistral',   base_url: 'https://api.mistral.ai/v1',                          vision_model: 'pixtral-large-latest',    call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'openai', base_url: 'https://api.openai.com/v1', vision_model: 'gpt-4o', call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'gemini', base_url: 'https://generativelanguage.googleapis.com/v1beta', vision_model: 'gemini-2.0-flash', call_type: 'gemini', request_delay_ms: 4500 },
+  { provider: 'claude', base_url: 'https://api.anthropic.com', vision_model: 'claude-sonnet-4-6', call_type: 'claude', request_delay_ms: 1000 },
+  { provider: 'xai', base_url: 'https://api.x.ai/v1', vision_model: 'grok-4.1-fast', call_type: 'openai', request_delay_ms: 1000 },
+  { provider: 'mistral', base_url: 'https://api.mistral.ai/v1', vision_model: 'pixtral-large-latest', call_type: 'openai', request_delay_ms: 1000 },
 ]
 const MAX_VISION_IMAGES = 20   // 单次最多处理图片数量（避免 API 消耗过多）
 
@@ -423,7 +423,7 @@ async function mineruUploadFile(uploadUrl: string, file: File): Promise<void> {
       const result = await PdfExportBridge.putFile({ url: uploadUrl, fileUri: written.uri })
       console.log('[MinerU] PUT status:', result.status)
     } finally {
-      await Filesystem.deleteFile({ path: tmpName, directory: Directory.Cache }).catch(() => {})
+      await Filesystem.deleteFile({ path: tmpName, directory: Directory.Cache }).catch(() => { })
     }
     return
   }
@@ -520,7 +520,7 @@ async function mineruPollResult(
             const readResult = await Filesystem.readFile({ path: tmpZipName, directory: Directory.Cache })
             b64zip = (readResult.data as string).replace(/\s/g, '')
           } finally {
-            await Filesystem.deleteFile({ path: tmpZipName, directory: Directory.Cache }).catch(() => {})
+            await Filesystem.deleteFile({ path: tmpZipName, directory: Directory.Cache }).catch(() => { })
           }
         }
         const binary = atob(b64zip)
@@ -552,7 +552,7 @@ async function extractMineruZip(zipBuffer: ArrayBuffer): Promise<MineruFullResul
     if (lname.endsWith('.md') && !markdown) {
       markdown = strFromU8(data as Uint8Array)
     } else if (lname.endsWith('_content_list.json')) {
-      try { contentList = JSON.parse(strFromU8(data as Uint8Array)) } catch {}
+      try { contentList = JSON.parse(strFromU8(data as Uint8Array)) } catch { }
       otherFiles.set(name, data as Uint8Array)
     } else if (/\.(png|jpg|jpeg|webp)$/i.test(lname)) {
       imageFiles.set(name, data as Uint8Array)
@@ -669,10 +669,12 @@ async function describeImageWithAI(
   if (cfg.call_type === 'gemini') {
     const url = `${cfg.base_url}/models/${cfg.vision_model}:generateContent?key=${cfg.api_key}`
     const res = await nativeFetchJSON(url, 'POST', { 'Content-Type': 'application/json' }, {
-      contents: [{ parts: [
-        { inline_data: { mime_type: mimeType, data: imgBase64 } },
-        { text: prompt },
-      ]}],
+      contents: [{
+        parts: [
+          { inline_data: { mime_type: mimeType, data: imgBase64 } },
+          { text: prompt },
+        ]
+      }],
     }) as any
     const text = res?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
     if (!text) throw new Error('empty response')
@@ -686,10 +688,12 @@ async function describeImageWithAI(
       'anthropic-version': '2023-06-01',
     }, {
       model: cfg.vision_model, max_tokens: 700,
-      messages: [{ role: 'user', content: [
-        { type: 'image', source: { type: 'base64', media_type: mimeType, data: imgBase64 } },
-        { type: 'text', text: prompt },
-      ]}],
+      messages: [{
+        role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mimeType, data: imgBase64 } },
+          { type: 'text', text: prompt },
+        ]
+      }],
     }) as any
     const text = res?.content?.[0]?.text ?? ''
     if (!text) throw new Error('empty response')
@@ -702,10 +706,12 @@ async function describeImageWithAI(
     'Authorization': `Bearer ${cfg.api_key}`,
   }, {
     model: cfg.vision_model,
-    messages: [{ role: 'user', content: [
-      { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imgBase64}` } },
-      { type: 'text', text: prompt },
-    ]}],
+    messages: [{
+      role: 'user', content: [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imgBase64}`, detail: 'high' } },
+      ]
+    }],
     max_tokens: 700,
   }) as any
   const text = res?.choices?.[0]?.message?.content ?? ''
@@ -861,7 +867,6 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
   const chunks = rawChunks
     .map(c => c.replace(/!\[[^\]]*\]\([^)]+\)/g, '').replace(/\n{3,}/g, '\n\n').trim())
     .filter(Boolean)
-  const preview = text.slice(0, 300)
 
   // ─ Step 3: 删除旧版本（覆盖导入）────────────────────────────────────────────
   await deleteDocChunks(userId, file.name)
@@ -980,7 +985,7 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
             try {
               const descPromise = describeImageWithAI(imgBase64, cfg, item.type, imgMime)
               const timeoutPromise = new Promise<string>((_, reject) =>
-                setTimeout(() => reject(new Error('vision timeout')), 45000)
+                setTimeout(() => reject(new Error('vision timeout')), 90000)
               )
               const result = await Promise.race([descPromise, timeoutPromise])
               if (result.trim()) {
@@ -1020,20 +1025,30 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
 
     // ─ Step 5.6: 替换 Markdown 图片路径为 Capacitor 本地可访问 URL ────────────
     if (Capacitor.isNativePlatform() && localImagePaths.size > 0) {
+      console.log(`[MinerU] 🚀 开始替换图片路径，共 ${localImagePaths.size} 张图片`)
       for (const [imgZipPath, localRelPath] of localImagePaths.entries()) {
         try {
           const { uri } = await Filesystem.getUri({ path: localRelPath, directory: Directory.Data })
           const webUrl = Capacitor.convertFileSrc(uri)
           const fileName = imgZipPath.split('/').pop() ?? imgZipPath
-          // 按精确度从高到低尝试替换，优先完整路径，避免 filename 污染已替换的 URL
+          
+          // 1. 替换 Markdown 语法: ![alt](images/xxx) -> ![alt](http://...)
+          // 捕获组: (!\[[^\]]*\]\()  +  匹配可能带 ./ 或没有前缀的 images/ 路径
+          const mdRe = new RegExp(`(!\\[[^\\]]*\\]\\()(\\./)?${imgZipPath.replace(/\//g, '\\/')}(\\))`, 'g')
+          if (mdRe.test(text)) {
+            text = text.replace(mdRe, `$1${webUrl}$3`)
+          } else {
+            // 回退到简单名替换 (比如有些 md 里的 images/ figure_0.png)
+            const mdSimpleRe = new RegExp(`(!\\[[^\\]]*\\]\\()(\\./)?(images/)?${fileName.replace(/\./g, '\\.')}(\\))`, 'g')
+            text = text.replace(mdSimpleRe, `$1${webUrl}$4`)
+          }
+
+          // 2. 补充替换: ![](xxx) 直接路径
           if (text.includes(imgZipPath)) {
             text = text.split(imgZipPath).join(webUrl)
-          } else if (text.includes(`./${fileName}`)) {
-            text = text.split(`./${fileName}`).join(webUrl)
-          } else if (text.includes(`(${fileName})`)) {
-            // markdown 语法 ![...](filename.jpg)：仅替换括号内的 filename
-            text = text.split(`(${fileName})`).join(`(${webUrl})`)
           }
+
+          console.log(`[MinerU] ✅ 路径转换: ${fileName} -> ${webUrl.slice(0, 50)}...`)
         } catch (e) {
           console.warn('[MinerU] 图片路径转换失败:', imgZipPath, e)
         }
@@ -1075,6 +1090,7 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
   // 确保同步到 Web 时片段数量完整、内容原封不动。
   await markDocChunksDirty(userId, file.name)
 
+  const preview = text.slice(0, 300)
   onProgress?.('完成！')
   return { preview, fullText: text, localPdfUri }
 }
@@ -1092,13 +1108,13 @@ async function extractKnowledgeGraph(
   // 1. 按优先级（国内优先）收集所有可用 LLM 配置，使用 OpenAI 兼容接口（与 Web 端一致）
   type LlmConfig = { provider: string; url: string; apiKey: string; model: string }
   const KG_PROVIDER_DEFAULTS: Array<{ provider: string; defaultUrl: string; defaultModel: string }> = [
-    { provider: 'deepseek', defaultUrl: 'https://api.deepseek.com/v1/chat/completions',                              defaultModel: 'deepseek-chat'     },
-    { provider: 'qwen',     defaultUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',        defaultModel: 'qwen-plus'         },
-    { provider: 'zhipu',    defaultUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',                     defaultModel: 'glm-4-flash'       },
-    { provider: 'minimax',  defaultUrl: 'https://api.minimax.chat/v1/text/chatcompletion_v2',                        defaultModel: 'MiniMax-Text-01'   },
-    { provider: 'kimi',     defaultUrl: 'https://api.moonshot.cn/v1/chat/completions',                               defaultModel: 'moonshot-v1-8k'    },
-    { provider: 'doubao',   defaultUrl: 'https://ark.volcengineapi.com/api/v3/chat/completions',                     defaultModel: 'doubao-seed-2.0-lite' },
-    { provider: 'openai',   defaultUrl: 'https://api.openai.com/v1/chat/completions',                                defaultModel: 'gpt-4o-mini'       },
+    { provider: 'deepseek', defaultUrl: 'https://api.deepseek.com/v1/chat/completions', defaultModel: 'deepseek-chat' },
+    { provider: 'qwen', defaultUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', defaultModel: 'qwen-plus' },
+    { provider: 'zhipu', defaultUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', defaultModel: 'glm-4-flash' },
+    { provider: 'minimax', defaultUrl: 'https://api.minimax.chat/v1/text/chatcompletion_v2', defaultModel: 'MiniMax-Text-01' },
+    { provider: 'kimi', defaultUrl: 'https://api.moonshot.cn/v1/chat/completions', defaultModel: 'moonshot-v1-8k' },
+    { provider: 'doubao', defaultUrl: 'https://ark.volcengineapi.com/api/v3/chat/completions', defaultModel: 'doubao-seed-2.0-lite' },
+    { provider: 'openai', defaultUrl: 'https://api.openai.com/v1/chat/completions', defaultModel: 'gpt-4o-mini' },
   ]
 
   const allConfigs: LlmConfig[] = []
@@ -1109,9 +1125,9 @@ async function extractKnowledgeGraph(
     const base = (k?.base_url ?? '').trim().replace(/\/+$/, '')
     let url: string
     if (base) {
-      if (base.endsWith('/chat/completions'))                                               url = base
+      if (base.endsWith('/chat/completions')) url = base
       else if (base.includes('/v1') || base.includes('compatible-mode') || base.includes('paas')) url = base + '/chat/completions'
-      else                                                                                  url = base + '/v1/chat/completions'
+      else url = base + '/v1/chat/completions'
     } else {
       url = entry.defaultUrl
     }
@@ -1126,7 +1142,7 @@ async function extractKnowledgeGraph(
   // 2. 全文分块：4000 字符 + 200 重叠（与 Web 端 CHUNK_SIZE/OVERLAP 对齐）
   const fullText = chunks.join('\n\n')
   const KG_CHUNK_SIZE = 4000
-  const KG_OVERLAP   = 200
+  const KG_OVERLAP = 200
   const kgChunks: string[] = []
   let pos = 0
   while (pos < fullText.length) {
@@ -1362,8 +1378,8 @@ async function detectAndUploadCommunities(
         enableThinking: false,
         maxTokens: 300,
         onSummary: c => { raw += c },
-        onDone: () => {},
-        onError: () => {},
+        onDone: () => { },
+        onError: () => { },
       })
       const match = raw.match(/\{[\s\S]*?\}/)
       const parsed = match ? JSON.parse(match[0]) : {}
