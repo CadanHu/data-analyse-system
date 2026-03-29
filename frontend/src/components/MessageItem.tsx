@@ -669,31 +669,41 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     if (isNativePlatform) {
       const baseOrigin = getBaseURL().replace('/api', '')
 
-      // 1. 将 /api/uploads/ 相对路径补全为绝对后端 URL（适用于 Markdown 语法 和 HTML src）
-      processed = processed
-        .replace(/(!\[[^\]]*\]\()(\/api\/uploads\/[^)]+)(\))/g, `$1${baseOrigin}$2$3`)
-        .replace(/(src=["'])(\/api\/uploads\/[^"']+)(["'])/g, `$1${baseOrigin}$2$3`)
+      // 0. 脱除常见的包裹标签（排除表格相关标签以便后续仍能被表格转换逻辑捕获），防止原生端缺乏 rehypeRaw 时将区块视作 HTML node
+      processed = processed.replace(/<\/?(p|div|figure|center|span)[^>]*>/gi, '\n\n')
 
-      // 1.5 重点：处理手机本地 MinerU 产生的相对路径 (images/xxx -> file://...)
-      if (parsedData?.is_knowledge_extraction && localPdfUri) {
-          const basePrefix = localPdfUri.replace('_original.pdf', '')
-          // 匹配 ![](images/...) 或 ![](./images/...)
-          processed = processed.replace(/(!\[[^\]]*\]\()(\.?\/)?(images\/[^)]+)(\))/g, (_, p1, _p2, p3, p4) => {
-              const webSrc = basePrefix + '/' + p3
-              return `${p1}${webSrc}${p4}`
-          })
-      }
-
-      // 2. HTML <img> → Markdown 图片语法
+      // 1. 将 HTML <img> → Markdown 图片语法（必须最先做，以便后续统一处理路径）
       processed = processed.replace(/<img\s[^>]*>/gi, (imgTag) => {
         const srcM = imgTag.match(/src=["']([^"']+)["']/)
         const altM = imgTag.match(/alt=["']([^"']*)["']/)
         const src = srcM ? srcM[1] : ''
         const alt = altM ? altM[1] : ''
-        return src ? `![${alt}](${src})` : ''
+        return src ? `\n\n![${alt}](${src})\n\n` : ''
       })
 
-      // 3. HTML <table> → GFM 管道表格
+      // 2. 补全 /api/uploads/ 相对路径为绝对后端 URL
+      processed = processed
+        .replace(/(!\[[^\]]*\]\()(\/api\/uploads\/[^)]+)(\))/g, `$1${baseOrigin}$2$3`)
+
+      // 3. 重点：处理手机本地 MinerU 产生的相对路径 (images/xxx -> file://...)
+      if (parsedData?.is_knowledge_extraction && localPdfUri) {
+          const basePrefix = localPdfUri.replace('_original.pdf', '')
+          // 匹配 ![](images/...) 或 ![](./images/...)，且确保括号内开头不是 http/capacitor/file 等
+          // [^:(]+ 排除掉带冒号的完整协议 (like http:, capacitor:)
+          processed = processed.replace(/(!\[[^\]]*\]\()(\.?\/)?(images\/[^)]+)(\))/g, (_, p1, _p2, p3, p4) => {
+              // 检查 p1 后面是否已经是一个完整 URL (简单判断：括号后直接接 images)
+              // 如果 p1 是 "![]("，且 p3 是 "images/xxx"，中间没有协议头
+              let webSrc = basePrefix + '/' + p3
+              // 必须转为 Web 兼容协议 (capacitor://localhost/_capacitor_file_/) 否则 iOS 会因为 file:/// 的跨域限制拦截图片渲染，显示白问号蓝框
+              webSrc = Capacitor.convertFileSrc(webSrc)
+              return `${p1}${webSrc}${p4}`
+          })
+      }
+
+      // 4. 强制所有 Markdown 图片语法前后添加空行，防止与其他未解析的 HTML 标签或文本相连导致解析失效
+      processed = processed.replace(/(!\[[^\]]*\]\([^)]+\))/g, '\n\n$1\n\n')
+
+      // 5. HTML <table> → GFM 管道表格
       processed = processed.replace(/<table[\s\S]*?<\/table>/gi, (tableHtml) => {
         const rows: string[][] = []
         const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
@@ -761,7 +771,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </button>
               {!thinkingCollapsed && (
                 <div className="mt-3 bg-amber-50 rounded-xl p-4 text-xs text-gray-800 border border-amber-200/60 markdown-body prose prose-sm max-w-none data-[mobile=true]:data-[orientation=landscape]:text-[10px]">
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+                  <ReactMarkdown urlTransform={(value: string) => value} remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
                     {preprocessContent(message.thinking)}
                   </ReactMarkdown>
                 </div>
@@ -797,6 +807,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             ) : (
               <>
                 <ReactMarkdown
+                  urlTransform={(value: string) => value}
                   remarkPlugins={[remarkMath, remarkGfm]}
                   rehypePlugins={isNativePlatform ? rehypePluginsNative : rehypePluginsWeb}
                   components={{
@@ -1382,7 +1393,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               <div className={`${(pdfUrl || localPdfUri) ? 'w-full sm:w-1/2' : 'w-full'} h-full flex flex-col bg-white ${previewTab === 'markdown' ? 'flex' : 'hidden sm:flex'}`}>
                 <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{t('preview.markdown')}</div>
                 <div className="flex-1 overflow-y-auto p-4 sm:p-8 markdown-body prose prose-sm max-w-none select-text">
-                  <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={isNativePlatform ? rehypePluginsNative : rehypePluginsWeb}>
+                  <ReactMarkdown urlTransform={(value: string) => value} remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={isNativePlatform ? rehypePluginsNative : rehypePluginsWeb}>
                     {preprocessContent(parsedData?.markdown_full || message.content.split('**解析内容预览:**\n')[1] || message.content)}
                   </ReactMarkdown>
                 </div>

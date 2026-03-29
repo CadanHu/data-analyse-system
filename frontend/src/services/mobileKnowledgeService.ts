@@ -181,13 +181,61 @@ function mergeSmallParagraphs(paras: string[]): string[] {
   return merged
 }
 
+/** 提取并保护文本中的表格。返回：片段数组（普通文本需要在此基础上继续切分，table 需整个保留） */
+function extractAndProtectTables(content: string): { type: 'text' | 'table'; content: string }[] {
+  const htmlTableRegex = /<table\b[^>]*>[\s\S]*?<\/table>/gi
+  const mdTableRegex = /(?:^[ \t]*\|.*\|[ \t]*$\n?){2,}/gm
+  
+  const matches: { start: number; end: number; content: string }[] = []
+  let m
+  while ((m = htmlTableRegex.exec(content)) !== null) {
+    matches.push({ start: m.index, end: m.index + m[0].length, content: m[0] })
+  }
+  while ((m = mdTableRegex.exec(content)) !== null) {
+    const start = m.index
+    const end = m.index + m[0].length
+    const isOverlap = matches.some(ext => start < ext.end && end > ext.start)
+    if (!isOverlap) {
+      matches.push({ start, end, content: m[0] })
+    }
+  }
+  
+  matches.sort((a, b) => a.start - b.start)
+  
+  const blocks: { type: 'text' | 'table'; content: string }[] = []
+  let lastEnd = 0
+  for (const match of matches) {
+    if (match.start > lastEnd) {
+      blocks.push({ type: 'text', content: content.slice(lastEnd, match.start) })
+    }
+    blocks.push({ type: 'table', content: match.content })
+    lastEnd = match.end
+  }
+  if (lastEnd < content.length) {
+    blocks.push({ type: 'text', content: content.slice(lastEnd) })
+  }
+  
+  return blocks
+}
+
 /** 纯文本：按段落（双换行）切分，小段落合并，附加上文衔接 */
 function chunkText(text: string): string[] {
-  const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 20)
-  const chunks = mergeSmallParagraphs(paras)
-  return chunks.map((chunk, i) => {
+  const blocks = extractAndProtectTables(text)
+  const flat: string[] = []
+  
+  for (const block of blocks) {
+    if (block.type === 'table') {
+      flat.push(block.content)
+    } else {
+      const paras = block.content.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 20)
+      const merged = mergeSmallParagraphs(paras)
+      flat.push(...merged)
+    }
+  }
+
+  return flat.map((chunk, i) => {
     if (i === 0) return chunk
-    const prevTail = chunks[i - 1].slice(-CHUNK_OVERLAP)
+    const prevTail = flat[i - 1].slice(-CHUNK_OVERLAP)
     return `[上文衔接]\n${prevTail}\n\n[正文]\n${chunk}`
   })
 }
@@ -243,12 +291,22 @@ function chunkMarkdown(markdown: string): string[] {
     if (s.content.length <= CHUNK_SIZE) {
       flat.push(s.path ? `[${s.path}]\n${s.content}` : s.content)
     } else {
-      // 超长节内部按字符滑窗切，每子块都带章节路径
-      let start = 0
-      while (start < s.content.length) {
-        const sub = s.content.slice(start, start + CHUNK_SIZE).trim()
-        if (sub.length > 20) flat.push(s.path ? `[${s.path}]\n${sub}` : sub)
-        start += CHUNK_SIZE - CHUNK_OVERLAP
+      // 超长节内部先抽离表格保护，不让滑窗切断表格
+      const blocks = extractAndProtectTables(s.content)
+      for (const block of blocks) {
+        if (block.type === 'table') {
+          // 表格单独作为一个完整片段保存
+          flat.push(s.path ? `[${s.path}]\n${block.content.trim()}` : block.content.trim())
+        } else {
+          const textBlock = block.content.trim()
+          if (!textBlock) continue
+          let start = 0
+          while (start < textBlock.length) {
+            const sub = textBlock.slice(start, start + CHUNK_SIZE).trim()
+            if (sub.length > 20) flat.push(s.path ? `[${s.path}]\n${sub}` : sub)
+            start += CHUNK_SIZE - CHUNK_OVERLAP
+          }
+        }
       }
     }
   }
@@ -360,8 +418,8 @@ async function nativeFetchJSON(url: string, method: string, headers: Record<stri
       url,
       headers,
       data: bodyObj,
-      connectTimeout: 60000,
-      readTimeout: 60000,
+      connectTimeout: 90000,
+      readTimeout: 90000,
     })
     if (res.status < 200 || res.status >= 300) {
       const bodyStr = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
@@ -687,7 +745,7 @@ async function describeImageWithAI(
       'x-api-key': cfg.api_key,
       'anthropic-version': '2023-06-01',
     }, {
-      model: cfg.vision_model, max_tokens: 700,
+      model: cfg.vision_model, max_tokens: 4096,
       messages: [{
         role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mimeType, data: imgBase64 } },
@@ -712,7 +770,7 @@ async function describeImageWithAI(
         { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imgBase64}`, detail: 'high' } },
       ]
     }],
-    max_tokens: 700,
+    max_tokens: 4096,
   }) as any
   const text = res?.choices?.[0]?.message?.content ?? ''
   if (!text) throw new Error('empty response')
@@ -1023,32 +1081,26 @@ export async function processDocument(file: File, opts: ProcessOptions): Promise
       if (visionCount > 0) onProgress?.(`图表识别完成，新增 ${visionCount} 个视觉知识块`)
     }
 
-    // ─ Step 5.6: 替换 Markdown 图片路径为 Capacitor 本地可访问 URL ────────────
+    // ─ Step 5.6: 替换 Markdown 图片路径 (修复路径重复嵌套 Bug) ─────────────────────
     if (Capacitor.isNativePlatform() && localImagePaths.size > 0) {
       console.log(`[MinerU] 🚀 开始替换图片路径，共 ${localImagePaths.size} 张图片`)
       for (const [imgZipPath, localRelPath] of localImagePaths.entries()) {
         try {
           const { uri } = await Filesystem.getUri({ path: localRelPath, directory: Directory.Data })
           const webUrl = Capacitor.convertFileSrc(uri)
-          const fileName = imgZipPath.split('/').pop() ?? imgZipPath
           
           // 1. 替换 Markdown 语法: ![alt](images/xxx) -> ![alt](http://...)
-          // 捕获组: (!\[[^\]]*\]\()  +  匹配可能带 ./ 或没有前缀的 images/ 路径
+          // 仅匹配起始为 images/ 或 ./images/ 的路径，避免匹配到已经是 http/capacitor 的完整路径
           const mdRe = new RegExp(`(!\\[[^\\]]*\\]\\()(\\./)?${imgZipPath.replace(/\//g, '\\/')}(\\))`, 'g')
-          if (mdRe.test(text)) {
-            text = text.replace(mdRe, `$1${webUrl}$3`)
-          } else {
-            // 回退到简单名替换 (比如有些 md 里的 images/ figure_0.png)
-            const mdSimpleRe = new RegExp(`(!\\[[^\\]]*\\]\\()(\\./)?(images/)?${fileName.replace(/\./g, '\\.')}(\\))`, 'g')
-            text = text.replace(mdSimpleRe, `$1${webUrl}$4`)
-          }
+          text = text.replace(mdRe, `$1${webUrl}$3`)
+          
+          // 2. 替换 HTML 语法 (MinerU 表格中常见): <img src="images/xxx"> -> <img src="http://...">
+          const htmlRe = new RegExp(`(src=["'])(\\./)?${imgZipPath.replace(/\//g, '\\/')}(["'])`, 'g')
+          text = text.replace(htmlRe, `$1${webUrl}$3`)
 
-          // 2. 补充替换: ![](xxx) 直接路径
-          if (text.includes(imgZipPath)) {
-            text = text.split(imgZipPath).join(webUrl)
-          }
-
-          console.log(`[MinerU] ✅ 路径转换: ${fileName} -> ${webUrl.slice(0, 50)}...`)
+          // 💡 注意：此处删除了 text.split(imgZipPath).join(webUrl) 的兜底逻辑。
+          // 原先的 split/join 会无差别替换文本，导致 webUrl 结尾的 images/xxx 再次被替换为完整的 webUrl，
+          // 产生 capacitor://.../capacitor://... 这种重复路径。
         } catch (e) {
           console.warn('[MinerU] 图片路径转换失败:', imgZipPath, e)
         }

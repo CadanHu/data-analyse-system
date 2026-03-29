@@ -1358,6 +1358,22 @@ export default function KnowledgeGraphModal({ graph, onClose }: Props) {
           setRightOpen(true)
         }
       })
+
+      // 点击图谱空白处取消选中节点并关闭详情面板
+      chartInstance.current.getZr().on('click', (event: any) => {
+        if (!event.target) {
+          setSelectedNode(null)
+          setSelectedEdge(null)
+          setRightOpen(false)
+          
+          if (chartInstance.current) {
+            chartInstance.current.dispatchAction({
+              type: 'unselect',
+              seriesIndex: 0
+            })
+          }
+        }
+      })
     }
 
     try {
@@ -2105,7 +2121,7 @@ export default function KnowledgeGraphModal({ graph, onClose }: Props) {
                               </span>
                               <span className="text-[10px] text-gray-400 flex-shrink-0">{c.size} 节点</span>
                             </div>
-                            <div className="text-[10px] text-gray-500 leading-relaxed line-clamp-3">
+                            <div className={`text-[10px] text-gray-500 leading-relaxed ${activeCommunity?.id === c.id ? '' : 'line-clamp-3'}`}>
                               {c.summary}
                             </div>
                           </button>

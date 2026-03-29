@@ -283,7 +283,7 @@ async def _call_openai_compat_vision(image_b64: str, alt_text: str, api_key: str
                 {"type": "image_url", "image_url": {"url": image_b64, "detail": "high"}},
             ],
         }],
-        max_tokens=700,
+        max_tokens=4096,
     )
     content = resp.choices[0].message.content.strip()
     if not content:
@@ -300,7 +300,7 @@ async def _call_claude_vision(image_b64: str, alt_text: str, api_key: str, model
     prompt = (f"图片标题参考：{alt_text}\n\n" if alt_text else "") + _VISION_PROMPT
     resp = await client.messages.create(
         model=model,
-        max_tokens=700,
+        max_tokens=4096,
         messages=[{
             "role": "user",
             "content": [

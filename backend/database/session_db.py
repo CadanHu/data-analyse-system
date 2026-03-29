@@ -720,11 +720,12 @@ class SessionDatabase:
                 {
                     "filename": data.get("doc_name", ""),
                     "source": "mobile_sync",
-                    "chunk_index": str(data.get("chunk_index", 0)),
+                    "chunk_index": int(data.get("chunk_index", 0)),
                 },
                 session_id=data.get("session_id"),
                 user_id=data.get("user_id"),
                 sync_to_mobile=False,
+                skip_split=True,
             )
         except Exception as e:
             print(f"⚠️ [KnowledgeSync] vector_store 写入失败 (chunk {data['id']}): {e}")

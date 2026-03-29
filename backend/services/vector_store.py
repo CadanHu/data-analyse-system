@@ -69,19 +69,84 @@ class SemanticChunkSplitter:
             merged.append((buf_c, buf_p))
         return merged
 
+    def _extract_tables_and_slide(self, content: str, path: str) -> List[tuple]:
+        """抽出表格，把表格原样保留，普通文本超过 chunk_size 则进行滑窗"""
+        html_table_re = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
+        md_table_re = re.compile(r"(?:^[ \t]*\|.*\|[ \t]*$\n?){2,}", re.MULTILINE)
+
+        matches = []
+        for m in html_table_re.finditer(content):
+            matches.append({"start": m.start(), "end": m.end(), "text": m.group(0)})
+        for m in md_table_re.finditer(content):
+            start = m.start()
+            end = m.end()
+            if not any(ext["start"] < end and start < ext["end"] for ext in matches):
+                matches.append({"start": start, "end": end, "text": m.group(0)})
+
+        matches.sort(key=lambda x: x["start"])
+
+        blocks = []
+        last_end = 0
+        for m in matches:
+            if m["start"] > last_end:
+                blocks.append({"type": "text", "content": content[last_end:m["start"]]})
+            blocks.append({"type": "table", "content": m["text"]})
+            last_end = m["end"]
+        if last_end < len(content):
+            blocks.append({"type": "text", "content": content[last_end:]})
+
+        flat = []
+        for block in blocks:
+            if block["type"] == "table":
+                flat.append((block["content"], path))
+            else:
+                text_part = block["content"].strip()
+                if not text_part:
+                    continue
+                start = 0
+                while start < len(text_part):
+                    sub = text_part[start:start + self.chunk_size].strip()
+                    if len(sub) > 20:
+                        flat.append((sub, path))
+                    start += self.chunk_size - self.overlap_chars
+        return flat
+
     def split(self, text: str, base_metadata: Dict[str, Any]) -> List[Document]:
         """切分文本，返回带结构元数据和上下文衔接的 Document 列表"""
-        raw = self._split_markdown(text) if self._is_markdown(text) else self._split_paragraphs(text)
-        chunks = self._merge_small_chunks(raw)
+        # 1. 替换表格为占位符，防止 _split_paragraphs 破坏表格
+        tables_store = []
+        def repl(m):
+            tables_store.append(m.group(0))
+            return f"\n\n__TABLE_{len(tables_store)-1}__\n\n"
+
+        html_table_re = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
+        md_table_re = re.compile(r"(?:^[ \t]*\|.*\|[ \t]*$\n?){2,}", re.MULTILINE)
+        temp_text = html_table_re.sub(repl, text)
+        temp_text = md_table_re.sub(repl, temp_text)
+
+        # 2. 按 Markdown 标题或段落做初步切分、合并
+        raw = self._split_markdown(temp_text) if self._is_markdown(temp_text) else self._split_paragraphs(temp_text)
+        merged = self._merge_small_chunks(raw)
+
+        # 3. 还原表格，并对超长文本做带表格保护的滑窗切割
+        flat = []
+        for content, path in merged:
+            for i, tbl in enumerate(tables_store):
+                content = content.replace(f"__TABLE_{i}__", tbl)
+            
+            if len(content) <= self.chunk_size:
+                flat.append((content, path))
+            else:
+                flat.extend(self._extract_tables_and_slide(content, path))
 
         docs = []
-        for i, (content, path) in enumerate(chunks):
+        for i, (content, path) in enumerate(flat):
             # 在当前 chunk 头部附加上一个 chunk 的尾部，保证上下文连贯
             if i > 0:
-                prev_tail = chunks[i - 1][0][-self.overlap_chars:]
+                prev_tail = flat[i - 1][0][-self.overlap_chars:]
                 content = f"[上文衔接]\n{prev_tail}\n\n[正文]\n{content}"
 
-            meta = {**base_metadata, "chunk_index": i, "chunk_total": len(chunks)}
+            meta = {**base_metadata, "chunk_index": i, "chunk_total": len(flat)}
             if path:
                 meta["header_path"] = path
             docs.append(Document(page_content=content, metadata=meta))
@@ -158,13 +223,14 @@ class VectorStore:
             return conditions[0]
         return {"$and": conditions}
 
-    async def add_text(self, text: str, metadata: Dict[str, Any], session_id: str = None, user_id = None, sync_to_mobile: bool = True):
+    async def add_text(self, text: str, metadata: Dict[str, Any], session_id: str = None, user_id = None, sync_to_mobile: bool = True, skip_split: bool = False):
         """将解析出的文本切片并存入向量库 (带幂等性检查)
 
         Args:
             sync_to_mobile: 是否立即写入手机同步表。对需要等待后续步骤（如知识图谱抽取）
                             完成后再同步的场景，传 False，由调用方在所有步骤完成后
                             调用 session_db.insert_chunks_for_sync_batch() 批量写入。
+            skip_split: 若为 True，则跳过切片过程，直接将整个 text 作为一个文档存入。
         """
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.initialize)
@@ -182,7 +248,15 @@ class VectorStore:
                     print(f"⚠️ [VectorStore] 检测到内容完全一致，跳过重复索引: {metadata.get('filename')}")
                     return [] if not sync_to_mobile else True
 
-        split_docs = self.chunk_splitter.split(text, metadata)
+        if skip_split:
+            meta = {**metadata}
+            if "chunk_index" not in meta:
+                meta["chunk_index"] = 0
+            if "chunk_total" not in meta:
+                meta["chunk_total"] = 1
+            split_docs = [Document(page_content=text, metadata=meta)]
+        else:
+            split_docs = self.chunk_splitter.split(text, metadata)
 
         await loop.run_in_executor(None, self.vector_db.add_documents, split_docs)
         print(f"📥 [VectorStore] 已索引 {len(split_docs)} 个片段 (会话: {session_id}, 用户: {user_id})")
