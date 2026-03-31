@@ -33,12 +33,11 @@ An AI-driven intelligent data analysis system, a multi-engine commercial platfor
 
 ### 🤖 Multi-Provider AI Model Support
 - 🔑 **Bring Your Own API Key**: Configure API keys for any supported provider directly inside the app — no `.env` changes required.
-- 🧠 **Extended Thinking Models**: First-class support for reasoning/thinking chains from DeepSeek R1, Claude Opus/Sonnet, and Gemini Pro.
+- 🧠 **Extended Thinking Models**: First-class support for reasoning/thinking chains from Claude Opus/Sonnet and Gemini Pro.
 - 🌐 **Supported Providers & Models**:
 
 | Provider | Models | Notes |
 |----------|--------|-------|
-| **DeepSeek** | deepseek-chat (V3), deepseek-reasoner (R1) | Custom Base URL supported |
 | **OpenAI** | gpt-5.3, gpt-5.2 | Custom Base URL supported |
 | **Google Gemini** | gemini-3.1-pro-preview, gemini-3.1-flash-lite-preview, gemini-3.1-flash-image-preview, gemini-3-flash-preview | — |
 | **Anthropic Claude** | claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-5, claude-sonnet-4-5, claude-3-7-sonnet | — |
@@ -63,18 +62,15 @@ Three PDF processing modes, all running **fully on-device** — no backend serve
 | 💎 Knowledge Extraction | MinerU + LLM entity extraction + Knowledge Graph | MinerU + LLM Key |
 
 - 💾 **Local SQLite Persistence**: Sessions, messages, API keys, and knowledge chunks all stored on-device.
-- 🔍 **Layered RAG Search**: Semantic vector search when embedding key is configured (Qwen/Zhipu/Jina/Google); automatically falls back to SQLite FTS5 keyword search.
+- 🔍 **Layered RAG Search**: Semantic vector search when embedding key is configured (Jina/Google); automatically falls back to SQLite FTS5 keyword search.
 - 🕸️ **Knowledge Graph Visualization**: After extraction, view entities and relationships as an interactive ECharts force graph.
 - 🔄 **Background Sync**: Automatically syncs local data to the remote server when connectivity is restored.
-- 🇨🇳 **China-Friendly**: DeepSeek, Qwen, MiniMax, MinerU, Zhipu — all accessible without VPN.
 
 ### 🔑 Unified Key Management Center (v3.1)
 
-All API keys managed in-app, organized by region:
+All API keys managed in-app:
 
-**No VPN Required**: DeepSeek · Qwen · MiniMax · MinerU · Qwen Embedding · Zhipu Embedding · Jina AI
-
-**VPN Required**: OpenAI · Claude · Google Gemini · Google Embedding
+**Supported Providers**: OpenAI · Claude · Google Gemini · Jina AI · Google Embedding
 
 ### 🏗️ Enterprise Architecture
 - ✅ **Dual-Engine Logic**: Seamlessly switch between **SQL Query mode** (for massive datasets) and **Scientist mode** (for deep modeling).
@@ -120,7 +116,7 @@ data-analyse-system/
 
 ## 📝 Architecture Evolution
 
-- **v3.0.6 (Current)**: Added **multi-provider AI model support** (DeepSeek / OpenAI / Gemini / Claude) with in-app API key management; Added **Map chart type**; Implemented **offline-first mobile sync** with local SQLite and background server sync.
+- **v3.0.6 (Current)**: Added **multi-provider AI model support** (OpenAI / Gemini / Claude) with in-app API key management; Added **Map chart type**; Implemented **offline-first mobile sync** with local SQLite and background server sync.
 - **v3.0**: Launched **AI Data Scientist Mode**; Added **External Data Ingestion (BYOD)**; Fixed JSON serialization for complex Pandas types; Implemented high-contrast UI & code folding.
 - **v1.7.0**: Expanded to 15+ chart types; introduced AI-driven ECharts dynamic configuration.
 - **v1.6.0**: Deprecated SQLite for SQLAlchemy (MySQL/PG); standardized SSE protocol.
@@ -140,4 +136,4 @@ cp .env.example .env
 docker-compose up --build
 ```
 
-> **AI API Keys**: Configure your provider keys (DeepSeek, OpenAI, Gemini, Claude) directly inside the app via the **Model/Key** settings panel — no restart required.
+> **AI API Keys**: Configure your provider keys (OpenAI, Gemini, Claude) directly inside the app via the **Model/Key** settings panel — no restart required.

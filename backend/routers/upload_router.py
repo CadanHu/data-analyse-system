@@ -50,8 +50,19 @@ def _rewrite_image_paths(markdown: str, stem: str) -> str:
 # 全局任务注册表：session_id -> asyncio.Task，用于支持取消
 _running_tasks: Dict[str, asyncio.Task] = {}
 
+# 任务状态表：session_id -> 状态快照，供外部 Agent 轮询
+_task_status: Dict[str, Dict[str, Any]] = {}
+
 async def run_deep_extraction_task(file_path: Path, filename: str, session_id: str, user_id: int, engine: str, prompt: str = None, use_high_precision: bool = False, page_ranges: str = None):
     """后台执行深度提取任务 / Execute deep extraction task in background"""
+    from datetime import datetime as _dt
+    _task_status[session_id] = {
+        "status": "running",
+        "filename": filename,
+        "started_at": _dt.utcnow().isoformat(),
+        "finished_at": None,
+        "error": None,
+    }
     try:
         logger.info(f"🚀 [Background] Starting deep task (启动深度任务): {filename} (Async mode, High precision: {use_high_precision})")
 
@@ -162,9 +173,11 @@ async def run_deep_extraction_task(file_path: Path, filename: str, session_id: s
             "content": summary,
             "data": json.dumps(final_data)
         })
+        _task_status[session_id].update({"status": "completed", "finished_at": _dt.utcnow().isoformat()})
         logger.info(f"🏁 [Background] Task completed (任务圆满完成): {filename}")
 
     except asyncio.CancelledError:
+        _task_status[session_id].update({"status": "cancelled", "finished_at": _dt.utcnow().isoformat()})
         logger.info(f"⏹️ [Background] Task cancelled by user (用户取消任务): {filename}")
         try:
             await session_db.create_message({
@@ -175,6 +188,7 @@ async def run_deep_extraction_task(file_path: Path, filename: str, session_id: s
         except: pass
 
     except Exception as e:
+        _task_status[session_id].update({"status": "failed", "finished_at": _dt.utcnow().isoformat(), "error": str(e)})
         logger.error(f"❌ [Background] Critical task failed (关键任务失败): {str(e)}")
         traceback.print_exc()
         try:
@@ -253,6 +267,37 @@ async def cancel_extraction_task(session_id: str, current_user: dict = Depends(g
         logger.info(f"⏹️ [Cancel] User cancelled task for session: {session_id}")
         return {"cancelled": True, "session_id": session_id}
     return {"cancelled": False, "session_id": session_id, "message": "No running task found"}
+
+
+@router.get("/upload/knowledge/status/{session_id}")
+async def get_extraction_status(session_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    查询后台知识抽取任务状态 / Poll background extraction task status
+
+    返回状态：
+    - running   : 任务正在执行
+    - completed : 任务已成功完成
+    - failed    : 任务执行失败（error 字段含错误信息）
+    - cancelled : 任务已被取消
+    - idle      : 该 session 无任务记录
+    """
+    # 优先从状态表读取历史记录
+    record = _task_status.get(session_id)
+    if record:
+        # 如果状态表显示 running，但任务实际已退出（进程异常），修正状态
+        if record["status"] == "running" and session_id not in _running_tasks:
+            record = {**record, "status": "completed"}
+        return {"session_id": session_id, **record}
+
+    # 状态表无记录，看运行表（边缘情况：任务刚启动未写入状态表）
+    task = _running_tasks.get(session_id)
+    if task and not task.done():
+        return {"session_id": session_id, "status": "running", "filename": None,
+                "started_at": None, "finished_at": None, "error": None}
+
+    return {"session_id": session_id, "status": "idle", "filename": None,
+            "started_at": None, "finished_at": None, "error": None}
+
 
 @router.post("/upload")
 async def upload_file(

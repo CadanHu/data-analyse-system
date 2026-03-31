@@ -236,7 +236,7 @@ CREATE INDEX IF NOT EXISTS idx_kcomm_doc ON knowledge_communities(doc_id);
 // ==================== DB Service ====================
 
 const DB_NAME = 'datapulse_local'
-const CURRENT_DB_VERSION = 3
+const CURRENT_DB_VERSION = 4
 
 let sqlite: SQLiteConnection | null = null
 let db: SQLiteDBConnection | null = null
@@ -265,6 +265,23 @@ export async function initDb(): Promise<boolean> {
       'CREATE INDEX IF NOT EXISTS idx_kc_sync ON knowledge_chunks(_sync_dirty)',
     ]) {
       try { await db.execute(col) } catch { /* column already exists */ }
+    }
+    // v3→v4: add knowledge_communities table (已有设备的历史数据库缺少此表，必须显式建表)
+    try {
+      await db.execute(`CREATE TABLE IF NOT EXISTS knowledge_communities (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id       TEXT    NOT NULL,
+        community_id INTEGER NOT NULL,
+        title        TEXT    NOT NULL DEFAULT '',
+        summary      TEXT    NOT NULL DEFAULT '',
+        entity_texts TEXT    NOT NULL DEFAULT '[]',
+        size         INTEGER NOT NULL DEFAULT 0,
+        created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+      )`)
+      await db.execute(`CREATE INDEX IF NOT EXISTS idx_kcomm_doc ON knowledge_communities(doc_id)`)
+      console.log('[DB] ✅ knowledge_communities 表就绪 (v3→v4 迁移)')
+    } catch (e) {
+      console.warn('[DB] knowledge_communities 表创建跳过:', e)
     }
     initialized = true
     console.log('✅ [DB] SQLite initialized:', DB_NAME)

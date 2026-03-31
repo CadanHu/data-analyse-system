@@ -18,7 +18,7 @@ import * as echarts from 'echarts'
 import * as XLSX from 'xlsx'
 import dagre from 'dagre'
 import type { KnowledgeGraph } from '@/services/mobileKnowledgeService'
-import { loadCommunitiesFromDb } from '@/services/db'
+import { loadCommunitiesFromDb, saveCommunitiesToDb } from '@/services/db'
 import { Capacitor } from '@capacitor/core'
 import { knowledgeGraphApi, type KGEntity, type KGRelation, type KGStats, type KGDocInfo, type KGCommunity } from '@/api/index'
 
@@ -1144,32 +1144,58 @@ export default function KnowledgeGraphModal({ graph, onClose }: Props) {
       const { entities: e, relations: r } = normalizeGraph(graph)
       setEntities(e)
       setRelations(r)
-      // view 模式也加载该文档的社区数据
-      knowledgeGraphApi.getCommunities(graph.doc_name)
-        .then(res => setCommunities(res.communities))
-        .catch(async () => {
-          // 服务器不可达（离线）：尝试从本地 SQLite 加载社区数据
-          if (Capacitor.isNativePlatform()) {
-            try {
-              const local = await loadCommunitiesFromDb(graph.doc_name)
-              if (local.length > 0) {
-                console.log(`[KG] 离线回退：从本地 SQLite 读取 ${local.length} 个社区: ${graph.doc_name}`)
-                setCommunities(local.map((c, i) => ({
-                  id: typeof c.id === 'number' ? c.id : i,
-                  doc_id: c.doc_id,
+
+      if (Capacitor.isNativePlatform()) {
+        // 📱 原生端：本地优先策略——先立即读 SQLite（0 延迟），再尝试 API 刷新
+        // 这样即使后端离线/60s 超时，用户也能即时看到本地社区数据
+        loadCommunitiesFromDb(graph.doc_name)
+          .then(local => {
+            if (local.length > 0) {
+              console.log(`[KG] 📦 本地 SQLite 读取 ${local.length} 个社区: ${graph.doc_name}`)
+              setCommunities(local.map((c, i) => ({
+                id: typeof c.id === 'number' ? c.id : i,
+                doc_id: c.doc_id,
+                community_id: c.community_id,
+                title: c.title,
+                summary: c.summary,
+                entity_texts: c.entity_texts,
+                size: c.size,
+                created_at: c.created_at,
+              })) as KGCommunity[])
+            }
+          })
+          .catch(e => console.warn('[KG] SQLite 社区读取失败:', e))
+
+        // 并行尝试 API 刷新（在线时更新本地数据并缓存，离线时静默降级）
+        knowledgeGraphApi.getCommunities(graph.doc_name)
+          .then(async res => {
+            if (res.communities.length > 0) {
+              console.log(`[KG] 🌐 API 刷新社区：${res.communities.length} 个，顺手存入本地`)
+              setCommunities(res.communities)
+              // 📥 旧数据迁移核心：将服务器社区写入本地 SQLite
+              // 用户只要在线打开过一次知识图谱，历史社区数据就永久缓存在手机本地
+              try {
+                await saveCommunitiesToDb(graph.doc_name, res.communities.map(c => ({
                   community_id: c.community_id,
                   title: c.title,
                   summary: c.summary,
-                  entity_texts: c.entity_texts,
-                  size: c.size,
-                  created_at: c.created_at,
-                })) as KGCommunity[])
+                  entity_texts: Array.isArray(c.entity_texts) ? c.entity_texts : [],
+                  size: c.size ?? 0,
+                })))
+                console.log(`[KG] ✅ 社区已同步到本地 SQLite: ${graph.doc_name}`)
+              } catch (saveErr) {
+                console.warn('[KG] 社区本地存储失败:', saveErr)
               }
-            } catch (e) {
-              console.warn('[KG] 本地社区加载失败:', e)
             }
-          }
-        })
+          })
+          .catch(() => { /* 离线时已有本地数据，忽略 API 错误 */ })
+
+      } else {
+        // 🌐 Web 端：直接从 API 加载
+        knowledgeGraphApi.getCommunities(graph.doc_name)
+          .then(res => setCommunities(res.communities))
+          .catch(() => { /* 社区加载失败不影响主流程 */ })
+      }
     }
   }, [graph, manageMode])
 
@@ -1187,6 +1213,17 @@ export default function KnowledgeGraphModal({ graph, onClose }: Props) {
       setStats(statsData)
       setDocs(docsData.docs)
       setCommunities(communitiesData.communities)
+      // 📥 manage 模式：在线时顺手将社区数据存到本地（当 selectedDocId 确定时）
+      if (Capacitor.isNativePlatform() && selectedDocId && communitiesData.communities.length > 0) {
+        saveCommunitiesToDb(selectedDocId, communitiesData.communities.map(c => ({
+          community_id: c.community_id,
+          title: c.title,
+          summary: c.summary,
+          entity_texts: Array.isArray(c.entity_texts) ? c.entity_texts : [],
+          size: c.size ?? 0,
+        }))).then(() => console.log(`[KG] ✅ manage模式社区已存局部: ${selectedDocId}`))
+          .catch((saveErr: unknown) => console.warn('[KG] manage社区存局部失败:', saveErr))
+      }
     } catch (e) {
       showToast('error', '加载图谱数据失败')
       // 鞟动端离线回退：尝试从本地加载社区数据

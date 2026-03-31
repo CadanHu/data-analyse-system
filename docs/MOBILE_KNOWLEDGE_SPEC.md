@@ -126,12 +126,12 @@ interface KnowledgeGraph {
 
 ### 支持的 Embedding 提供商
 
-| 提供商 | Key 标识 | 免费额度 | 是否需要 VPN | 模型 |
-|--------|----------|----------|-------------|------|
-| Qwen Embedding | `qwen_embedding` | 1M tokens/天 | 否 | text-embedding-v3 |
-| 智谱 Embedding | `zhipu_embedding` | 有免费额度 | 否 | embedding-3 |
-| Jina AI | `jina_embedding` | 1M tokens/月 | 否（通常） | jina-embeddings-v3 |
-| Google Embedding | `google_embedding` | 1500次/天 | 是 | text-embedding-004 |
+| 提供商 | Key 标识 | 免费额度 | 国内直连 | 模型 |
+|--------|----------|----------|----------|------|
+| Qwen Embedding | `qwen_embedding` | 1M tokens/天 | ✅ | text-embedding-v3 |
+| 智谱 Embedding | `zhipu_embedding` | 有免费额度 | ✅ | embedding-3 |
+| Jina AI | `jina_embedding` | 1M tokens/月 | ✅（通常） | jina-embeddings-v3 |
+| Google Embedding | `google_embedding` | 1500次/天 | ❌ | text-embedding-004 |
 
 **提供商查找优先级**：`qwen_embedding → zhipu_embedding → jina_embedding → google_embedding`
 
@@ -212,7 +212,7 @@ knowledge_relationships  -- id, doc_id, source_text, target_text, relation_type
 
 所有 Key 在 **模型 & API Key 配置**（右上角 Key 图标）中配置，分为两个标签页：
 
-### 国内直连（无需 VPN）
+### 国内直连
 
 | 服务 | 用途 | 获取链接 |
 |------|------|----------|
@@ -224,7 +224,7 @@ knowledge_relationships  -- id, doc_id, source_text, target_text, relation_type
 | 智谱 Embedding | 向量搜索 | open.bigmodel.cn |
 | Jina AI Embedding | 向量搜索 | jina.ai |
 
-### 需要 VPN
+### 国际服务
 
 | 服务 | 用途 | 获取链接 |
 |------|------|----------|
@@ -277,7 +277,7 @@ knowledge_relationships  -- id, doc_id, source_text, target_text, relation_type
 | `frontend/src/services/embeddingService.ts` | 多家 Embedding API 调用（Qwen/智谱/Jina/Google）|
 | `frontend/src/services/db.ts` | SQLite schema + knowledge_chunks + FTS5 CRUD |
 | `frontend/src/components/KnowledgeGraphModal.tsx` | 知识图谱 ECharts 可视化弹窗 |
-| `frontend/src/components/ModelKeyModal.tsx` | Key 配置 UI（含国内/VPN 分组、MinerU、Embedding）|
+| `frontend/src/components/ModelKeyModal.tsx` | Key 配置 UI（含国内/国际分组、MinerU、Embedding）|
 | `frontend/src/components/InputBar.tsx` | PDF 上传路由（手机本地 vs 后端）|
 | `frontend/src/hooks/useSSE.ts` | RAG 知识注入（本地检索结果 → 系统提示词）|
 

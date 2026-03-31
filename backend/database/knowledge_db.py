@@ -454,9 +454,10 @@ class KnowledgeDatabase:
         }
 
     async def search_graph(
-        self, query: str, user_id: int, limit: int = 20
+        self, query: str, user_id: int, limit: int = 20,
+        entity_class: Optional[str] = None, doc_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """全文搜索实体名和关系类型"""
+        """全文搜索实体名和关系类型，支持按类型和文档过滤"""
         q = query.strip()
         if not q:
             return {"entities": [], "relations": []}
@@ -464,7 +465,14 @@ class KnowledgeDatabase:
             entity_stmt = select(KnowledgeEntityModel).where(
                 KnowledgeEntityModel.user_id == user_id,
                 KnowledgeEntityModel.entity_text.ilike(f"%{q}%")
-            ).limit(limit)
+            )
+            if entity_class:
+                entity_stmt = entity_stmt.where(
+                    KnowledgeEntityModel.entity_class.ilike(entity_class)
+                )
+            if doc_id:
+                entity_stmt = entity_stmt.where(KnowledgeEntityModel.doc_id == doc_id)
+            entity_stmt = entity_stmt.limit(limit)
             entities = (await session.execute(entity_stmt)).scalars().all()
 
             rel_stmt = select(KnowledgeRelationshipModel).where(
@@ -474,7 +482,10 @@ class KnowledgeDatabase:
                     KnowledgeRelationshipModel.target_text.ilike(f"%{q}%") |
                     KnowledgeRelationshipModel.relation_type.ilike(f"%{q}%")
                 )
-            ).limit(limit)
+            )
+            if doc_id:
+                rel_stmt = rel_stmt.where(KnowledgeRelationshipModel.doc_id == doc_id)
+            rel_stmt = rel_stmt.limit(limit)
             relations = (await session.execute(rel_stmt)).scalars().all()
 
         return {
@@ -483,6 +494,39 @@ class KnowledgeDatabase:
                  "doc_id": e.doc_id, "description": (e.attributes or {}).get("description", "")}
                 for e in entities
             ],
+            "relations": [
+                {"id": r.id, "source": r.source_text, "target": r.target_text,
+                 "label": r.relation_type, "doc_id": r.doc_id}
+                for r in relations
+            ],
+        }
+
+    async def get_neighbors(
+        self, entity_text: str, user_id: int, limit: int = 50
+    ) -> Dict[str, Any]:
+        """获取指定实体的直接邻居（所有 1 跳关系及其另一端的实体）"""
+        q = entity_text.strip()
+        async with self.async_session() as session:
+            rel_stmt = select(KnowledgeRelationshipModel).where(
+                KnowledgeRelationshipModel.user_id == user_id,
+                (
+                    KnowledgeRelationshipModel.source_text.ilike(q) |
+                    KnowledgeRelationshipModel.target_text.ilike(q)
+                )
+            ).limit(limit)
+            relations = (await session.execute(rel_stmt)).scalars().all()
+
+        neighbor_texts = set()
+        for r in relations:
+            if r.source_text.lower() != q.lower():
+                neighbor_texts.add(r.source_text)
+            if r.target_text.lower() != q.lower():
+                neighbor_texts.add(r.target_text)
+
+        return {
+            "entity": entity_text,
+            "neighbor_count": len(neighbor_texts),
+            "neighbors": list(neighbor_texts),
             "relations": [
                 {"id": r.id, "source": r.source_text, "target": r.target_text,
                  "label": r.relation_type, "doc_id": r.doc_id}

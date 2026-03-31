@@ -68,10 +68,15 @@ async def get_stats(current_user: dict = Depends(get_current_user)):
 async def search_graph(
     q: str = Query(..., min_length=1, description="搜索关键词"),
     limit: int = Query(20, le=100),
+    entity_class: Optional[str] = Query(None, description="按实体类型过滤，如 Person / Org / Location"),
+    doc_id: Optional[str] = Query(None, description="按文档过滤"),
     current_user: dict = Depends(get_current_user),
 ):
-    """在实体名、关系类型中全文搜索"""
-    return await knowledge_db.search_graph(q, current_user["id"], limit=limit)
+    """在实体名、关系类型中全文搜索，支持按实体类型和文档过滤"""
+    return await knowledge_db.search_graph(
+        q, current_user["id"], limit=limit,
+        entity_class=entity_class, doc_id=doc_id,
+    )
 
 
 @router.get("/knowledge-graph/docs")
@@ -124,6 +129,16 @@ async def save_communities_from_mobile(
     await knowledge_db.delete_communities(doc_id=doc_id, user_id=current_user["id"])
     await knowledge_db.save_communities(doc_id=doc_id, user_id=current_user["id"], communities=communities)
     return {"saved": len(communities)}
+
+
+@router.get("/knowledge-graph/neighbors")
+async def get_neighbors(
+    entity: str = Query(..., min_length=1, description="实体名称"),
+    limit: int = Query(50, le=200),
+    current_user: dict = Depends(get_current_user),
+):
+    """获取指定实体的所有直接邻居实体及 1 跳关系"""
+    return await knowledge_db.get_neighbors(entity, current_user["id"], limit=limit)
 
 
 @router.get("/knowledge-graph/export")

@@ -51,17 +51,17 @@ DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它
 | 🧠 深度模式 | MinerU Cloud API | MinerU Key（免费）|
 | 💎 知识抽取 | MinerU + LLM 实体抽取 + 知识图谱 | MinerU Key + LLM Key |
 
-*   **本地向量搜索**：支持 Qwen/智谱/Jina/Google 四家 Embedding，有 Key 则语义搜索，无 Key 自动降级到 SQLite FTS5 关键词搜索。
+*   **本地向量搜索**：支持 Qwen/智谱/Jina 三家 Embedding，有 Key 则语义搜索，无 Key 自动降级到 SQLite FTS5 关键词搜索。
 *   **知识图谱可视化**：知识抽取完成后自动提取实体和关系，展示可交互的 ECharts 图谱。
-*   **完全无需 VPN 可用**：DeepSeek / Qwen / MiniMax / MinerU / 智谱均可国内直连。
+*   **国内服务支持**：DeepSeek / Qwen / MiniMax / MinerU / 智谱均可国内直连。
 *   详见：[MOBILE_KNOWLEDGE_SPEC.md](./MOBILE_KNOWLEDGE_SPEC.md)
 
 ### 5. 🔑 统一 Key 配置中心（v3.1 新增）
 
 所有 API Key 在应用内统一管理，涵盖：
-*   大语言模型：DeepSeek、通义千问、MiniMax、OpenAI、Claude、Gemini
+*   大语言模型：DeepSeek、通义千问、MiniMax
 *   PDF 解析：MinerU
-*   向量搜索：Qwen Embedding、智谱、Jina AI、Google Embedding
+*   向量搜索：Qwen Embedding、智谱、Jina AI
 
 ### 6. 🌐 移动端与开发者友好
 *   **全平台适配**：针对移动端手势与视口（dvh）进行精准优化。
@@ -85,7 +85,7 @@ docker-compose up --build
     ```bash
     cd backend
     python -m venv venv312
-    source venv312/bin/click/activate
+    source venv312/bin/activate
     pip install -r requirements.txt
     python main.py
     ```
@@ -102,36 +102,241 @@ docker-compose up --build
 
 *   **前端**: React (TypeScript) + Tailwind CSS + Vite + Lucide Icons
 *   **后端**: FastAPI + SQLAlchemy (Async) + LangChain
-*   **AI 引擎**: OpenAI / Gemini / Claude / DeepSeek (多模型支持)
+*   **AI 引擎**: DeepSeek / 通义千问 / MiniMax (多模型支持)
 *   **数据处理**: Pandas + Matplotlib + Seaborn + Scikit-learn
 *   **数据库**: MySQL (业务数据) + PostgreSQL (知识库/向量存储)
 
 ---
 
-## 🤖 外部 Agent 调用示例
+## 🤖 外部 Agent 调用
 
-DataPulse 现已开放“数据分析中台”能力，支持外部 Agent 携带私有数据发起请求：
+DataPulse 作为”数据分析中台”对外开放，外部 Agent 可通过 HTTP API 使用以下能力：
+
+| 能力 | 接口 |
+|------|------|
+| 私有数据分析作图 | `POST /api/chat/stream` |
+| PDF/文档知识抽取 | `POST /api/upload/knowledge` |
+| 知识图谱查询 | `GET /api/knowledge-graph/*` |
+| 业务库自然语言查询 | `GET /api/biz-sync/schema` + `POST /api/chat/stream` |
+
+### 鉴权
+
+Token 有效期 **365 天**，登录一次长期使用：
 
 ```python
-import requests
+import requests, json
 
-url = "http://your-server:8000/api/chat/stream"
+BASE = “http://your-server:8000”
+
+auth = requests.post(f”{BASE}/api/auth/login”, json={
+    “username”: “your@email.com”,
+    “password”: “your-password”
+})
+TOKEN = auth.json()[“access_token”]
+H = {“Authorization”: f”Bearer {TOKEN}”}
+```
+
+所有需要鉴权的接口均在 Header 中携带 `Authorization: Bearer {TOKEN}`。
+
+---
+
+### 场景一：传入私有数据 → 科学家模式分析作图
+
+适合：外部 Agent 已持有数据集，需要 DataPulse 完成分析建模和图表生成。
+
+```python
+import json
+
+# 1. 创建会话
+session_id = requests.post(f”{BASE}/api/sessions”, headers=H).json()[“id”]
+
+# 2. 发起流式分析
 payload = {
-    "question": "分析这份竞品数据并画图",
-    "enable_data_science_agent": True,
-    "external_data": [
-        {"Brand": "A", "Share": 30},
-        {"Brand": "B", "Share": 70}
-    ]
+    “session_id”: session_id,
+    “question”: “分析各品牌市场份额，画饼图并给出结论”,
+    “enable_data_science_agent”: True,
+    “external_data”: [
+        {“Brand”: “A”, “Share”: 30},
+        {“Brand”: “B”, “Share”: 45},
+        {“Brand”: “C”, “Share”: 25}
+    ],
+    “model_provider”: “deepseek”,
+    “model_name”: “deepseek-chat”
 }
 
-# 响应中将包含流式文字报告、Python 代码及图像 Base64
-response = requests.post(url, json=payload, stream=True)
+resp = requests.post(f”{BASE}/api/chat/stream”, json=payload, headers=H, stream=True)
+
+result = {“summary”: “”, “chart”: None, “image_b64”: None}
+for line in resp.iter_lines():
+    if not line: continue
+    msg = json.loads(line.decode().removeprefix(“data: “))
+    event, data = msg[“event”], msg[“data”]
+    if event == “summary”:
+        result[“summary”] += data.get(“content”, “”)
+    elif event == “chart_ready”:
+        result[“chart”] = data.get(“option”)   # ECharts 配置
+    elif event == “execution_result”:
+        result[“image_b64”] = data.get(“image”) # Base64 图像
+    elif event == “done”:
+        break
+
+print(result[“summary”])
 ```
 
 ---
 
-## 📅 路线图
-- [ ] **多租户 API Key 管理**：支持 M2M 调用的鉴权与频率限制。
-- [ ] **MCP 协议支持**：实现 Model Context Protocol 接口。
-- [ ] **自动化 PPT 生成**：将分析看板一键导出为演示文稿。
+### 场景二：上传 PDF → 后台知识抽取 → 查询实体与路径
+
+适合：外部 Agent 需要将文档知识结构化后供后续推理使用。
+
+```python
+import time
+
+# 1. 创建会话
+session_id = requests.post(f”{BASE}/api/sessions”, headers=H).json()[“id”]
+
+# 2. 上传 PDF，触发后台深度知识抽取
+with open(“report.pdf”, “rb”) as f:
+    resp = requests.post(
+        f”{BASE}/api/upload/knowledge”,
+        headers=H,
+        data={“session_id”: session_id, “engine”: “pro”},
+        files={“file”: (“report.pdf”, f, “application/pdf”)}
+    )
+print(“任务已提交:”, resp.json())
+
+# 3. 轮询任务状态，等待后台完成
+#    status: running | completed | failed | cancelled | idle
+for _ in range(60):  # 最多等 5 分钟
+    time.sleep(5)
+    s = requests.get(f”{BASE}/api/upload/knowledge/status/{session_id}”, headers=H).json()
+    print(f”  状态: {s['status']} | 文件: {s['filename']}”)
+    if s[“status”] == “completed”:
+        print(f”✅ 抽取完成”)
+        break
+    elif s[“status”] in (“failed”, “cancelled”):
+        print(f”❌ 任务异常: {s.get('error')}”)
+        break
+
+# 4. 查询知识图谱（实体 + 关系）
+graph = requests.get(f”{BASE}/api/knowledge-graph/graph”, headers=H).json()
+print(f”实体数：{len(graph['entities'])}，关系数：{len(graph['relations'])}”)
+
+# 5. 查询两个实体之间的最短路径
+path = requests.get(
+    f”{BASE}/api/knowledge-graph/path”,
+    headers=H,
+    params={“source”: “实体A”, “target”: “实体B”, “max_hops”: 4}
+).json()
+print(“最短路径:”, path)
+
+# 6. 导出完整图谱供下游使用
+export = requests.get(f”{BASE}/api/knowledge-graph/export”, headers=H).json()
+```
+
+---
+
+### 场景三：查询业务库结构 → 自然语言转 SQL → 获取结果
+
+适合：外部 Agent 需要查询 DataPulse 管理的业务数据库，无需了解具体表结构。
+
+```python
+# 1. 获取可用数据库列表
+dbs = requests.get(f”{BASE}/api/biz-sync/databases”, headers=H).json()
+db_key = dbs[0][“key”]  # 例如 “classic_business”
+
+# 2. 获取该库的表结构（可作为上下文提供给上游 LLM）
+schema = requests.get(f”{BASE}/api/biz-sync/schema/{db_key}”, headers=H).json()
+
+# 3. 创建会话并绑定目标数据库
+session_id = requests.post(
+    f”{BASE}/api/sessions”,
+    headers=H,
+    json={“database_key”: db_key}
+).json()[“id”]
+
+# 4. 自然语言查询，标准模式（自动生成 SQL 并执行）
+payload = {
+    “session_id”: session_id,
+    “question”: “统计各地区过去 30 天的销售额，按降序排列”,
+    “model_provider”: “deepseek”,
+    “model_name”: “deepseek-chat”
+}
+
+resp = requests.post(f”{BASE}/api/chat/stream”, json=payload, headers=H, stream=True)
+
+result = {“sql”: “”, “rows”: [], “summary”: “”}
+for line in resp.iter_lines():
+    if not line: continue
+    msg = json.loads(line.decode().removeprefix(“data: “))
+    event, data = msg[“event”], msg[“data”]
+    if event == “sql_generated”:
+        result[“sql”] = data.get(“sql”, “”)
+    elif event == “sql_result”:
+        result[“rows”] = data.get(“rows”, [])
+    elif event == “summary”:
+        result[“summary”] += data.get(“content”, “”)
+    elif event == “done”:
+        break
+
+print(“SQL:”, result[“sql”])
+print(“结果行数:”, len(result[“rows”]))
+print(“分析结论:”, result[“summary”])
+```
+
+---
+
+### 场景四：无状态单次调用（无需预建 session）
+
+适合：快速集成，不想管理 session 生命周期。
+
+```python
+payload = {
+    "question": "分析这份竞品数据并画图",
+    "enable_data_science_agent": True,
+    "external_data": [{"Brand": "A", "Share": 30}, {"Brand": "B", "Share": 70}],
+    "model_provider": "deepseek",
+    "model_name": "deepseek-chat",
+    # "database_key": "classic_business",  # 可选，指定业务库
+}
+
+resp = requests.post(f"{BASE}/api/chat/once", json=payload, headers=H, stream=True)
+
+# 系统自动创建临时 session，session_id 在响应 Header 中返回
+session_id = resp.headers.get("X-Session-Id")
+
+result = {"summary": "", "chart": None}
+for line in resp.iter_lines():
+    if not line: continue
+    msg = json.loads(line.decode().removeprefix("data: "))
+    if msg["event"] == "summary":
+        result["summary"] += msg["data"].get("content", "")
+    elif msg["event"] == "chart_ready":
+        result["chart"] = msg["data"].get("option")
+    elif msg["event"] == "done":
+        break
+
+print(result["summary"])
+
+# 可选：清理临时 session
+if session_id:
+    requests.delete(f"{BASE}/api/sessions/{session_id}", headers=H)
+```
+
+---
+
+### SSE 事件说明
+
+`/api/chat/stream` 返回 `text/event-stream`，每行格式为 `data: {json}`：
+
+| event | 含义 | data 字段 |
+|-------|------|-----------|
+| `thinking` | 系统状态提示 | `content: str` |
+| `model_thinking` | AI 推理过程（思考模式） | `content: str` |
+| `sql_generated` | 生成的 SQL 语句 | `sql: str` |
+| `sql_result` | SQL 执行结果 | `rows: list`, `columns: list` |
+| `chart_ready` | ECharts 图表配置 | `option: dict`, `chart_type: str` |
+| `execution_result` | Python 执行结果（科学家模式） | `image: str (Base64)`, `stdout: str` |
+| `summary` | AI 文字回答（流式分块） | `content: str` |
+| `done` | 本次请求结束 | `summary: str`, `sql: str` 等汇总 |
+| `error` | 出错 | `content: str` 或 `message: str` |

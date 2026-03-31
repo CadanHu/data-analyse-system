@@ -14,7 +14,8 @@ import {
   clearDirtyFlags,
   webMergeFromServer,
 } from './localStore'
-import dbService, { isDbInitialized } from './db'
+import dbService, { isDbInitialized, saveCommunitiesToDb, listKnowledgeDocs } from './db'
+import { knowledgeGraphApi } from '../api'
 
 const SYNC_TIMEOUT_MS = 15000       // ping / pull 超时
 const PUSH_TIMEOUT_MS = 60000       // push 可能携带大量 chunks，热点传输给足时间
@@ -172,6 +173,40 @@ export async function fullSync(): Promise<void> {
 
     if (pulled.server_time) {
       localStorage.setItem(LAST_SYNC_TS_KEY, pulled.server_time)
+    }
+
+    // ─── 社区数据主动同步（原生端）——拉取服务器所有已知文档的社区数据
+    // 解决旧数据没有存入本地的历史问题
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const userId = useAuthStore.getState().localUserId ?? -1
+        // 获取本地所有知识图谱已知文档
+        const localDocs = await listKnowledgeDocs(userId, null)
+        if (localDocs.length > 0) {
+          console.log(`[Sync] 📥 开始社区数据同步，共 ${localDocs.length} 个文档`)
+          let synced = 0
+          for (const docName of localDocs) {
+            try {
+              const res = await knowledgeGraphApi.getCommunities(docName)
+              if (res.communities.length > 0) {
+                await saveCommunitiesToDb(docName, res.communities.map(c => ({
+                  community_id: c.community_id,
+                  title: c.title,
+                  summary: c.summary,
+                  entity_texts: Array.isArray(c.entity_texts) ? c.entity_texts : [],
+                  size: c.size ?? 0,
+                })))
+                synced++
+              }
+            } catch {
+              // 单个文档失败不阻断后续同步
+            }
+          }
+          if (synced > 0) console.log(`[Sync] ✅ 社区同步完成: ${synced}/${localDocs.length} 个文档`)
+        }
+      } catch (commErr) {
+        console.warn('[Sync] 社区批量同步失败:', commErr)
+      }
     }
 
     // 3. Push dirty rows (native only; web has no local dirty rows)

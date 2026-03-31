@@ -305,7 +305,7 @@ async def run_scientist_mode(request: ChatRequest, current_user: dict):
 
         except Exception as e:
             traceback.print_exc()
-            yield {"event": "error", "data": {"content": f"Scientist Mode Error: {str(e)}"}}
+            yield {"event": "error", "data": {"message": f"Scientist Mode Error: {str(e)}"}}
 
     return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
 
@@ -412,7 +412,7 @@ async def run_thinking_mode(request: ChatRequest, current_user: dict):
                     asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
         except Exception as e:
             traceback.print_exc()
-            yield {"event": "error", "data": {"content": f"Thinking Mode Error: {str(e)}"}}
+            yield {"event": "error", "data": {"message": f"Thinking Mode Error: {str(e)}"}}
 
     return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
 
@@ -568,7 +568,7 @@ async def run_rag_mode(request: ChatRequest, current_user: dict):
                     asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
         except Exception as e:
             traceback.print_exc()
-            yield {"event": "error", "data": {"content": f"RAG Mode Error: {str(e)}"}}
+            yield {"event": "error", "data": {"message": f"RAG Mode Error: {str(e)}"}}
 
     return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
 
@@ -646,7 +646,7 @@ async def run_depth_mode(request: ChatRequest, current_user: dict):
                     asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
         except Exception as e:
             traceback.print_exc()
-            yield {"event": "error", "data": {"content": f"Depth Mode Error: {str(e)}"}}
+            yield {"event": "error", "data": {"message": f"Depth Mode Error: {str(e)}"}}
 
     return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
 
@@ -758,7 +758,7 @@ async def run_standard_mode(request: ChatRequest, current_user: dict):
                     asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
         except Exception as e:
             traceback.print_exc()
-            yield {"event": "error", "data": {"content": f"Standard Mode Error: {str(e)}"}}
+            yield {"event": "error", "data": {"message": f"Standard Mode Error: {str(e)}"}}
 
     return StreamingResponse(StreamableHTTPService.generate_stream(event_generator()), media_type="text/event-stream")
 
@@ -870,13 +870,108 @@ async def chat_stream(request: ChatRequest, current_user: dict = Depends(get_cur
         print(f"🔑 [ChatStream] 已为用户 {user_id} 注入 {provider} 自定义 API Key")
 
     # 🌟 3. 核心分发逻辑
+    request_id = str(uuid.uuid4())
     if request.enable_data_science_agent:
-        return await run_scientist_mode(request, current_user)
+        resp = await run_scientist_mode(request, current_user)
     elif request.enable_depth:
-        return await run_depth_mode(request, current_user)
+        resp = await run_depth_mode(request, current_user)
     elif request.enable_rag:
-        return await run_rag_mode(request, current_user)
+        resp = await run_rag_mode(request, current_user)
     elif request.enable_thinking:
-        return await run_thinking_mode(request, current_user)
+        resp = await run_thinking_mode(request, current_user)
     else:
-        return await run_standard_mode(request, current_user)
+        resp = await run_standard_mode(request, current_user)
+    resp.headers["X-Request-Id"] = request_id
+    return resp
+
+
+# ==================== 3. 无状态单次调用 (Stateless Once) ====================
+
+class OnceRequest(BaseModel):
+    """
+    无状态单次调用请求体 / Stateless single-call request body
+    无需提前创建 session，系统自动创建临时会话并在响应 Header 中返回 session_id。
+    调用方可按需调用 DELETE /api/sessions/{session_id} 清理。
+    """
+    question: str
+    database_key: Optional[str] = "classic_business"
+    enable_data_science_agent: bool = False
+    enable_depth: bool = False
+    enable_rag: bool = False
+    enable_thinking: bool = False
+    no_database: bool = False
+    external_data: Optional[List[Dict[str, Any]]] = None
+    model_provider: Optional[str] = None
+    model_name: Optional[str] = None
+    language: Optional[str] = "zh"
+
+
+@router.post("/chat/once")
+async def chat_once(request: OnceRequest, current_user: dict = Depends(get_current_user)):
+    """
+    无状态单次调用入口 / Stateless single-call dispatcher
+
+    自动创建临时 session，完成分析后在响应 Header X-Session-Id 中返回 session_id，
+    调用方可按需清理（DELETE /api/sessions/{session_id}）。
+    响应格式与 /chat/stream 完全一致（SSE 流）。
+    """
+    user_id = current_user["id"]
+
+    # 1. 自动创建临时会话
+    session_id = await session_db.create_session(
+        user_id=user_id,
+        title="[once]",
+        database_key=request.database_key or "classic_business",
+    )
+
+    # 2. 组装 ChatRequest
+    chat_req = ChatRequest(
+        session_id=session_id,
+        question=request.question,
+        enable_data_science_agent=request.enable_data_science_agent,
+        enable_depth=request.enable_depth,
+        enable_rag=request.enable_rag,
+        enable_thinking=request.enable_thinking,
+        no_database=request.no_database,
+        external_data=request.external_data,
+        model_provider=request.model_provider,
+        model_name=request.model_name,
+        language=request.language,
+    )
+
+    # 3. 解析 API Key（与 chat_stream 相同逻辑）
+    provider = chat_req.model_provider
+    if not provider:
+        all_keys = await session_db.get_all_api_keys(user_id)
+        if all_keys:
+            sorted_keys = sorted(all_keys, key=lambda k: k.get("updated_at") or "", reverse=True)
+            provider = sorted_keys[0]["provider"]
+            chat_req.model_provider = provider
+            if not chat_req.model_name and sorted_keys[0].get("model_name"):
+                chat_req.model_name = sorted_keys[0]["model_name"]
+    provider = provider or DEFAULT_PROVIDER
+    user_key_record = await session_db.get_api_key(user_id, provider)
+    if user_key_record:
+        ctx_keys = {f"{provider}_api_key": user_key_record["api_key"]}
+        if user_key_record.get("base_url"):
+            ctx_keys[f"{provider}_base_url"] = user_key_record["base_url"]
+        if not chat_req.model_name and user_key_record.get("model_name"):
+            chat_req.model_name = user_key_record["model_name"]
+        set_user_api_keys(ctx_keys)
+
+    # 4. 分发到对应模式处理器
+    if chat_req.enable_data_science_agent:
+        response = await run_scientist_mode(chat_req, current_user)
+    elif chat_req.enable_depth:
+        response = await run_depth_mode(chat_req, current_user)
+    elif chat_req.enable_rag:
+        response = await run_rag_mode(chat_req, current_user)
+    elif chat_req.enable_thinking:
+        response = await run_thinking_mode(chat_req, current_user)
+    else:
+        response = await run_standard_mode(chat_req, current_user)
+
+    # 5. 在响应 Header 中暴露 session_id 和 request_id
+    response.headers["X-Session-Id"] = session_id
+    response.headers["X-Request-Id"] = str(uuid.uuid4())
+    return response

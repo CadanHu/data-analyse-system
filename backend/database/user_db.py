@@ -26,6 +26,17 @@ class VerificationCodeModel(Base):
     code = Column(String(10), nullable=False)
     expires_at = Column(DateTime, nullable=False)
 
+class ApiTokenModel(Base):
+    __tablename__ = 'api_tokens'
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    name = Column(String(100), nullable=False)          # 用户给 token 起的名字
+    token_hash = Column(String(64), unique=True, nullable=False)  # SHA-256 hex
+    scopes = Column(String(255), default="full")        # 权限范围，逗号分隔
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)        # NULL = 永不过期
+
 class UserDatabase:
     """使用 SQLAlchemy 实现的用户数据库"""
     
@@ -84,6 +95,84 @@ class UserDatabase:
             result = await session.execute(select(VerificationCodeModel).where(VerificationCodeModel.email == email))
             vc = result.scalar_one_or_none()
             return self._to_dict(vc) if vc else None
+
+    async def create_api_token(self, user_id: int, name: str, scopes: str = "full", expires_days: Optional[int] = None) -> Dict[str, Any]:
+        """生成 M2M API Token，返回明文（仅此一次）"""
+        import secrets, hashlib, uuid
+        from datetime import timedelta
+        raw_token = "dp_" + secrets.token_hex(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        expires_at = datetime.utcnow() + timedelta(days=expires_days) if expires_days else None
+        async with self.async_session() as session:
+            record = ApiTokenModel(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                name=name,
+                token_hash=token_hash,
+                scopes=scopes,
+                expires_at=expires_at,
+            )
+            session.add(record)
+            await session.commit()
+        return {
+            "id": record.id,
+            "name": name,
+            "token": raw_token,   # 仅返回一次
+            "scopes": scopes,
+            "created_at": record.created_at.isoformat(),
+            "expires_at": expires_at.isoformat() if expires_at else None,
+        }
+
+    async def get_api_token_by_hash(self, token_hash: str) -> Optional[Dict[str, Any]]:
+        """通过 hash 查找 token 记录（用于鉴权）"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(ApiTokenModel).where(ApiTokenModel.token_hash == token_hash)
+            )
+            record = result.scalar_one_or_none()
+            return self._to_dict(record) if record else None
+
+    async def list_api_tokens(self, user_id: int) -> list:
+        """列出用户的所有 token（不含 hash）"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(ApiTokenModel).where(ApiTokenModel.user_id == user_id)
+                                     .order_by(ApiTokenModel.created_at.desc())
+            )
+            records = result.scalars().all()
+            return [
+                {
+                    "id": r.id, "name": r.name, "scopes": r.scopes,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+                    "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+                }
+                for r in records
+            ]
+
+    async def revoke_api_token(self, token_id: str, user_id: int) -> bool:
+        """撤销一个 token"""
+        from sqlalchemy import delete
+        async with self.async_session() as session:
+            result = await session.execute(
+                delete(ApiTokenModel).where(
+                    ApiTokenModel.id == token_id,
+                    ApiTokenModel.user_id == user_id
+                )
+            )
+            await session.commit()
+            return result.rowcount > 0
+
+    async def touch_api_token(self, token_id: str):
+        """更新最后使用时间"""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(ApiTokenModel).where(ApiTokenModel.id == token_id)
+            )
+            record = result.scalar_one_or_none()
+            if record:
+                record.last_used_at = datetime.utcnow()
+                await session.commit()
 
     def _to_dict(self, model_obj):
         if not model_obj: return None

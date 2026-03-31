@@ -7,7 +7,7 @@ import string
 from datetime import datetime, timedelta
 
 from models.user import UserCreate, UserResponse, Token, UserLogin, SendCodeRequest
-from database.user_db import user_db
+from database.user_db import user_db, ApiTokenModel, UserModel
 from utils.security import get_password_hash, verify_password, create_access_token, decode_access_token
 from config import ACCESS_TOKEN_EXPIRE_MINUTES
 from utils.email import send_verification_email
@@ -20,40 +20,65 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     """获取当前登录用户的依赖项 / Get current logged-in user dependency"""
-    print(f"\n🔍 [AUTH] 验证 Token... / Verifying Token...")
-    print(f"   收到 Token: {token[:30]}...")
-    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid authentication credentials (无效的认证凭证)",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+
+    # M2M Token 路径：dp_ 开头
+    if token.startswith("dp_"):
+        import hashlib, asyncio
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        record = await user_db.get_api_token_by_hash(token_hash)
+        if not record:
+            raise credentials_exception
+        # 检查是否过期
+        exp = record.get("expires_at")
+        if exp:
+            if isinstance(exp, str):
+                exp = datetime.fromisoformat(exp)
+            if datetime.utcnow() > exp:
+                raise credentials_exception
+        # 异步更新最后使用时间（不阻塞请求）
+        asyncio.create_task(user_db.touch_api_token(record["id"]))
+        # 通过 user_id 查找用户
+        from sqlalchemy.future import select as _select
+        async with user_db.async_session() as s:
+            res = await s.execute(_select(UserModel).where(UserModel.id == record["user_id"]))
+            u = res.scalar_one_or_none()
+        if not u:
+            raise credentials_exception
+        return {c.name: getattr(u, c.name) for c in u.__table__.columns}
+
+    # JWT 路径（原有逻辑）
+    print(f"\n🔍 [AUTH] 验证 Token... / Verifying Token...")
+    print(f"   收到 Token: {token[:30]}...")
     try:
         payload = decode_access_token(token)
         print(f"   Token 解码结果 / Token payload: {payload}")
     except Exception as e:
         print(f"   ❌ Token 解码失败 / Token decoding failed: {e}")
         raise credentials_exception
-    
+
     if payload is None:
         print(f"   ❌ Token 解码返回 None / Token payload is None")
         raise credentials_exception
-    
+
     email: str = payload.get("sub")
     print(f"   Token sub (email): {email}")
-    
+
     if email is None:
         print(f"   ❌ Token 中不包含 email / No email in token")
         raise credentials_exception
-    
+
     print(f"\n🔍 [AUTH] 查找用户... / Finding user...")
     user = await user_db.get_user_by_email(email)
-    
+
     if user is None:
         print(f"   ❌ 用户不存在 / User not found: {email}")
         raise credentials_exception
-    
+
     print(f"   ✅ 找到用户 / User found: {user['username']} ({user['email']})")
     print(f"{'='*60}\n")
     return user
@@ -217,3 +242,42 @@ async def read_users_me(current_user: dict = Depends(get_current_user)):
     print(f"   用户名 / Username：{current_user['username']}")
     print(f"{'='*60}\n")
     return current_user
+
+# ==================== M2M Token 管理接口 ====================
+
+from pydantic import BaseModel as _BaseModel
+from typing import Optional as _Optional
+
+class CreateTokenRequest(_BaseModel):
+    name: str
+    scopes: str = "full"
+    expires_days: _Optional[int] = None  # None = 永不过期
+
+@router.post("/api-tokens", tags=["M2M Token"])
+async def create_api_token(
+    body: CreateTokenRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """创建 M2M API Token（明文仅返回一次）"""
+    return await user_db.create_api_token(
+        user_id=current_user["id"],
+        name=body.name,
+        scopes=body.scopes,
+        expires_days=body.expires_days,
+    )
+
+@router.get("/api-tokens", tags=["M2M Token"])
+async def list_api_tokens(current_user: dict = Depends(get_current_user)):
+    """列出当前用户的所有 M2M Token（不含明文）"""
+    return {"tokens": await user_db.list_api_tokens(current_user["id"])}
+
+@router.delete("/api-tokens/{token_id}", tags=["M2M Token"])
+async def revoke_api_token(
+    token_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """撤销一个 M2M Token"""
+    ok = await user_db.revoke_api_token(token_id, current_user["id"])
+    if not ok:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return {"revoked": True}
