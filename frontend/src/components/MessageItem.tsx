@@ -1132,7 +1132,7 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
               </span>
             </div>
 
-            {isKnowledgeExtraction && (pdfUrl || parsedData?.markdown_full) && (
+            {isKnowledgeExtraction && (pdfUrl || localPdfUri || parsedData?.markdown_full) && (
               <div className="relative group/action">
                 <button
                   onClick={() => setShowPreview(true)}

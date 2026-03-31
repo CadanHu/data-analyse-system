@@ -70,8 +70,7 @@ async def test_mysql():
         print("💡 请检查:")
         print("   1. MySQL 服务是否正在运行")
         print("   2. .env 文件中的 MYSQL_PASSWORD 是否正确")
-        print("   3. 数据库 MYSQL_DATABASE 是否存在")
-        print("   4. 用户 MYSQL_USER 是否有访问权限")
+        print("   3. 用户 MYSQL_USER 是否有访问权限")
 
     finally:
         await adapter.disconnect()

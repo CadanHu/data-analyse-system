@@ -37,6 +37,7 @@ import {
   getGraphDocIdsForSession,
   findEntitiesInText,
   findRelationsForEntityNames,
+  saveCommunitiesToDb,
   type KnowledgeChunk,
 } from './db'
 import { localGetApiKey } from './localStore'
@@ -1453,7 +1454,15 @@ async function detectAndUploadCommunities(
     }
   }
 
-  // ─ POST 到服务器（KnowledgeGraphModal 从服务器读取，无需改 modal）───────────
+  // ─ 先存本地 SQLite（离线时服务器不可达，但本地数据不丢失）───────────────────
+  try {
+    await saveCommunitiesToDb(docName, communities)
+    console.log(`[Community] ✅ 已将 ${communities.length} 个社区存入本地 SQLite: ${docName}`)
+  } catch (e) {
+    console.warn('[Community] 本地存储社区失败:', e instanceof Error ? e.message : String(e))
+  }
+
+  // ─ 再尝试 POST 到服务器（在线时同步，离线则优雅降级）───────────────────────
   try {
     const base = getBaseURL()
     const token = useAuthStore.getState().token || ''
@@ -1462,15 +1471,18 @@ async function detectAndUploadCommunities(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ doc_id: docName, communities }),
+      signal: timedSignal(10000),
     })
     if (res.ok) {
       onProgress?.(`社区报告生成完成（${communities.length} 个社区）`)
-      console.log(`[Community] ✅ 上传 ${communities.length} 个社区: ${docName}`)
+      console.log(`[Community] ✅ 上传 ${communities.length} 个社区到服务器: ${docName}`)
     } else {
-      console.warn('[Community] 上传失败:', res.status)
+      console.warn('[Community] 服务器上传失败:', res.status, '（本地已存储）')
+      onProgress?.(`社区报告已本地保存（${communities.length} 个社区）`)
     }
   } catch (e) {
-    console.warn('[Community] 上传社区失败:', e instanceof Error ? e.message : String(e))
+    console.warn('[Community] 服务器不可达（本地已存储）:', e instanceof Error ? e.message : String(e))
+    onProgress?.(`社区报告已本地保存（${communities.length} 个社区）`)
   }
 }
 

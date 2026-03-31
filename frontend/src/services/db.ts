@@ -218,6 +218,19 @@ CREATE TABLE IF NOT EXISTS biz_sync_meta (
   row_count  INTEGER DEFAULT 0,
   PRIMARY KEY (db_key, table_name)
 );
+
+-- 知识图谱社区报告（mobile 本地生成，离线可用）
+CREATE TABLE IF NOT EXISTS knowledge_communities (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id       TEXT    NOT NULL,
+  community_id INTEGER NOT NULL,
+  title        TEXT    NOT NULL DEFAULT '',
+  summary      TEXT    NOT NULL DEFAULT '',
+  entity_texts TEXT    NOT NULL DEFAULT '[]',
+  size         INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_kcomm_doc ON knowledge_communities(doc_id);
 `
 
 // ==================== DB Service ====================
@@ -1080,6 +1093,58 @@ export async function findRelationsForEntityNames(
     }
   }
   return results.slice(0, 60)
+}
+
+// ─── 知识图谱社区（离线持久化）──────────────────────────────────────────────────
+
+export interface LocalCommunity {
+  id?: number
+  doc_id: string
+  community_id: number
+  title: string
+  summary: string
+  entity_texts: string[]  // 存储为 JSON 字符串，读取时自动解析
+  size: number
+  created_at?: string
+}
+
+/** 保存某文档的社区列表到本地 SQLite（先删旧，再插新） */
+export async function saveCommunitiesToDb(
+  docId: string,
+  communities: { community_id: number; title: string; summary: string; entity_texts: string[]; size: number }[]
+): Promise<void> {
+  if (!initialized) return
+  const d = requireDb()
+  await d.run('DELETE FROM knowledge_communities WHERE doc_id = ?', [docId])
+  for (const c of communities) {
+    await d.run(
+      `INSERT INTO knowledge_communities (doc_id, community_id, title, summary, entity_texts, size)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [docId, c.community_id, c.title, c.summary, JSON.stringify(c.entity_texts), c.size]
+    )
+  }
+}
+
+/** 从本地 SQLite 读取某文档的社区列表 */
+export async function loadCommunitiesFromDb(
+  docId: string
+): Promise<LocalCommunity[]> {
+  if (!initialized) return []
+  try {
+    const d = requireDb()
+    const res = await d.query(
+      'SELECT * FROM knowledge_communities WHERE doc_id = ? ORDER BY community_id',
+      [docId]
+    )
+    const rows = ((res.values || []).slice(1)) as any[]
+    return rows.map(r => ({
+      ...r,
+      entity_texts: (() => { try { return JSON.parse(r.entity_texts || '[]') } catch { return [] } })()
+    })) as LocalCommunity[]
+  } catch (e) {
+    console.warn('[DB] loadCommunitiesFromDb 失败:', e)
+    return []
+  }
 }
 
 export const dbService = {

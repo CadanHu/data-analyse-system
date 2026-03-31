@@ -19,7 +19,7 @@ Choose your language:
 
 ## 🌟 Key Features (v3.1)
 
-- **Multi-Provider AI Models**: Bring your own API key — DeepSeek, Qwen, MiniMax, OpenAI, Gemini, Claude. Organized by region (VPN / No-VPN).
+- **Multi-Provider AI Models**: Bring your own API key — DeepSeek, Qwen, MiniMax, OpenAI, Gemini, Claude. Organized by region.
 - **Extended Thinking**: First-class reasoning chain support for DeepSeek R1, Claude Opus/Sonnet, QwQ-32B, and Gemini Pro.
 - **AI Data Scientist Agent**: Secure Python sandbox for complex modeling, multi-table analysis, and Matplotlib/Seaborn chart capturing.
 - **Map Chart & 16+ Visualizations**: Geographic heatmaps, ECharts dynamic dashboards, and professional chart types.

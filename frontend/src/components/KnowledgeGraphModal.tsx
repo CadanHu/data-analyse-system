@@ -18,6 +18,8 @@ import * as echarts from 'echarts'
 import * as XLSX from 'xlsx'
 import dagre from 'dagre'
 import type { KnowledgeGraph } from '@/services/mobileKnowledgeService'
+import { loadCommunitiesFromDb } from '@/services/db'
+import { Capacitor } from '@capacitor/core'
 import { knowledgeGraphApi, type KGEntity, type KGRelation, type KGStats, type KGDocInfo, type KGCommunity } from '@/api/index'
 
 // ─────────────────────────────────────
@@ -1145,7 +1147,29 @@ export default function KnowledgeGraphModal({ graph, onClose }: Props) {
       // view 模式也加载该文档的社区数据
       knowledgeGraphApi.getCommunities(graph.doc_name)
         .then(res => setCommunities(res.communities))
-        .catch(() => {/* 社区加载失败不影响主流程 */})
+        .catch(async () => {
+          // 服务器不可达（离线）：尝试从本地 SQLite 加载社区数据
+          if (Capacitor.isNativePlatform()) {
+            try {
+              const local = await loadCommunitiesFromDb(graph.doc_name)
+              if (local.length > 0) {
+                console.log(`[KG] 离线回退：从本地 SQLite 读取 ${local.length} 个社区: ${graph.doc_name}`)
+                setCommunities(local.map((c, i) => ({
+                  id: typeof c.id === 'number' ? c.id : i,
+                  doc_id: c.doc_id,
+                  community_id: c.community_id,
+                  title: c.title,
+                  summary: c.summary,
+                  entity_texts: c.entity_texts,
+                  size: c.size,
+                  created_at: c.created_at,
+                })) as KGCommunity[])
+              }
+            } catch (e) {
+              console.warn('[KG] 本地社区加载失败:', e)
+            }
+          }
+        })
     }
   }, [graph, manageMode])
 
@@ -1165,6 +1189,25 @@ export default function KnowledgeGraphModal({ graph, onClose }: Props) {
       setCommunities(communitiesData.communities)
     } catch (e) {
       showToast('error', '加载图谱数据失败')
+      // 鞟动端离线回退：尝试从本地加载社区数据
+      if (Capacitor.isNativePlatform() && selectedDocId) {
+        try {
+          const local = await loadCommunitiesFromDb(selectedDocId)
+          if (local.length > 0) {
+            console.log(`[KG] manage 离线回退：本地社区 ${local.length} 个`)
+            setCommunities(local.map((c, i) => ({
+              id: typeof c.id === 'number' ? c.id : i,
+              doc_id: c.doc_id,
+              community_id: c.community_id,
+              title: c.title,
+              summary: c.summary,
+              entity_texts: c.entity_texts,
+              size: c.size,
+              created_at: c.created_at,
+            })) as KGCommunity[])
+          }
+        } catch { /* 忽略 */ }
+      }
     } finally {
       setLoading(false)
     }
