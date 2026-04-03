@@ -818,7 +818,7 @@ class KnowledgeDatabase:
                     await session.execute(
                         text(
                             "UPDATE knowledge_entities "
-                            "SET attributes = jsonb_set(COALESCE(attributes, '{}'), '{pagerank}', :score::jsonb) "
+                            "SET attributes = jsonb_set(COALESCE(attributes, '{}'), '{pagerank}', CAST(:score AS jsonb)) "
                             "WHERE doc_id = :doc_id AND user_id = :user_id AND entity_text = :text"
                         ),
                         {
