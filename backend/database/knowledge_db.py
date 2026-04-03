@@ -155,6 +155,9 @@ class KnowledgeDatabase:
                     "CREATE INDEX IF NOT EXISTS idx_community_level ON knowledge_communities(user_id, level)"
                 ))
                 await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_community_entity_texts ON knowledge_communities USING GIN (entity_texts)"
+                ))
+                await conn.execute(text(
                     "CREATE INDEX IF NOT EXISTS idx_failed_chunk_user_file ON kg_failed_chunks(user_id, filename)"
                 ))
             print(f"✅ PostgreSQL 知识库初始化完成: {PG_DB}")

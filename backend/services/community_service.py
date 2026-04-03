@@ -98,12 +98,12 @@ async def detect_and_summarize_communities(
     # 转换 networkx 到 igraph
     ig_graph = ig.Graph.from_networkx(G)
 
-    # 定义层级：(level, resolution_parameter)
-    # resolution 越高，社区越小（精细）；越低，社区越大（粗粒度）
+    # 定义层级：(level, partition_type, params)
+    # L0 使用 Modularity 最大化（不依赖 resolution），L1/L2 使用 CPM 并降低 resolution 以获得更大的社区
     LEVELS = [
-        (0, 1.0),   # 精细层
-        (1, 0.5),   # 中层
-        (2, 0.1),   # 粗粒度
+        (0, leidenalg.ModularityVertexPartition, {}),          # 精细层：最大化模块度
+        (1, leidenalg.CPMVertexPartition, {"resolution_parameter": 0.05}), # 中层
+        (2, leidenalg.CPMVertexPartition, {"resolution_parameter": 0.01}), # 粗粒度
     ]
 
     total_created = 0
@@ -112,24 +112,26 @@ async def detect_and_summarize_communities(
     logger.info(f"[Community] 🗑 清理旧社区数据...")
     await knowledge_db.delete_communities(doc_id, user_id)
 
-    for level, resolution in LEVELS:
-        logger.info(f"[Community] 🛰 计算 L{level} 社区 (resolution={resolution})...")
+    for level, part_type, params in LEVELS:
+        logger.info(f"[Community] 🛰 计算 L{level} 社区 ({part_type.__name__}, {params})...")
         try:
             partition_obj = leidenalg.find_partition(
                 ig_graph,
-                leidenalg.CPMVertexPartition,  # 使用 CPM 支持 resolution 参数
-                resolution_parameter=resolution,
-                seed=42
+                part_type,
+                seed=42,
+                **params
             )
             # 映射回节点名称
             # igraph 节点有 _nx_name 属性存储原 networkx 节点名
             partition: Dict[int, List[str]] = {}
             for comm_id, member_indices in enumerate(partition_obj):
                 node_names = [ig_graph.vs[i]["_nx_name"] for i in member_indices]
-                if node_names:
+                # 过滤掉单节点社区（除非是极小图），至少需要 2 个节点才有摘要意义
+                if len(node_names) >= 2:
                     partition[comm_id] = node_names
 
             if not partition:
+                logger.info(f"[Community] ⏭ L{level} 无有效社区（节点数均 < 2），跳过")
                 continue
 
             num_comms = len(partition)
