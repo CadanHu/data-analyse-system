@@ -24,11 +24,20 @@ _SUMMARY_PROMPT = """\
 {relations}
 
 请分析核心主题，生成：
-1. 标题：不超过15字
-2. 摘要：80-150字，概括核心内容、主要实体及关键关系
+1. title: 标题，不超过15字
+2. summary: 摘要，80-150字，概括核心内容、主要实体及关键关系
+3. key_findings: 3-5条关键发现（数组）
+4. impact_score: 1-10的重要性评分（整数）
+5. central_entities: 最核心的3-5个实体名（数组）
 
-仅输出 JSON，不要有任何其他文字：
-{{"title": "...", "summary": "..."}}"""
+仅输出标准的 JSON 格式，不要有任何其他解释性文字：
+{{
+  "title": "...",
+  "summary": "...",
+  "key_findings": ["...", "...", "..."],
+  "impact_score": 8,
+  "central_entities": ["实体A", "实体B", "实体C"]
+}}"""
 
 
 async def detect_and_summarize_communities(
@@ -41,19 +50,14 @@ async def detect_and_summarize_communities(
     llm_model: str,
 ) -> int:
     """
-    主入口：社区检测 + LLM 摘要，返回生成的社区数量。
-    失败时静默跳过，不影响主流程。
+    主入口：Leiden 社区检测 + 多层级 LLM 摘要，返回生成的社区数量（底层）。
     """
     try:
         import networkx as nx
+        import igraph as ig
+        import leidenalg
     except ImportError:
-        logger.warning("[Community] 缺少 networkx，请执行: pip install networkx")
-        return 0
-
-    try:
-        import community as community_louvain
-    except ImportError:
-        logger.warning("[Community] 缺少 python-louvain，请执行: pip install python-louvain")
+        logger.warning("[Community] 缺少必要的库 (networkx, igraph, leidenalg)")
         return 0
 
     from database.knowledge_db import knowledge_db
@@ -89,21 +93,61 @@ async def detect_and_summarize_communities(
         logger.info("[Community] ⏭ 图中无有效边，跳过社区检测")
         return 0
 
-    # ── 2. Louvain 社区检测 ───────────────────────────────────────
-    logger.info(f"[Community] 🔍 运行 Louvain 社区检测...")
-    partition: Dict[str, int] = community_louvain.best_partition(G)
+    # ── 2. Leiden 多层级社区检测 ──────────────────────────────────
+    logger.info(f"[Community] 🔍 运行 Leiden 多层级检测...")
+    # 转换 networkx 到 igraph
+    ig_graph = ig.Graph.from_networkx(G)
 
-    comm_nodes: Dict[int, List[str]] = {}
-    for node_text, comm_id in partition.items():
-        comm_nodes.setdefault(comm_id, []).append(node_text)
+    # 定义层级：(level, resolution_parameter)
+    # resolution 越高，社区越小（精细）；越低，社区越大（粗粒度）
+    LEVELS = [
+        (0, 1.0),   # 精细层
+        (1, 0.5),   # 中层
+        (2, 0.1),   # 粗粒度
+    ]
 
-    sizes = sorted([len(v) for v in comm_nodes.values()], reverse=True)
-    logger.info(
-        f"[Community] ✔ Louvain 完成: {len(comm_nodes)} 个社区 "
-        f"(最大={sizes[0] if sizes else 0}, 最小={sizes[-1] if sizes else 0}, 中位={sizes[len(sizes)//2] if sizes else 0})"
-    )
+    total_created = 0
 
-    # ── 2b. PageRank 实体重要性评分 ──────────────────────────────
+    # ── 3. 清理旧社区数据 ─────────────────────────────────────────
+    logger.info(f"[Community] 🗑 清理旧社区数据...")
+    await knowledge_db.delete_communities(doc_id, user_id)
+
+    for level, resolution in LEVELS:
+        logger.info(f"[Community] 🛰 计算 L{level} 社区 (resolution={resolution})...")
+        try:
+            partition_obj = leidenalg.find_partition(
+                ig_graph,
+                leidenalg.CPMVertexPartition,  # 使用 CPM 支持 resolution 参数
+                resolution_parameter=resolution,
+                seed=42
+            )
+            # 映射回节点名称
+            # igraph 节点有 _nx_name 属性存储原 networkx 节点名
+            partition: Dict[int, List[str]] = {}
+            for comm_id, member_indices in enumerate(partition_obj):
+                node_names = [ig_graph.vs[i]["_nx_name"] for i in member_indices]
+                if node_names:
+                    partition[comm_id] = node_names
+
+            if not partition:
+                continue
+
+            num_comms = len(partition)
+            sizes = sorted([len(v) for v in partition.values()], reverse=True)
+            logger.info(f"[Community] ✔ L{level} 完成: {num_comms} 个社区 (最大={sizes[0]})")
+
+            # 摘要并保存该层级
+            level_count = await _summarize_and_save_level(
+                doc_id, user_id, level, partition, edge_labels,
+                llm_url, llm_key, llm_model
+            )
+            if level == 0:
+                total_created = level_count
+
+        except Exception as e:
+            logger.error(f"[Community] ❌ L{level} 检测失败: {e}")
+
+    # ── 4. PageRank 实体重要性评分 (保持不变) ────────────────────
     logger.info(f"[Community] 📊 计算 PageRank 实体重要性...")
     try:
         pagerank_scores: Dict[str, float] = nx.pagerank(G, alpha=0.85)
@@ -115,53 +159,60 @@ async def detect_and_summarize_communities(
     except Exception as pr_err:
         logger.warning(f"[Community] ⚠ PageRank 计算失败: {pr_err}")
 
-    # ── 3. 清理旧社区数据 ─────────────────────────────────────────
-    logger.info(f"[Community] 🗑 清理旧社区数据...")
-    await knowledge_db.delete_communities(doc_id, user_id)
+    return total_created
 
-    # ── 4. 逐社区生成摘要并保存 ──────────────────────────────────
-    logger.info(f"[Community] 📝 开始为 {len(comm_nodes)} 个社区生成 LLM 摘要...")
+
+async def _summarize_and_save_level(
+    doc_id: str,
+    user_id: int,
+    level: int,
+    comm_nodes: Dict[int, List[str]],
+    edge_labels: Dict[Tuple[str, str], List[str]],
+    llm_url: str,
+    llm_key: str,
+    llm_model: str,
+) -> int:
+    """内部工具：为某一层的社区生成摘要并存入 DB"""
+    from database.knowledge_db import knowledge_db
+
+    logger.info(f"[Community] 📝 开始为 L{level} 的 {len(comm_nodes)} 个社区生成摘要...")
     community_records = []
-    sorted_comms = sorted(comm_nodes.items(), key=lambda x: -len(x[1]))
+    # 限制每层最多处理的社区数量，防止 token 爆炸（对于 L2 粗粒度通常很少，L0 精细层可能较多）
+    max_comms = 20 if level > 0 else 50
+    sorted_comms = sorted(comm_nodes.items(), key=lambda x: -len(x[1]))[:max_comms]
     total = len(sorted_comms)
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=40.0) as client:
         for idx, (comm_id, node_texts) in enumerate(sorted_comms, start=1):
             node_set = set(node_texts)
-
             internal_rels: List[str] = []
             for (src, tgt), labels in edge_labels.items():
                 if src in node_set and tgt in node_set:
                     for lbl in labels:
                         internal_rels.append(f"  - {src} --[{lbl}]--> {tgt}")
-                    if len(internal_rels) >= 30:
-                        break
+                    if len(internal_rels) >= 30: break
 
             entities_str = "、".join(node_texts[:40])
             relations_str = "\n".join(internal_rels) if internal_rels else "（无内部关系）"
 
-            title = f"主题群 {comm_id + 1}"
-            summary = f"包含 {len(node_texts)} 个实体：{entities_str[:150]}"
+            # 默认值
+            res_data = {
+                "title": f"L{level} 社区 {comm_id}",
+                "summary": f"包含 {len(node_texts)} 个实体：{entities_str[:150]}",
+                "key_findings": [],
+                "impact_score": 5,
+                "central_entities": node_texts[:3]
+            }
 
-            logger.info(
-                f"[Community] ⏳ [{idx}/{total}] 生成社区摘要: "
-                f"实体数={len(node_texts)}, 内部关系={len(internal_rels)}"
-            )
             try:
-                prompt = _SUMMARY_PROMPT.format(
-                    entities=entities_str,
-                    relations=relations_str,
-                )
+                prompt = _SUMMARY_PROMPT.format(entities=entities_str, relations=relations_str)
                 resp = await client.post(
                     llm_url,
-                    headers={
-                        "Authorization": f"Bearer {llm_key}",
-                        "Content-Type": "application/json",
-                    },
+                    headers={"Authorization": f"Bearer {llm_key}", "Content-Type": "application/json"},
                     json={
                         "model": llm_model,
                         "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 300,
+                        "temperature": 0.3,
                     },
                 )
                 resp.raise_for_status()
@@ -169,21 +220,18 @@ async def detect_and_summarize_communities(
                 match = re.search(r'\{[\s\S]*?\}', raw)
                 if match:
                     parsed = json.loads(match.group(0))
-                    title = parsed.get("title") or title
-                    summary = parsed.get("summary") or summary
-                logger.info(f"[Community] ✔ [{idx}/{total}] 摘要生成成功: 「{title}」")
-            except Exception as llm_err:
-                logger.warning(f"[Community] ⚠ [{idx}/{total}] 摘要生成失败，使用默认摘要: {llm_err}")
+                    for key in res_data:
+                        if key in parsed: res_data[key] = parsed[key]
+                logger.info(f"[Community] ✔ L{level} [{idx}/{total}] 摘要成功: 「{res_data['title']}」")
+            except Exception as e:
+                logger.warning(f"[Community] ⚠ L{level} [{idx}/{total}] 摘要失败: {e}")
 
             community_records.append({
                 "community_id": comm_id,
-                "title": title,
-                "summary": summary,
+                **res_data,
                 "entity_texts": node_texts,
                 "size": len(node_texts),
             })
 
-    logger.info(f"[Community] 💾 保存 {len(community_records)} 个社区到 DB...")
-    await knowledge_db.save_communities(doc_id, user_id, community_records)
-    logger.info(f"[Community] ✅ 全部完成: {len(community_records)} 个社区 (doc: {doc_id})")
+    await knowledge_db.save_communities(doc_id, user_id, community_records, level=level)
     return len(community_records)
