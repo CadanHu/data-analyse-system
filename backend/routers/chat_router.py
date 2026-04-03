@@ -478,14 +478,41 @@ async def run_rag_mode(request: ChatRequest, current_user: dict):
             # ── 知识图谱检索 ──────────────────────────────────────
             graph_context = ""
             if ctx_profile.needs_global_graph:
-                logger.info("[RAG] 🌐 触发全局图谱搜索（宏观问题 → 社区摘要）")
+                logger.info("[RAG] 🌐 触发全局图谱搜索 (Map-Reduce 模式)")
                 from services.graph_rag_service import graph_rag_service
-                graph_context = await graph_rag_service.global_search(user_id)
-                if graph_context:
-                    logger.info(f"[RAG] ✔ 社区摘要注入: {len(graph_context)} 字符")
-                    yield {"event": "thinking", "data": {"content": "Found community summaries (已加载知识图谱社区摘要)."}}
-                else:
-                    logger.info("[RAG] 社区摘要为空（可能尚未完成社区检测）")
+                yield {"event": "thinking", "data": {"content": "Starting Map-Reduce Global Search (正在启动 Map-Reduce 全局搜索分析)..."}}
+
+                final_answer = await graph_rag_service.global_search_mapreduce(
+                    request.question, user_id,
+                    level=2,
+                    provider=request.model_provider,
+                    model_name=request.model_name
+                )
+
+                # 直接保存并返回答案，跳过后续 Standard LLM 流程
+                await session_db.create_message({
+                    "id": assistant_message_id,
+                    "session_id": request.session_id,
+                    "user_id": user_id,
+                    "parent_id": user_message_id,
+                    "role": "assistant",
+                    "content": final_answer,
+                    "thinking": "Map-Reduce 全局图谱分析已完成。",
+                    "data": json_dumps({"is_global_graph_answer": True})
+                })
+
+                yield {"event": "answer", "data": {"content": final_answer}}
+                yield {
+                    "event": "done",
+                    "data": {
+                        "message_id": assistant_message_id,
+                        "user_message_id": user_message_id,
+                        "session_title": (request.question or "Global Analysis")[:50]
+                    }
+                }
+                asyncio.create_task(_handle_session_auto_title(request.session_id, user_id, request.question, agent_instance, request.language, provider=request.model_provider, model_name=request.model_name))
+                return  # 🔴 关键点：直接返回，不再走下面的 chat 流程
+
             elif ctx_profile.needs_graph:
                 logger.info("[RAG] 🔗 触发本地图谱搜索（关系型问题 → 实体 BFS 遍历）")
                 from services.graph_rag_service import graph_rag_service

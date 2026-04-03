@@ -5,6 +5,7 @@ GraphRAG 服务：从用户问题中提取实体，查询知识图谱，返回�
 import json
 import re
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional
 
 from database.knowledge_db import knowledge_db
@@ -98,19 +99,38 @@ class GraphRAGService:
                 return ""
 
             logger.info(f"[GraphRAG] 提取到实体: {entities}")
+            # 1. BFS 关系遍历
             graph_data = await knowledge_db.multi_hop_traverse(
                 start_texts=entities,
                 user_id=user_id,
                 hops=2,
             )
+
+            # 2. 社区摘要增强 (Phase 4)
+            community_context = ""
+            try:
+                # 查找这些实体属于哪些 L0 (精细) 社区
+                communities = await knowledge_db.get_communities_for_entities(
+                    entities=graph_data["entities"],
+                    user_id=user_id,
+                    level=0
+                )
+                if communities:
+                    lines = ["相关社区背景："]
+                    for c in communities[:3]:  # 最多取前 3 个相关社区
+                        lines.append(f"- {c['title']}: {c['summary']}")
+                    community_context = "\n".join(lines)
+            except Exception as ce:
+                logger.warning(f"[GraphRAG] 社区增强检索失败: {ce}")
+
             rel_count = len(graph_data["relations"])
             entity_count = len(graph_data["entities"])
-            if not rel_count:
-                logger.info("[GraphRAG] 图谱遍历未找到相关关系")
+            if not rel_count and not community_context:
+                logger.info("[GraphRAG] 图谱遍历未找到相关数据")
                 return ""
 
-            logger.info(f"[GraphRAG] ✔ 遍历完成: {entity_count} 实体, {rel_count} 关系")
-            return self._format_context(entities, graph_data)
+            logger.info(f"[GraphRAG] ✔ 遍历完成: {entity_count} 实体, {rel_count} 关系, {bool(community_context)} 社区背景")
+            return self._format_context(entities, graph_data, community_context)
         except Exception as e:
             logger.warning(f"[GraphRAG] search 异常（跳过图谱注入）: {e}")
             return ""
@@ -123,11 +143,15 @@ class GraphRAGService:
     ) -> str:
         """
         全局搜索：从 knowledge_communities 取社区摘要，格式化为可注入 Prompt 的字符串。
-        用于宏观问题（"整体讲了什么"、"主要有哪些关系"等）。
+        用于向后兼容，仅提供上下文注入。
         """
         try:
-            logger.info(f"[GraphRAG] 🌐 全局搜索: user={user_id}, doc={doc_id or '全部'}")
-            communities = await knowledge_db.get_communities(user_id, doc_id=doc_id)
+            logger.info(f"[GraphRAG] 🌐 全局搜索 (上下文模式): user={user_id}, doc={doc_id or '全部'}")
+            # 优先取 L2 粗粒度社区，如果没有则取 L0
+            communities = await knowledge_db.get_communities(user_id, doc_id=doc_id, level=2)
+            if not communities:
+                communities = await knowledge_db.get_communities(user_id, doc_id=doc_id, level=0)
+
             if not communities:
                 logger.info("[GraphRAG] 全局搜索: 暂无社区摘要数据")
                 return ""
@@ -145,22 +169,96 @@ class GraphRAGService:
             logger.warning(f"[GraphRAG] global_search 异常: {e}")
             return ""
 
-    def _format_context(self, query_entities: List[str], graph_data: Dict) -> str:
+    async def global_search_mapreduce(
+        self,
+        question: str,
+        user_id: int,
+        level: int = 2,
+        doc_id: Optional[str] = None,
+        provider: str = None,
+        model_name: str = None,
+    ) -> str:
+        """
+        Map-Reduce 全局搜索 (Phase 3)：
+        1. Map: 并发让 LLM 根据每个社区摘要回答问题。
+        2. Reduce: 汇总所有局部答案，生成最终全局答案。
+        直接返回答案字符串。
+        """
+        try:
+            logger.info(f"[GraphRAG] 🌍 Map-Reduce 全局搜索: level={level}, user={user_id}")
+            communities = await knowledge_db.get_communities(user_id, doc_id=doc_id, level=level)
+            if not communities:
+                # Fallback to level 0
+                communities = await knowledge_db.get_communities(user_id, doc_id=doc_id, level=0)
+
+            if not communities:
+                return "暂无知识图谱社区数据，无法进行全局分析。"
+
+            # 限制社区数量，避免费用过高
+            communities = communities[:10]
+            logger.info(f"[GraphRAG] Map 阶段: 正在分析 {len(communities)} 个社区...")
+
+            from langchain_core.messages import HumanMessage
+            llm = llm_factory.get_langchain_model(
+                provider=provider, model_name=model_name, temperature=0.0
+            )
+
+            # --- Step 1: Map (并发) ---
+            semaphore = asyncio.Semaphore(5)  # 限制并发数
+
+            async def map_community(comm: Dict) -> str:
+                async with semaphore:
+                    prompt = (
+                        f"你是一个分析专家。请根据以下提供的社区报告，回答用户提出的问题。\n"
+                        f"如果报告中没有相关信息，请简要说明。\n\n"
+                        f"【社区报告：{comm['title']}】\n"
+                        f"摘要：{comm['summary']}\n"
+                        f"关键发现：{', '.join(comm.get('key_findings', []))}\n\n"
+                        f"用户问题：{question}\n\n"
+                        f"请提供针对该社区的局部分析回答："
+                    )
+                    try:
+                        resp = await llm.ainvoke([HumanMessage(content=prompt)])
+                        return f"### 社区: {comm['title']}\n{resp.content}"
+                    except Exception as e:
+                        return f"### 社区: {comm['title']}\n(分析失败: {e})"
+
+            tasks = [map_community(c) for c in communities]
+            partial_answers = await asyncio.gather(*tasks)
+
+            # --- Step 2: Reduce ---
+            logger.info("[GraphRAG] Reduce 阶段: 汇总结果...")
+            all_partials = "\n\n---\n\n".join(partial_answers)
+            reduce_prompt = (
+                f"你是一个资深分析师。以下是对多个知识社区针对同一个问题的局部分析报告。\n"
+                f"请你综合这些局部分析，给出一个完整、系统、有深度的最终回答。\n\n"
+                f"用户问题：{question}\n\n"
+                f"【局部分析汇总】\n"
+                f"{all_partials}\n\n"
+                f"请给出最终综合回答："
+            )
+
+            final_resp = await llm.ainvoke([HumanMessage(content=reduce_prompt)])
+            logger.info("[GraphRAG] ✔ Map-Reduce 全局搜索完成")
+            return str(final_resp.content)
+
+        except Exception as e:
+            logger.error(f"[GraphRAG] global_search_mapreduce 异常: {e}")
+            return f"全局搜索执行失败: {e}"
+
+    def _format_context(self, query_entities: List[str], graph_data: Dict, community_context: str = "") -> str:
         """
         将图谱数据格式化为 Prompt 友好的文本段落。
-        示例输出：
-          【知识图谱上下文】
-          查询实体：阿里巴巴、马云
-          关系链：
-          - 阿里巴巴 --[创始人]--> 马云
-          - 阿里巴巴 --[供应商]--> 菜鸟网络
         """
         lines = ["【知识图谱上下文】"]
         lines.append(f"查询实体：{', '.join(query_entities)}")
 
+        if community_context:
+            lines.append(f"\n{community_context}")
+
         relations = graph_data.get("relations", [])
         if relations:
-            lines.append("关系链：")
+            lines.append("\n关系链：")
             for rel in relations[:30]:  # 最多注入 30 条，避免 token 过多
                 src = rel.get("source", "")
                 rtype = rel.get("relation", "")

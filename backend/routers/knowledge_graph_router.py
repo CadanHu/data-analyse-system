@@ -107,11 +107,12 @@ async def find_path(
 @router.get("/knowledge-graph/communities")
 async def get_communities(
     doc_id: Optional[str] = Query(None, description="按文档过滤，不传则返回全部"),
+    level: Optional[int] = Query(None, description="按层级过滤 (0=精细, 1=中层, 2=粗粒度)"),
     current_user: dict = Depends(get_current_user),
 ):
-    """获取社区列表（Louvain 检测结果 + LLM 摘要），按社区大小降序"""
+    """获取社区列表（Leiden 检测结果 + LLM 摘要），按社区大小降序"""
     communities = await knowledge_db.get_communities(
-        user_id=current_user["id"], doc_id=doc_id
+        user_id=current_user["id"], doc_id=doc_id, level=level
     )
     return {"communities": communities, "total": len(communities)}
 

@@ -37,7 +37,8 @@ seaborn
 
 # 图分析与社区检测
 networkx>=3.0
-python-louvain>=0.16
+leidenalg>=0.10.0
+python-igraph>=0.11.0
 
 # 工具库
 python-dotenv

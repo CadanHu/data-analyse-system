@@ -69,10 +69,15 @@ class KnowledgeCommunityModel(Base):
     summary = Column(Text, nullable=True)               # LLM 生成的社区摘要
     entity_texts = Column(JSONB, default=[])            # 社区内实体名列表
     size = Column(Integer, default=0)                   # 社区实体数量
+    level = Column(Integer, default=0, index=True)      # 0=精细, 1=中层, 2=粗粒度
+    key_findings = Column(JSONB, default=[])            # 关键发现
+    impact_score = Column(Integer, default=0)           # 影响分数
+    central_entities = Column(JSONB, default=[])        # 核心实体
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         Index('idx_community_doc_user', 'doc_id', 'user_id'),
+        Index('idx_community_level', 'user_id', 'level'),
     )
 
 
@@ -132,6 +137,25 @@ class KnowledgeDatabase:
                 ))
                 await conn.execute(text(
                     "CREATE INDEX IF NOT EXISTS idx_community_doc_user ON knowledge_communities(doc_id, user_id)"
+                ))
+                # 迁移：为 knowledge_communities 增加新字段
+                await conn.execute(text(
+                    "ALTER TABLE knowledge_communities ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 0"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE knowledge_communities ADD COLUMN IF NOT EXISTS key_findings JSONB DEFAULT '[]'::jsonb"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE knowledge_communities ADD COLUMN IF NOT EXISTS impact_score INTEGER DEFAULT 0"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE knowledge_communities ADD COLUMN IF NOT EXISTS central_entities JSONB DEFAULT '[]'::jsonb"
+                ))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_community_level ON knowledge_communities(user_id, level)"
+                ))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_community_entity_texts ON knowledge_communities USING GIN (entity_texts)"
                 ))
                 await conn.execute(text(
                     "CREATE INDEX IF NOT EXISTS idx_failed_chunk_user_file ON kg_failed_chunks(user_id, filename)"
@@ -794,7 +818,7 @@ class KnowledgeDatabase:
                     await session.execute(
                         text(
                             "UPDATE knowledge_entities "
-                            "SET attributes = jsonb_set(COALESCE(attributes, '{}'), '{pagerank}', :score::jsonb) "
+                            "SET attributes = jsonb_set(COALESCE(attributes, '{}'), '{pagerank}', CAST(:score AS jsonb)) "
                             "WHERE doc_id = :doc_id AND user_id = :user_id AND entity_text = :text"
                         ),
                         {
@@ -834,10 +858,11 @@ class KnowledgeDatabase:
         doc_id: str,
         user_id: int,
         communities: List[Dict[str, Any]],
+        level: int = 0
     ) -> None:
         """
         批量保存社区检测结果。
-        communities 格式: [{community_id, title, summary, entity_texts, size}, ...]
+        communities 格式: [{community_id, title, summary, entity_texts, size, key_findings, impact_score, central_entities}, ...]
         """
         if not communities:
             return
@@ -853,11 +878,15 @@ class KnowledgeDatabase:
                         summary=c.get("summary", ""),
                         entity_texts=c.get("entity_texts", []),
                         size=c.get("size", 0),
+                        level=level,
+                        key_findings=c.get("key_findings", []),
+                        impact_score=c.get("impact_score", 0),
+                        central_entities=c.get("central_entities", []),
                         created_at=datetime.utcnow(),
                     )
                     session.add(record)
                 await session.commit()
-                print(f"✅ [KnowledgeDB] 保存 {len(communities)} 个社区 (doc: {doc_id})")
+                print(f"✅ [KnowledgeDB] 保存 {len(communities)} 个 L{level} 社区 (doc: {doc_id})")
             except Exception as e:
                 await session.rollback()
                 print(f"❌ [KnowledgeDB] 社区保存失败: {e}")
@@ -866,6 +895,7 @@ class KnowledgeDatabase:
         self,
         user_id: int,
         doc_id: Optional[str] = None,
+        level: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """获取社区列表，可按文档过滤，按社区大小降序。"""
         async with self.async_session() as session:
@@ -874,6 +904,8 @@ class KnowledgeDatabase:
             )
             if doc_id:
                 stmt = stmt.where(KnowledgeCommunityModel.doc_id == doc_id)
+            if level is not None:
+                stmt = stmt.where(KnowledgeCommunityModel.level == level)
             stmt = stmt.order_by(KnowledgeCommunityModel.size.desc())
             rows = (await session.execute(stmt)).scalars().all()
 
@@ -886,22 +918,51 @@ class KnowledgeDatabase:
                 "summary": r.summary,
                 "entity_texts": r.entity_texts or [],
                 "size": r.size,
+                "level": r.level,
+                "key_findings": r.key_findings or [],
+                "impact_score": r.impact_score or 0,
+                "central_entities": r.central_entities or [],
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
             for r in rows
         ]
 
-    async def delete_communities(self, doc_id: str, user_id: int) -> None:
+    async def get_communities_for_entities(
+        self, entities: List[str], user_id: int, level: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        查找包含给定实体的社区报告。
+        使用 PostgreSQL 的 JSONB ?| 操作符（是否包含数组中的任意一个值）。
+        """
+        if not entities:
+            return []
+        async with self.async_session() as session:
+            try:
+                # 注意：SQLAlchemy 2.0 中使用 JSONB 的特定操作可能需要 text() 或特定 comparator
+                # 这里使用原始 SQL 保证兼容性
+                sql = text(
+                    "SELECT * FROM knowledge_communities "
+                    "WHERE user_id = :uid AND level = :lvl "
+                    "AND entity_texts ?| :entities "
+                    "ORDER BY size DESC LIMIT 10"
+                )
+                result = await session.execute(sql, {"uid": user_id, "lvl": level, "entities": entities})
+                rows = result.mappings().all()
+                return [dict(r) for r in rows]
+            except Exception as e:
+                logger.warning(f"get_communities_for_entities 失败: {e}")
+                return []
+
+    async def delete_communities(self, doc_id: str, user_id: int, level: Optional[int] = None) -> None:
         """删除指定文档的所有社区（重新抽取时清理旧数据）。"""
         async with self.async_session() as session:
             try:
-                await session.execute(
-                    text(
-                        "DELETE FROM knowledge_communities "
-                        "WHERE doc_id = :doc_id AND user_id = :uid"
-                    ),
-                    {"doc_id": doc_id, "uid": user_id},
-                )
+                sql = "DELETE FROM knowledge_communities WHERE doc_id = :doc_id AND user_id = :uid"
+                params = {"doc_id": doc_id, "uid": user_id}
+                if level is not None:
+                    sql += " AND level = :lvl"
+                    params["lvl"] = level
+                await session.execute(text(sql), params)
                 await session.commit()
             except Exception as e:
                 await session.rollback()
