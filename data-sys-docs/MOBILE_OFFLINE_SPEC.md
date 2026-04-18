@@ -259,7 +259,7 @@ upsertBizSyncMeta() → 记录同步时间和行数
 - **API Key 验证**：保存前可点"测试 Key"验证有效性
 - **存储管理 UI**：StorageModal 查看/清理本地业务数据缓存
 - **离线状态指示**：SyncStatusBadge + InputBar 横幅持续显示当前模式
-- **per-session 图表隔离**：切换历史会话时自动从消息中恢复对应图表，科学家模式消息跳过图表恢复
+- **per-session 图表隔离**：切换历史会话时自动从消息中恢复对应图表，数据科学模式消息跳过图表恢复
 - **SQLite 并发初始化保护**：singleton promise + `retrieveConnection` 兜底，防止 "Connection already exists" 崩溃
 - **数据库下拉框行为修正**：切换会话时自动关闭下拉框，不再强制重新选择数据库
 
@@ -359,7 +359,7 @@ main
 | 优先显示本地数据（optimistic local load） | 消除因服务器超时导致的 3-10 秒空白列表 |
 | Native 中 `checking` 视为离线 | ping 60s 周期过渡期（checking→offline）不触发远程 API，防止误调用和下拉框闪烁 |
 | Web 中 `checking` 不视为离线 | Web 不存在本地 SQLite 回退，transient ping 失败不能中断在线 PLAN_GENERATION 流程 |
-| 科学家模式不恢复图表 | 科学家模式返回 `is_data_science=true`，数据结构与标准图表不兼容，强行恢复会导致渲染崩溃 |
+| 数据科学模式不恢复图表 | 数据科学模式返回 `is_data_science=true`，数据结构与标准图表不兼容，强行恢复会导致渲染崩溃 |
 | 会话删除不弹二次确认（Web 端） | 删除已在手机端确认过一次；多设备二次确认体验极差；数据一致性由服务端保证，不存在冲突风险 |
 | `getState().messages` 代替闭包中的 `messages` | `useCallback` 不包含 `messages` 依赖时捕获的是旧值（stale closure）；`getState()` 在调用时动态取最新快照 |
 | 手机端深度报告限制 (3-5个图表 + 50行数据) | 为避免生成单次超长文本导致的手机侧超时与页面无响应问题，本地 `localReportService.ts` 平衡了用户体验与生成深度，不再追求后端那种多轮并行的长篇大论。 |

@@ -64,6 +64,7 @@ backend/venv312/
 data/
 backend/data/
 uploads/
+interv/
 
 # 二进制与库
 *.so
@@ -80,3 +81,6 @@ backend/outputs/
 # Xcode user-specific state (not shareable)
 xcuserdata/
 *.xcuserstate
+
+# macOS / editor temp files (e.g. .!10797!filename)
+.!*!*

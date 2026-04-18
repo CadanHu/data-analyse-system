@@ -1,4 +1,4 @@
-# 011 - 数据科学家模式 (Data Scientist Mode) 规格说明书
+# 011 - 数据科学模式 (Data Scientist Mode) 规格说明书
 
 ## 1. 模式定位
 该模式用于执行复杂的 Python 数据分析、生成可视化图表及深度分析报告。它与标准的 SQL 查询模式完全隔离。
@@ -6,7 +6,7 @@
 ## 2. 核心运行标准 (Independent Standards)
 
 ### 2.1 思考过程隔离 (Thinking Isolation)
-- **规格**：数据科学家模式**严禁**在前端展示“思考过程”按钮。
+- **规格**：数据科学模式**严禁**在前端展示“思考过程”按钮。
 - **逻辑**：即使底层模型返回了推理内容，在保存到数据库时，该模式的消息 `thinking` 字段必须保持为空（或前端根据 `is_data_science` 标记强制隐藏）。
 
 ### 2.2 代码执行沙盒 (Python Executor)
@@ -21,4 +21,4 @@
 
 ## 3. 隔离开发原则
 - 任何针对 `chat_router.py` 的修改，必须通过 `if request.enable_data_science_agent:` 进行分支隔离。
-- 严禁在科学家模式的路径中复用标准 SQL Agent 的流解析逻辑。
+- 严禁在数据科学模式的路径中复用标准 SQL Agent 的流解析逻辑。

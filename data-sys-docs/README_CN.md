@@ -2,7 +2,7 @@
 
 [![GitHub Topics](https://img.shields.io/badge/数据分析-Python%20%7C%20AI%20Agent%20%7C%20可视化-blue)](https://github.com/CadanHu/data-analyse-system)
 
-DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它不仅支持传统的 SQL 查询，更引入了 **AI 数据科学家模式 (v3.0)**，通过 Python 沙盒环境实现复杂的数学建模、自动化清洗与高清图表渲染。
+DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它不仅支持传统的 SQL 查询，更引入了 **AI 数据科学模式 (v3.0)**，通过 Python 沙盒环境实现复杂的数学建模、自动化清洗与高清图表渲染。
 
 ---
 
@@ -26,7 +26,7 @@ DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它
 
 ## 🌟 核心特性 (v3.0 升级版)
 
-### 1. 🧠 AI 数据科学家模式 (Python 驱动)
+### 1. 🧠 AI 数据科学模式 (Python 驱动)
 *   **安全沙盒执行**：内置 AST 审计的 Python 执行沙盒，支持 Pandas、Numpy、Scipy、Matplotlib 和 Seaborn。
 *   **多表自动关联**：AI 能够自动识别数据库 Schema，自主编写 Python 代码完成多表 Join 与交叉统计。
 *   **复杂建模能力**：支持趋势预测、相关性分析、异常检测等传统 SQL 难以实现的深度任务。
@@ -140,7 +140,7 @@ H = {“Authorization”: f”Bearer {TOKEN}”}
 
 ---
 
-### 场景一：传入私有数据 → 科学家模式分析作图
+### 场景一：传入私有数据 → 数据科学模式分析作图
 
 适合：外部 Agent 已持有数据集，需要 DataPulse 完成分析建模和图表生成。
 
@@ -336,7 +336,7 @@ if session_id:
 | `sql_generated` | 生成的 SQL 语句 | `sql: str` |
 | `sql_result` | SQL 执行结果 | `rows: list`, `columns: list` |
 | `chart_ready` | ECharts 图表配置 | `option: dict`, `chart_type: str` |
-| `execution_result` | Python 执行结果（科学家模式） | `image: str (Base64)`, `stdout: str` |
+| `execution_result` | Python 执行结果（数据科学模式） | `image: str (Base64)`, `stdout: str` |
 | `summary` | AI 文字回答（流式分块） | `content: str` |
 | `done` | 本次请求结束 | `summary: str`, `sql: str` 等汇总 |
 | `error` | 出错 | `content: str` 或 `message: str` |
