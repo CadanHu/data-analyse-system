@@ -266,7 +266,7 @@ class SessionDatabase:
             return False
 
     async def update_session_modes(self, session_id: str, user_id: int, modes: Dict[str, Any]) -> bool:
-        """更新会话模式 (科学家、思考、知识库) 及模型选择"""
+        """更新会话模式 (科学模式、思考模式、rag模式) 及模型选择"""
         async with self.async_session() as session:
             result = await session.execute(
                 select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user_id)

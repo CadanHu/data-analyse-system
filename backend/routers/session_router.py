@@ -100,7 +100,7 @@ def build_session_html(session_title: str, messages: List[dict]) -> str:
         if msg.get('sql'):
             msg_html += f'<div class="sql-box"><b>SQL Query:</b><br><pre>{msg["sql"]}</pre></div>'
             
-        # 4. 科学家模式图表 (Base64)
+        # 4. 数据科学模式图表 (Base64)
         if msg.get('data'):
             try:
                 data_obj = json.loads(msg['data'])
@@ -115,7 +115,7 @@ def build_session_html(session_title: str, messages: List[dict]) -> str:
         msg_html += '</div>'
         body_content += msg_html
         
-    body_content += f"<footer>© {datetime.now().year} DataPulse - 您的智能数据科学家助理</footer>"
+    body_content += f"<footer>© {datetime.now().year} DataPulse - 您的智能数据科学助理</footer>"
     
     return f"<!DOCTYPE html><html><head><meta charset='utf-8'>{style}</head><body>{body_content}</body></html>"
 
@@ -165,7 +165,7 @@ async def update_session_title(session_id: str, data: SessionTitleUpdate, curren
 
 @router.patch("/{session_id}/modes")
 async def update_session_modes(session_id: str, data: SessionModesUpdate, current_user: dict = Depends(get_current_user)):
-    """更新会话的模式开关 (科学家、思考、知识库)"""
+    """更新会话的模式开关 (科学、思考、知识库)"""
     user_id = current_user["id"]
     modes = data.dict(exclude_none=True)
     success = await session_db.update_session_modes(session_id, user_id, modes)

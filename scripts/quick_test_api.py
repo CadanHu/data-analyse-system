@@ -12,7 +12,7 @@ def test_ds_agent():
     payload = {
         "session_id": "test-ds-session-001",
         "question": "分析订单表中销售额(Sales)的分布情况，并检查是否存在异常高额订单。请给出统计摘要。",
-        "enable_data_science_agent": True, # 🚀 开启数据科学家模式
+        "enable_data_science_agent": True, # 🚀 开启数据科学模式
         "model_provider": "deepseek",
         "enable_thinking": True
     }
@@ -23,7 +23,7 @@ def test_ds_agent():
         "Content-Type": "application/json"
     }
 
-    print(f"📡 正在请求 AI 数据科学家接口: {url}...")
+    print(f"📡 正在请求 AI 数据科学接口: {url}...")
     
     try:
         with requests.post(url, json=payload, headers=headers, stream=True) as r:

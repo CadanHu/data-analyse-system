@@ -49,7 +49,7 @@ def test_ds_agent_with_auth():
     
     headers["Content-Type"] = "application/json"
 
-    print(f"📡 正在以数据科学家模式请求接口...")
+    print(f"📡 正在以数据科学模式请求接口...")
     
     try:
         with requests.post(url, json=payload, headers=headers, stream=True) as r:

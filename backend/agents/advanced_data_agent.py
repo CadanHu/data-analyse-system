@@ -59,20 +59,7 @@ class AdvancedDataAgent:
         全链路分析流程：流式方案生成 + 静默代码执行
 
         路径判断：
-          rag_factual_mode  → 直接从 RAG 文字回答，不写代码
-          rag_analysis_mode → 强制代码 + 可视化（原流程）
-          有数据库 DataFrame → 代码分析（原流程）
-        """
-        # ── 1. 意图 & 模式判断 ────────────────────────────────────────────────
-        is_empty_df = (
-            not isinstance(df_input, dict)
-            and (df_input is None or (hasattr(df_input, '__len__') and len(df_input) == 0))
-        )
-        rag_only_mode = is_empty_df and bool(knowledge_context)
-        rag_needs_code = rag_only_mode and _needs_code_generation(question)
-        rag_factual_mode = rag_only_mode and not rag_needs_code  # 事实查询路径
-
-        thinking_msg = "正在启动数据科学家引擎..." if language == "zh" else "Starting Data Scientist Engine..."
+          rag_factual_mode  �        thinking_msg = "正在启动数据科学引擎..." if language == "zh" else "Starting Data Science Engine..."
         yield {"event": "thinking", "data": {"content": thinking_msg}}
 
         llm = llm_factory.get_langchain_model(
@@ -198,7 +185,7 @@ Answer the user's question directly from the RAG knowledge below.
         )
 
         if language == "zh":
-            system_prompt = f"""你是一个顶尖的数据科学家。
+            system_prompt = f"""你是一个顶尖的数据科学分析助手。
 【上下文】
 {dataset_context}
 {prev_code_context}
@@ -222,7 +209,39 @@ Answer the user's question directly from the RAG knowledge below.
    - 严禁在文字说明中使用三重反引号。
 """
         else:
-            system_prompt = f"""You are a top-tier Data Scientist.
+            system_prompt = f"""You are a top-tier Data Science Assistant.
+[Context]
+{dataset_context}
+{prev_code_context}
+{rag_section_en}
+[Core Instructions]
+{rag_only_extra_en}1. **Real-time Plan explanation**: Explain your analysis logic fluently in English first.
+2. **Mandatory Plotting**: Whenever trend, comparison, or distribution analysis is involved, you **MUST** write Matplotlib/Seaborn plotting code and explicitly call `plt.show()`. Do not just provide a config dictionary.
+   - **Layout Rule (CRITICAL)**: When using `fig.suptitle()`, you **MUST** call `plt.tight_layout(rect=[0, 0, 1, 0.94])` instead of plain `plt.tight_layout()`. Plain `tight_layout()` ignores suptitle and squashes all subplots into the top of the figure, leaving a large blank area below. Without suptitle, `plt.tight_layout()` is fine. Set `figsize` height to at least rows × 4 (e.g., 3 rows → `figsize=(15, 12)`).
+3. **Code Implementation**: Put the analysis code in a unique ```python ... ``` block.
+   - **Syntax**: Use standard ASCII quotes (' or ") for Python strings.
+   - **Pandas Version Constraint**: We use Pandas 2.2.0+. **DO NOT** use deprecated frequency aliases like 'M', 'Q', or 'Y'. You **MUST** use 'ME' (Month End), 'QE' (Quarter End), 'YE' (Year End) instead.
+   - **NumPy Broadcasting Constraint (CRITICAL)**: **NEVER** pass arrays of different lengths as the `x` or `y` arguments to `np.where(condition, x, y)`. To assign a linspace to a masked subset, pre-allocate and use boolean indexing: `arr = np.zeros(n); arr[mask] = np.linspace(0, 5, mask.sum())`. **NEVER** write `arr = np.where(mask, np.linspace(0, 5, mask.sum()), 0)` — this causes a shape mismatch crash.
+   - **Float Format Constraint (CRITICAL)**: **NEVER** use the `':d'` integer format specifier on float values (e.g. `f'{{value:d}}'`) — this raises `ValueError: Unknown format code 'd' for object of type 'float'`. Always use `':.1f'`, `':.2f'`, `':g'`, or `str(round(...))` for floats.
+   - Must use `df_xxx` variables.
+   - Final data -> `result_data`.
+   - Visualization config (ECharts) -> `viz_config`.
+   - Report text -> `summary_text`.
+3. **Prohibitions**:
+   - DO NOT include `![...](data:...)` image strings in `summary_text`.
+   - DO NOT use triple backticks within the text explanation.
+"""件的子集填入渐变值，**必须**先创建全量数组再用布尔索引赋值：`arr = np.zeros(n); arr[mask] = np.linspace(0, 5, mask.sum())`，**严禁**写成 `arr = np.where(mask, np.linspace(0, 5, mask.sum()), 0)`（形状不匹配会直接崩溃）。
+   - **浮点数格式约束（极重要）**：**严禁**对浮点数值使用 `':d'` 整数格式符（如 `f'{{value:d}}'`），这会导致 `ValueError: Unknown format code 'd' for object of type 'float'`。浮点数必须使用 `':.1f'`、`':.2f'`、`':g'` 或 `str(round(...))` 等格式。
+   - 变量命名：使用 `df_xxx` 格式（RAG 模式下可自行用 `pd.DataFrame(...)` 构建）。
+   - 最终数据 -> `result_data`。
+   - 可视化配置 (ECharts) -> `viz_config` (标题和标签也必须是英文)。
+   - 报告文本 -> `summary_text`。
+3. **禁止事项**：
+   - 严禁在 `summary_text` 中包含 `![...](data:...)` 这种图片字符串。
+   - 严禁在文字说明中使用三重反引号。
+"""
+        else:
+            system_prompt = f"""You are a top-tier Data Science Assistant.
 [Context]
 {dataset_context}
 {prev_code_context}
@@ -317,11 +336,45 @@ Answer the user's question directly from the RAG knowledge below.
             else:
                 if attempt < MAX_RETRIES:
                     err_msg = exec_result['error']
+                    partial_output = exec_result.get('output', '')[:500]
                     warn_msg = f"代码运行出错，正在进行自我修复 ({attempt+1}/{MAX_RETRIES})..." if language == "zh" else f"Execution failed, self-correcting ({attempt+1}/{MAX_RETRIES})..."
                     yield {"event": "thinking", "data": {"content": warn_msg}}
 
+                    # 提取出错行附近代码片段（前后各 5 行）
+                    failing_snippet = ""
+                    if ai_code:
+                        import re as _re
+                        line_match = _re.search(r'line (\d+)', err_msg)
+                        if line_match:
+                            err_line = int(line_match.group(1))
+                            code_lines = ai_code.split('\n')
+                            start = max(0, err_line - 6)
+                            end = min(len(code_lines), err_line + 4)
+                            snippet_lines = code_lines[start:end]
+                            failing_snippet = "\n".join(
+                                f"{'>>>' if i + start + 1 == err_line else '   '} {i + start + 1}: {l}"
+                                for i, l in enumerate(snippet_lines)
+                            )
+
+                    # 获取 DataFrame 列名（帮 LLM 纠正列名拼错）
+                    df_info = ""
+                    if df_input is not None:
+                        try:
+                            import pandas as _pd
+                            if isinstance(df_input, _pd.DataFrame):
+                                df_info = f"df.columns = {list(df_input.columns)}\ndf.shape = {df_input.shape}"
+                        except Exception:
+                            pass
+
                     messages.append({"role": "assistant", "content": full_response})
-                    error_prompt = f"The code execution failed with this Python error:\n{err_msg}\nPlease fix the bug and output the complete corrected python code in a ```python\n...\n``` block."
+                    error_prompt = (
+                        f"Code execution failed. Please fix and output the complete corrected code in a ```python\n...\n``` block.\n\n"
+                        f"**Error:**\n{err_msg}\n\n"
+                        + (f"**Failing code (line {line_match.group(1) if line_match else '?'}):**\n```\n{failing_snippet}\n```\n\n" if failing_snippet else "")
+                        + (f"**Partial output before error:**\n{partial_output}\n\n" if partial_output else "")
+                        + (f"**Available DataFrame info:**\n{df_info}\n\n" if df_info else "")
+                        + "Fix only the bug. Do not change the analysis goal."
+                    )
                     messages.append({"role": "user", "content": error_prompt})
                 else:
                     err_msg = f"执行出错: {exec_result['error']}" if language == "zh" else f"Execution Error: {exec_result['error']}"

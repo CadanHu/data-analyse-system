@@ -175,7 +175,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'about.missionDesc': 'DataPulse 致力于通过最前沿的 AI 推理技术与工业级数据库架构，重新定义企业级数据分析体验。我们通过顶尖 AI 模型的深度思考能力，将复杂的业务语言精准转化为高性能 SQL，并结合 15+ 种进阶可视化方案，让数据洞察不再是专家的特权，而是每一位决策者的得力助手。',
     'about.techStack': '核心技术栈',
     'about.team': '团队介绍',
-    'about.teamDesc': 'DataPulse 由一群热爱技术的开发者、数据科学家和产品专家组成。我们来自全球顶尖科技公司，拥有丰富的数据分析、人工智能和产品开发经验。我们的目标是打造最易用的数据分析平台，让数据驱动决策成为每个人的能力。',
+    'about.teamDesc': 'DataPulse 由一群热爱技术的开发者、数据科学和产品专家组成。我们来自全球顶尖科技公司，拥有丰富的数据分析、人工智能和产品开发经验。我们的目标是打造最易用的数据分析平台，让数据驱动决策成为每个人的能力。',
     'about.contact': '联系我们',
     'about.teamMembers': '团队成员',
     'about.experience': '年行业经验',
@@ -333,7 +333,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'alert.parseFailed': '解析失败',
     'alert.mobileProcessFailed': '手机端处理失败',
     'alert.fetchFileFailed': '从服务器获取文件失败',
-    'alert.scientistModeHint': '💡 当前为”科学家模式”，分析结论与图表已在对话框中直接展示。如需使用”传统可视化看板”，请切换至普通 SQL 模式。',
+    'alert.scientistModeHint': '💡 当前为”数据科学模式”，分析结论与图表已在对话框中直接展示。如需使用”传统可视化看板”，请切换至普通 SQL 模式。',
     'alert.csvUseImportInstead': 'CSV/Excel 文件请通过「数据管理」→「导入本地 CSV」导入为可查询的数据表，而非上传到知识库。',
     
     // Reports & Dashboards
@@ -452,7 +452,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.example9': '对比不同城市的人均消费金额（地理地图）',
     'chat.example10': '预测下季度各品类的销售额增长趋势',
     // Data Scientist Guide
-    'guide.scientist.title': '科学家模式 (Data Scientist Mode)',
+    'guide.scientist.title': '数据科学模式 (Data Science Mode)',
     'guide.scientist.sandbox': '安全沙箱',
     'guide.scientist.sandboxDesc': 'AI 生成的代码在独立的 PythonExecutor 安全沙箱中执行，确保系统安全的同时提供强大的计算能力。',
     'guide.scientist.charts': '动态图表',
@@ -460,7 +460,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'guide.scientist.reports': '异步报告',
     'guide.scientist.reportsDesc': '针对复杂的数据处理任务，系统采用 BackgroundTasks 异步生成深度报告，无需长时间等待。',
     'guide.scientist.quickStart': '快速开始',
-    'guide.scientist.step1': '在侧边栏或对话设置中开启 “科学家模式” 开关。',
+    'guide.scientist.step1': '在侧边栏或对话设置中开启 “数据科学模式” 开关。',
     'guide.scientist.step2': '直接描述您的分析需求，例如：“分析去年第四季度的销售额增长趋势，并绘制柱状图”。',
     'guide.scientist.step3': 'AI 将自动编写 Python 代码，从数据库提取数据，并在对话框中展示分析结果和图表。',
     'guide.scientist.more': '了解更多',
@@ -709,7 +709,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'alert.parseFailed': 'Parsing failed',
     'alert.mobileProcessFailed': 'Mobile processing failed',
     'alert.fetchFileFailed': 'Failed to fetch file from server',
-    'alert.scientistModeHint': '💡 "Scientist Mode" is active. Analysis and charts are shown directly in chat. Switch to SQL Mode for classic dashboards.',
+    'alert.scientistModeHint': '💡 "Data Science Mode" is active. Analysis and charts are shown directly in chat. Switch to SQL Mode for classic dashboards.',
     'alert.csvUseImportInstead': 'For CSV/Excel files, please use "Data Management" → "Import CSV" to load them as queryable tables instead of uploading to the knowledge base.',
     
     // Reports & Dashboards
@@ -828,7 +828,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'chat.example9': 'Compare per-capita spending across cities (geographic map)',
     'chat.example10': 'Forecast next quarter\'s sales growth trend by category',
     // Data Scientist Guide
-    'guide.scientist.title': 'Data Scientist Mode',
+    'guide.scientist.title': 'Data Science Mode',
     'guide.scientist.sandbox': 'Secure Sandboxing',
     'guide.scientist.sandboxDesc': 'AI-generated code is executed in an isolated PythonExecutor sandbox, ensuring system security while providing powerful computing capabilities.',
     'guide.scientist.charts': 'Dynamic Charts',
@@ -836,7 +836,7 @@ export const translations: Record<Language, Record<TranslationKey, string>> = {
     'guide.scientist.reports': 'Async Reporting',
     'guide.scientist.reportsDesc': 'For complex data processing, the system uses BackgroundTasks to generate deep reports asynchronously without long waits.',
     'guide.scientist.quickStart': 'Quick Start',
-    'guide.scientist.step1': 'Enable the "Data Scientist Mode" switch in the sidebar or session settings.',
+    'guide.scientist.step1': 'Enable the "Data Science Mode" switch in the sidebar or session settings.',
     'guide.scientist.step2': 'Describe your needs, e.g., "Analyze Q4 sales growth trends and draw a bar chart."',
     'guide.scientist.step3': 'AI will write Python code, extract data, and display results and charts in the chat.',
     'guide.scientist.more': 'Learn More',

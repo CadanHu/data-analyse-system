@@ -163,12 +163,11 @@ const PROVIDER_MODELS: Record<string, {
     baseUrlHint: 'https://api.openai.com/v1',
     getKeyUrl: 'https://platform.openai.com/api-keys',
     models: [
-      { value: 'o3', label: 'o3 (深度推理)', thinking: true },
-      { value: 'o4-mini', label: 'o4 Mini (推理轻量)', thinking: true },
-      { value: 'gpt-4.1', label: 'GPT-4.1 (视觉)', vision: true },
-      { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini (视觉)', vision: true },
-      { value: 'gpt-4o', label: 'GPT-4o (视觉)', vision: true },
-      { value: 'gpt-4o-mini', label: 'GPT-4o Mini (视觉)', vision: true },
+      { value: 'gpt-5.3', label: 'GPT-5.3 主力通用 (最推荐)' },
+      { value: 'gpt-5.2', label: 'GPT-5.2 Fallback' },
+      { value: 'o4-mini', label: 'o4-mini 推理性价比', thinking: true },
+      { value: 'o3', label: 'o3 强推理', thinking: true },
+      { value: 'gpt-4o', label: 'GPT-4o 兼容 Fallback', vision: true },
     ],
   },
   gemini: {
