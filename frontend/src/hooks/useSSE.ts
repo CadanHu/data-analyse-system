@@ -160,7 +160,7 @@ export function useSSE() {
             try { localTables = await getLocalBizTables(currentDb) } catch { /* ignore */ }
           }
           if (options?.enable_data_science_agent) {
-            // 科学家模式：两步调用
+            // 数据科学模式：两步调用
             // Step 1: 采集 schema + 样本 → AI 静默生成 SQL → 本地执行
             // Step 2: 把真实查询结果喂给 AI → 流式输出分析 + ECharts 图表
 
@@ -248,7 +248,7 @@ export function useSSE() {
                 const localKnowledge = await searchKnowledge(userId, sessionId, question)
                 if (localKnowledge) {
                   dataContext += `\n\n【参考知识库内容 (RAG)】\n${localKnowledge}`
-                  setThinkingContent('📚 已检索到知识库内容，注入数据科学家上下文...')
+                  setThinkingContent('📚 已检索到知识库内容，注入数据科学上下文...')
                   ragOnlyMode = true
                 }
               } catch { /* ignore */ }
@@ -382,7 +382,7 @@ export function useSSE() {
               handlers?.onSummary?.(chunk)
               let displayContent = assistantContent
               if (options?.enable_data_science_agent) {
-                // 科学家模式：从部分 JSON 中渐进提取 analysis 字段实时显示
+                // 数据科学模式：从部分 JSON 中渐进提取 analysis 字段实时显示
                 // 避免把整个 JSON/代码块渲染成 markdown 造成闪烁
                 const analysisMatch = assistantContent.match(/"analysis"\s*:\s*"((?:[^"\\]|\\.)*)"?/)
                 if (analysisMatch) {
@@ -443,7 +443,7 @@ export function useSSE() {
             },
           })
 
-          // After streaming: 科学家模式解析 analysis + chart_option
+          // After streaming: 数据科学模式解析 analysis + chart_option
           if (options?.enable_data_science_agent && assistantContent) {
             const jsonMatch = assistantContent.match(/\{[\s\S]*\}/)
             if (jsonMatch) {
@@ -727,6 +727,40 @@ export function useSSE() {
                   setThinkingContent('正在检索知识库...')
                   handlers?.onRagRetrieval?.(eventData.content)
                   break
+                case 'tables_selected': {
+                  // 两阶段 Schema：展示已选表名
+                  const tables: string[] = eventData.tables || []
+                  if (tables.length > 0) {
+                    setThinkingContent(`已选定相关表：${tables.join('、')}`)
+                  }
+                  break
+                }
+                case 'sql_correcting': {
+                  // SQL 执行失败，进入自动纠错
+                  const attempt = eventData.attempt ?? 1
+                  const max = eventData.max_attempts ?? 2
+                  const hint = eventData.hint ? `（${eventData.hint}）` : ''
+                  setThinkingContent(`SQL 有误，正在自动修正 (${attempt}/${max})...${hint}`)
+                  // 把纠错信息追加到当前助手消息的 data 里，MessageItem 会展示橙色提示条
+                  updateLastMessage({
+                    data: JSON.stringify({
+                      ...(() => { try { return JSON.parse(assistantData ? JSON.stringify(assistantData) : '{}') } catch { return {} } })(),
+                      sql_correction: {
+                        attempt,
+                        max_attempts: max,
+                        original_sql: eventData.original_sql,
+                        error:        eventData.error,
+                        error_type:   eventData.error_type,
+                        hint:         eventData.hint,
+                      }
+                    })
+                  })
+                  break
+                }
+                case 'result_warning':
+                  // 查询成功但结果可疑（0 行等）
+                  setThinkingContent(eventData.message || '查询结果为空，可能过滤条件过严')
+                  break
                 case 'thinking':
                   setThinkingContent(eventData.content || '')
                   handlers?.onThinking?.(eventData.content)
@@ -764,7 +798,7 @@ export function useSSE() {
                   handlers?.onSqlResult?.(eventData)
                   break
                 case 'execution_result':
-                  // 科学家模式专用：包含 plot_image_base64 / is_data_science / can_generate_report
+                  // 数据科学模式专用：包含 plot_image_base64 / is_data_science / can_generate_report
                   assistantData = eventData
                   updateLastMessage({ data: JSON.stringify(eventData) })
                   break

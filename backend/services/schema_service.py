@@ -14,13 +14,19 @@ class SchemaService:
 
     @classmethod
     def set_database(cls, db_key: str = DEFAULT_BUSINESS_DB):
-        """设置当前使用的数据库"""
+        """设置当前使用的数据库（支持静态配置 + 动态注册的用户数据源）"""
+        # 静态配置中存在
         if db_key in DATABASES:
             if cls._current_db_key != db_key:
                 print(f"🔄 [Schema] 数据库切换: {cls._current_db_key} -> {db_key}")
                 cls._current_db_key = db_key
-            # 强制注册
             DatabaseManager.register_database(db_key, DATABASES[db_key])
+            return
+        # 动态注册的用户数据源（db_key 已由 database_router 提前注册）
+        if DatabaseManager.get_config(db_key):
+            if cls._current_db_key != db_key:
+                print(f"🔄 [Schema] 数据库切换(用户数据源): {cls._current_db_key} -> {db_key}")
+                cls._current_db_key = db_key
 
     @classmethod
     def get_current_db_key(cls) -> str:
@@ -102,6 +108,20 @@ class SchemaService:
             return "\n".join([f"  {list(row.values())}" for row in rows])
         except:
             return ""
+
+    @classmethod
+    async def get_partial_schema(cls, table_names: List[str], include_sample: bool = True) -> str:
+        """只获取指定表的 Schema（两阶段注入用）"""
+        db_key = cls._current_db_key
+        schemas = []
+        for table in table_names:
+            table_schema = await cls.get_table_schema(table)
+            if include_sample:
+                sample_data = await cls.get_sample_data(table, limit=3)
+                if sample_data:
+                    table_schema += f"\n\n/*\n样本数据 ({table}):\n{sample_data}\n*/"
+            schemas.append(table_schema)
+        return "\n\n".join(schemas)
 
     @classmethod
     def clear_cache(cls):

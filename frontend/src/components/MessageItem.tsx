@@ -990,6 +990,37 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
             </div>
           )}
 
+          {/* SQL 自动纠错提示条 */}
+          {!isUser && (() => {
+            try {
+              const d = message.data ? (typeof message.data === 'string' ? JSON.parse(message.data) : message.data) : null
+              const corr = d?.sql_correction
+              if (!corr) return null
+              return (
+                <div className="mt-2 mb-1 px-3 py-2 rounded-xl bg-orange-50 border border-orange-200 text-xs text-orange-700 flex flex-col gap-1">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    SQL 自动修正中 ({corr.attempt}/{corr.max_attempts})
+                    {corr.error_type && (
+                      <span className="px-1.5 py-0.5 bg-orange-100 rounded-full text-orange-600 font-mono text-[10px]">
+                        {corr.error_type}
+                      </span>
+                    )}
+                  </div>
+                  {corr.hint && <p className="text-orange-600 pl-5">{corr.hint}</p>}
+                  {corr.original_sql && (
+                    <details className="pl-5">
+                      <summary className="cursor-pointer text-orange-500 hover:text-orange-700">查看出错 SQL</summary>
+                      <pre className="mt-1 text-[10px] font-mono bg-orange-100/50 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                        {corr.original_sql}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              )
+            } catch { return null }
+          })()}
+
           {!isUser && message.sql && (
             <SqlBlock sql={message.sql} collapsed={sqlCollapsed} />
           )}

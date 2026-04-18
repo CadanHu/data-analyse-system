@@ -11,6 +11,80 @@ from services.schema_service import SchemaService
 from services.sql_executor import SQLExecutor
 from utils.prompt_templates import get_prompt
 
+# ── Prompt 辅助：按 DB 类型返回示例文本 ─────────────────────────────────────
+
+def _date_example_for_type(db_type_info: str) -> str:
+    info = db_type_info.lower()
+    if "postgresql" in info:
+        return (
+            "PostgreSQL 示例：`WHERE order_date >= (SELECT MAX(order_date) - INTERVAL '6 months' FROM orders)`"
+        )
+    # 默认 MySQL
+    return (
+        "MySQL 示例：`WHERE order_date >= (SELECT DATE_SUB(MAX(order_date), INTERVAL 6 MONTH) FROM orders)`"
+    )
+
+
+def _window_function_rule(db_type_info: str) -> str:
+    info = db_type_info.lower()
+    if "postgresql" in info:
+        return (
+            "   - 当前数据库是 PostgreSQL，**完整支持**窗口函数（LAG, LEAD, RANK, ROW_NUMBER, OVER 等），"
+            "可以放心使用，无需改写为子查询。"
+        )
+    # MySQL（默认）
+    return (
+        "   - 如果数据库是 MySQL 且版本低于 8.0（如 5.7），**严禁使用** LAG, LEAD, RANK, OVER 等窗口函数。"
+        "请改用子查询或自连接来实现。\n"
+        "   - 如果数据库是 SQLite，确保使用的语法与 SQLite 兼容。"
+    )
+
+
+# ── SQL 错误分类 ──────────────────────────────────────────────────────────────
+
+def categorize_sql_error(error: str) -> Dict[str, Any]:
+    """
+    返回 {"type": str, "fatal": bool, "hint": str}
+    fatal=True 时不重试，直接返回错误。
+    """
+    e = error.lower()
+    if "doesn't exist" in e or "no such table" in e or "relation" in e and "does not exist" in e:
+        return {
+            "type": "table_not_found",
+            "fatal": True,
+            "hint": "Schema 中不存在该表，请只使用【数据库详细信息】中列出的表名",
+        }
+    if "unknown column" in e or "column" in e and ("does not exist" in e or "not found" in e):
+        # 尝试从错误信息中提取列名
+        import re as _re
+        m = _re.search(r"unknown column '([^']+)'", error, _re.IGNORECASE)
+        col = m.group(1) if m else "（未知列名）"
+        return {
+            "type": "column_not_found",
+            "fatal": False,
+            "hint": f"列名 '{col}' 不存在，请对照 Schema 使用正确的列名",
+        }
+    if "syntax error" in e or "you have an error in your sql" in e or "parse error" in e:
+        return {
+            "type": "syntax_error",
+            "fatal": False,
+            "hint": "SQL 语法错误，请检查引号、函数名和数据库方言（MySQL 用反引号，PostgreSQL 用双引号）",
+        }
+    if "timeout" in e or "timed out" in e:
+        return {
+            "type": "timeout",
+            "fatal": False,
+            "hint": "查询超时，请在 WHERE 条件中增加时间范围限制，或添加 LIMIT",
+        }
+    if "permission denied" in e or "access denied" in e:
+        return {
+            "type": "permission",
+            "fatal": True,
+            "hint": "数据库权限不足，无法访问该表或执行该操作",
+        }
+    return {"type": "unknown", "fatal": False, "hint": ""}
+
+
 class SQLAgent:
     async def _chat_completion(
         self, 
@@ -215,9 +289,12 @@ class SQLAgent:
             schema=schema,
             history=history,
             question=question,
-            knowledge_context=knowledge_context, # 🚀 注入提示词
+            knowledge_context=knowledge_context,
             table_list_query=table_list_query,
-            quote_char=quote_char
+            quote_char=quote_char,
+            date_example=_date_example_for_type(database_type_info),
+            window_function_rule=_window_function_rule(database_type_info),
+            production_constraints="",   # 由调用方按需注入
         )
 
         system_msg = "你是一个专业的数据分析助手。" if language == "zh" else "You are a professional data analysis assistant."
@@ -290,6 +367,45 @@ class SQLAgent:
                 "viz_config": {},
                 "reasoning": "解析失败"
             }
+
+    async def _select_relevant_tables(
+        self,
+        question: str,
+        all_tables: List[str],
+        provider: str = None,
+        model_name: str = None,
+        language: str = "zh",
+    ) -> List[str]:
+        """
+        两阶段 Schema：先让 LLM 从全部表名中选出最相关的 1-5 张，
+        再只为这些表加载完整 Schema，节省 Token 并减少干扰。
+        """
+        table_list_str = "\n".join(f"- {t}" for t in all_tables)
+        prompt = (
+            f"以下是数据库中所有表名：\n{table_list_str}\n\n"
+            f"用户问题：{question}\n\n"
+            f"请从上面的表名中选出回答该问题最可能需要的 1-5 张表。"
+            f"只返回 JSON 数组，例如：[\"orders\", \"customers\"]，不要包含任何其他文字。"
+        )
+        try:
+            result = await self._chat_completion(
+                [{"role": "user", "content": prompt}],
+                temperature=0.0,
+                provider=provider,
+                model_name=model_name,
+            )
+            import json as _json
+            m = __import__("re").search(r"\[.*?\]", result, __import__("re").DOTALL)
+            if m:
+                selected = _json.loads(m.group())
+                # 过滤掉不存在的表名，防止 LLM 幻觉
+                valid = [t for t in selected if t in all_tables]
+                if valid:
+                    print(f"📋 [TwoPhase] 已选表: {valid}")
+                    return valid
+        except Exception as ex:
+            print(f"⚠️ [TwoPhase] 表选择失败，回退全量 Schema: {ex}")
+        return all_tables   # 回退：全量
 
     async def generate_summary_stream(
         self,
@@ -501,20 +617,38 @@ class SQLAgent:
         print(f"🧭 [ContextRouter] intent_hint={ctx_profile.intent_hint}, needs_schema={ctx_profile.needs_schema}")
 
         if ctx_profile.needs_schema:
-            schema = await SchemaService.get_full_schema(include_sample=True)
+            from config import SCHEMA_TWO_PHASE_THRESHOLD
             tables = await SchemaService.get_table_names()
             db_version = await SchemaService.get_db_version()
+
+            if len(tables) > SCHEMA_TWO_PHASE_THRESHOLD:
+                # 两阶段：先选表，再只注入相关表的 Schema
+                yield {"event": "thinking", "data": {"content": f"数据库表较多（{len(tables)} 张），正在智能筛选相关表..."}}
+                relevant = await self._select_relevant_tables(
+                    question, tables, provider=provider, model_name=model_name, language=language
+                )
+                yield {"event": "tables_selected", "data": {"tables": relevant}}
+                schema = await SchemaService.get_partial_schema(relevant, include_sample=True)
+                tables = relevant   # 后续 prompt 只展示已选的表
+            else:
+                schema = await SchemaService.get_full_schema(include_sample=True)
         else:
             schema, tables, db_version = "", [], ""
         
         current_db_key = SchemaService.get_current_db_key()
         database_name = "业务数据库"
         db_type = "mysql"
-        
+
+        # 优先从静态配置读，再从 DatabaseManager 动态配置读（用户数据源）
         if current_db_key in DATABASES:
             database_name = DATABASES[current_db_key]["name"]
             db_type = DATABASES[current_db_key].get("type", "mysql")
-        
+        else:
+            dyn_cfg = DatabaseManager.get_config(current_db_key)
+            if dyn_cfg:
+                database_name = dyn_cfg.get("name", current_db_key)
+                db_type = dyn_cfg.get("type", "mysql")
+
         if db_type == "mysql":
             database_type_info = "【数据库类型】\nMySQL"
             table_list_query = "请使用：SHOW TABLES"
@@ -626,12 +760,21 @@ class SQLAgent:
                 execution_question = f"根据你刚才提出的分析方案，请立即生成最终的 SELECT SQL 语句并执行查询。严禁使用 DROP/CREATE 等操作。当前指令：{question}"
 
         last_error = ""
+        last_sql = ""
         for attempt in range(MAX_RETRY_COUNT + 1):
             try:
-                # 如果是重试，将错误信息加入上下文
+                # 如果是重试，将结构化错误上下文注入问题
                 current_question = execution_question
-                if last_error:
-                    current_question = f"你上一次生成的 SQL 执行失败了，错误信息是：{last_error}。请修正 SQL 并重新生成。只允许 SELECT 语句。原始指令：{execution_question}"
+                if last_error and last_sql:
+                    err_info = categorize_sql_error(last_error)
+                    hint_text = f"\n修正提示：{err_info['hint']}" if err_info["hint"] else ""
+                    current_question = (
+                        f"【SQL 自动修正 — 第 {attempt}/{MAX_RETRY_COUNT} 次】\n\n"
+                        f"你上次生成的 SQL：\n```sql\n{last_sql}\n```\n\n"
+                        f"执行报错（{err_info['type']}）：\n{last_error}"
+                        f"{hint_text}\n\n"
+                        f"请生成修正后的 SQL。原始用户需求：{execution_question}"
+                    )
 
                 full_reasoning = ""
                 sql_response = None
@@ -647,7 +790,8 @@ class SQLAgent:
                 
                 sql = sql_response.get("sql", "")
                 if not sql: raise ValueError("生成的 JSON 中没有 SQL 语句")
-                
+                last_sql = sql   # 保存本轮 SQL，供下次重试时带回
+
                 chart_type = sql_response.get("chart_type", "table")
                 viz_config = sql_response.get("viz_config", {})
 
@@ -684,13 +828,29 @@ class SQLAgent:
             except Exception as e:
                 last_error = str(e)
                 print(f"❌ [Agent] SQL 执行尝试 {attempt + 1} 失败: {last_error}")
-                
-                # 🚀 关键优化：如果是由于表不存在导致的错误，重试通常没有意义且浪费 Token
-                if "doesn't exist" in last_error or "no such table" in last_error:
-                    print(f"🛑 [Agent] 检测到硬伤错误（表不存在），停止重试以节省 Token。")
-                    yield {"event": "error", "data": {"message": f"分析失败：请求的表不存在。错误详情: {last_error}"}}
+
+                err_info = categorize_sql_error(last_error)
+
+                # 致命错误：不重试，直接返回
+                if err_info["fatal"]:
+                    print(f"🛑 [Agent] 致命错误（{err_info['type']}），停止重试")
+                    yield {"event": "error", "data": {
+                        "message": f"分析失败：{err_info['hint'] or last_error}",
+                        "error_type": err_info["type"],
+                        "original_sql": last_sql,
+                    }}
                     return
 
                 if attempt >= MAX_RETRY_COUNT:
                     yield {"event": "error", "data": {"message": f"分析失败（已达最大重试次数）: {last_error}"}}
                     return
+
+                # 发出纠错事件，前端展示橙色提示
+                yield {"event": "sql_correcting", "data": {
+                    "attempt":      attempt + 1,
+                    "max_attempts": MAX_RETRY_COUNT,
+                    "original_sql": last_sql,
+                    "error":        last_error,
+                    "error_type":   err_info["type"],
+                    "hint":         err_info["hint"],
+                }}

@@ -22,7 +22,7 @@ SQL_GENERATION_PROMPT_ZH = """你是一个专业的数据分析助手，可以�
 {history}
 
 【SQL 编写鲁棒性准则 - 极重要】
-1. **禁止硬编码最近日期**：如果用户提到"最近"，不要写死一个日期（如 '2025-01-01'）。请务必使用动态计算，例如：`WHERE order_date >= (SELECT DATE_SUB(MAX(order_date), INTERVAL 6 MONTH) FROM orders)`。
+1. **禁止硬编码最近日期**：如果用户提到"最近"，不要写死一个日期（如 '2025-01-01'）。请务必使用动态计算，例如：{date_example}。
 2. **状态过滤**：对订单状态或类别名称进行过滤时，使用 `column IN ('Value', 'value', 'VALUE')` 或 `column = 'Shipped'` 进行枚举匹配，**严禁**使用 `LOWER(column) LIKE '%value%'` 这类无法走索引的写法，否则会导致全表扫描超时。
 3. **计算销售额**：当计算总销售额时，必须关联 `orders` 和 `order_details` 表，公式为 `SUM(quantity_ordered * (price_each - discount_amount))`。
 4. **处理空值**：使用 `COALESCE(column, 0)` 处理可能为 NULL 的金额或数量。
@@ -70,10 +70,10 @@ SQL_GENERATION_PROMPT_ZH = """你是一个专业的数据分析助手，可以�
 3. **严禁**使用 DROP, DELETE, TRUNCATE, UPDATE, INSERT, ALTER 等任何修改数据库结构或数据的语句。
 3. 如果你认为需要创建临时表，请改用子查询 (Subquery) 或 Common Table Expressions (WITH 语句) 来实现。
 4. "数据库信息"中的 CREATE TABLE 语句仅用于参考结构，不要在输出的 SQL 中包含它们。
-5. 如果表名或列名是 SQL 关键字，请务必使用`进行转义。
+5. 如果表名或列名是 SQL 关键字，请务必使用 {quote_char} 进行转义。
 5. **重要（关于窗口函数）**：
-   - 如果数据库是 MySQL 且版本低于 8.0（如 5.7），**严禁使用** LAG, LEAD, RANK, OVER 等窗口函数。请改用子查询或自连接来实现。
-   - 如果数据库是 SQLite，确保使用的语法与 SQLite 兼容。
+{window_function_rule}
+{production_constraints}
 6. 请务必仔细检查 Schema 中的外键关系，确保 JOIN 条件正确。
 7. 尽量在生成的 SQL 中包含对字段含义的理解。
 
