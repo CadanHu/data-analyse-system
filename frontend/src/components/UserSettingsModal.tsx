@@ -6,7 +6,8 @@ import { useAuthStore } from '../stores/authStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { ragApi, parsedApi } from '@/api'
 import { getAllKnowledgeChunks, deleteKnowledgeChunkById, deleteKnowledgeChunksByDoc, updateKnowledgeChunkContent } from '../services/db'
-import { X, User, Database, ChevronDown, RefreshCw, Trash2, Loader2, Pencil, Check, FolderOpen } from 'lucide-react'
+import { X, User, Database, ChevronDown, RefreshCw, Trash2, Loader2, Pencil, Check, FolderOpen, Server } from 'lucide-react'
+import DataSourcePanel from './DataSourceModal'
 
 interface ParsedFileInfo {
   name: string
@@ -40,7 +41,7 @@ interface UserSettingsModalProps {
 export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
   const { user, localUserId } = useAuthStore()
   const { sessions } = useSessionStore()
-  const [activeTab, setActiveTab] = useState<'profile' | 'rag' | 'parsed'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'rag' | 'parsed' | 'datasources'>('profile')
 
   // RAG state
   const [allChunks, setAllChunks] = useState<RagChunk[]>([])   // 全量，用于推导下拉框
@@ -381,9 +382,10 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
   }
 
   const navItems = [
-    { id: 'profile' as const, label: '个人信息', icon: <User className="w-4 h-4" /> },
-    { id: 'rag' as const, label: 'RAG 知识库', icon: <Database className="w-4 h-4" /> },
-    { id: 'parsed' as const, label: '解析文件', icon: <FolderOpen className="w-4 h-4" /> },
+    { id: 'profile' as const,     label: '个人信息',  icon: <User className="w-4 h-4" /> },
+    { id: 'datasources' as const, label: '数据源',    icon: <Server className="w-4 h-4" /> },
+    { id: 'rag' as const,         label: 'RAG 知识库', icon: <Database className="w-4 h-4" /> },
+    { id: 'parsed' as const,      label: '解析文件',  icon: <FolderOpen className="w-4 h-4" /> },
   ]
 
   return createPortal(
@@ -501,6 +503,9 @@ export default function UserSettingsModal({ onClose }: UserSettingsModalProps) {
               </div>
             </div>
           )}
+
+          {/* 数据源管理 */}
+          {activeTab === 'datasources' && <DataSourcePanel />}
 
           {/* RAG 知识库 */}
           {activeTab === 'rag' && (

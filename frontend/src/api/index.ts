@@ -141,6 +141,28 @@ export const databaseApi = {
     api.get('/schema', { params: { db_key: dbKey } }).then(res => res.data),
 };
 
+export const datasourceApi = {
+  list: () =>
+    api.get('/datasources').then(res => res.data),
+  create: (data: {
+    name: string; type: string; host: string; port: number
+    db_name: string; username: string; password: string; description?: string
+  }) =>
+    api.post('/datasources', data).then(res => res.data),
+  update: (id: string, data: Partial<{
+    name: string; type: string; host: string; port: number
+    db_name: string; username: string; password: string; description: string
+  }>) =>
+    api.put(`/datasources/${id}`, data).then(res => res.data),
+  delete: (id: string) =>
+    api.delete(`/datasources/${id}`).then(res => res.data),
+  test: (data: {
+    type: string; host: string; port: number
+    db_name: string; username: string; password: string
+  }) =>
+    api.post('/datasources/test', data).then(res => res.data),
+};
+
 export const chatApi = {
   chat: (sessionId: string, message: string, config?: any) =>
     api.post('/chat/stream', {

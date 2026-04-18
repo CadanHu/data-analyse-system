@@ -14,6 +14,7 @@ from databases.database_manager import DatabaseManager
 from databases.base_adapter import TableInfo
 from routers.auth_router import get_current_user
 from services.schema_service import SchemaService
+from database.datasource_db import datasource_db, DatasourceDB
 
 router = APIRouter(prefix="/api", tags=["databases"])
 
@@ -43,23 +44,41 @@ async def startup_event():
 
 @router.get("/databases")
 async def get_databases(current_user: dict = Depends(get_current_user)):
-    """获取所有可用数据库 / Get all available databases"""
+    """获取所有可用数据库（系统预置 + 当前用户数据源）"""
     current_key = SchemaService.get_current_db_key()
-    
+    user_id = current_user["id"]
+
     databases = []
+
+    # 1. 系统预置数据库
     for key, config in DATABASES.items():
-        # 动态确保 DatabaseManager 中已注册该库
         if not DatabaseManager.get_adapter(key):
-            print(f"📡 [Database] 发现新配置，正在动态注册 / New config found, registering: {key}")
             DatabaseManager.register_database(key, config)
-            
         databases.append({
-            "key": key,
-            "name": config["name"],
-            "type": config.get("type"),
-            "is_current": (key == current_key)
+            "key":        key,
+            "name":       config["name"],
+            "type":       config.get("type"),
+            "is_current": (key == current_key),
+            "source":     "system",
         })
-    
+
+    # 2. 用户自定义数据源
+    user_ds_list = await datasource_db.list_by_user(user_id)
+    for ds in user_ds_list:
+        db_key = ds["db_key"]          # "user_ds_{id}"
+        # 按需动态注册（含明文密码需重新查询）
+        if not DatabaseManager.get_config(db_key):
+            full_ds = await datasource_db.get_by_key(db_key)
+            if full_ds:
+                DatabaseManager.register_database(db_key, DatasourceDB.to_db_config(full_ds))
+        databases.append({
+            "key":        db_key,
+            "name":       ds["name"],
+            "type":       ds["type"],
+            "is_current": (db_key == current_key),
+            "source":     "user",
+        })
+
     return {"databases": databases}
 
 
@@ -76,6 +95,24 @@ async def switch_database(request: SwitchDatabaseRequest, current_user: dict = D
             user_id = current_user["id"]
             await session_db.update_session_database(session_id, user_id, '__no_db__')
         return {"message": "No database selected", "database": {"key": "__no_db__", "name": "无数据库"}}
+
+    # 处理用户自定义数据源（user_ds_ 前缀）
+    if db_key.startswith("user_ds_"):
+        full_ds = await datasource_db.get_by_key(db_key)
+        if not full_ds:
+            raise HTTPException(status_code=404, detail=f"用户数据源 {db_key} 不存在")
+        # 按需注册到 DatabaseManager
+        if not DatabaseManager.get_config(db_key):
+            DatabaseManager.register_database(db_key, DatasourceDB.to_db_config(full_ds))
+        SchemaService.set_database(db_key)
+        if session_id:
+            from database.session_db import session_db
+            user_id = current_user["id"]
+            await session_db.update_session_database(session_id, user_id, db_key)
+        return {
+            "message": f"已切换到 {full_ds['name']}",
+            "database": {"key": db_key, "name": full_ds["name"]}
+        }
 
     if db_key not in DATABASES:
         raise HTTPException(status_code=400, detail=f"Database {db_key} not found (数据库 {db_key} 不存在)")
