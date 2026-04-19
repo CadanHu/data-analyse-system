@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Database, Plus, Trash2, Pencil, Check, X, Loader2,
+  Database, Plus, Trash2, Pencil, Check, Loader2,
   CircleCheck, CircleAlert, TestTube
 } from 'lucide-react'
 import { datasourceApi } from '@/api'

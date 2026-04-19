@@ -646,11 +646,14 @@ export function useSSE() {
         const apiPath = baseURL.startsWith('http') ? `${baseURL}/chat/stream` : `${window.location.origin}${baseURL}/chat/stream`;
         const finalUrl = apiPath.replace(/([^:])\/\//g, '$1/')
 
+        // 🚀 本次请求是否期望思考输出：供下方 model_thinking 事件做防御性过滤，
+        //   防止推理模型即使在 enable_thinking=false 时也硬吐 reasoning_content
+        const reqEnableThinking = options?.enable_thinking ?? isThinkingMode
         const onlineBody = {
           session_id: sessionId,
           question: question,
           parent_id: options?.parent_id,
-          enable_thinking: options?.enable_thinking ?? isThinkingMode,
+          enable_thinking: reqEnableThinking,
           enable_rag: options?.enable_rag || false,
           rag_scope: options?.rag_scope || 'session',
           rag_engine: options?.rag_engine || 'light',
@@ -766,10 +769,14 @@ export function useSSE() {
                   handlers?.onThinking?.(eventData.content)
                   break
                 case 'model_thinking':
+                  // 🚀 兜底：本次请求未开启思考模式时，丢弃 reasoning_content（不写入 message.thinking）
+                  //   背景：部分推理模型的 API 即便不显式开启推理也会吐 reasoning_content，
+                  //   后端未做门控，前端在这里统一拦一次。
+                  if (!reqEnableThinking) break
                   assistantModelThinking += eventData.content || ''
                   setThinkingContent(assistantModelThinking)
                   handlers?.onModelThinking?.(eventData.content)
-                  
+
                   if (!assistantMessageAdded) {
                     addMessage({
                       id: assistantMessageId,

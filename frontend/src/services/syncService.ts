@@ -217,7 +217,7 @@ export async function fullSync(): Promise<void> {
     const snapshotSessionIds = dirty.sessions.map(s => s.id)
     const snapshotMessageIds = dirty.messages.map(m => m.id)
     const snapshotApiKeyIds = dirty.apiKeys.map(k => k.id)
-    const snapshotChunkIds = dirty.knowledgeChunks.map(c => c.id)
+    // chunks 按批推送，clearDirtyFlags 用 batch.map 即可，这里不再做整体快照
 
     const activeSessions = dirty.sessions.filter(s => !s._deleted)
     const deletedSessionIds = dirty.sessions.filter(s => s._deleted).map(s => s.id)

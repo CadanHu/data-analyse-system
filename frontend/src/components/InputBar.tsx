@@ -4,12 +4,13 @@ import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useSSE } from '../hooks/useSSE'
 import { useTranslation } from '../hooks/useTranslation'
-import { uploadApi, messageApi, sessionApi, databaseApi, getBaseURL } from '@/api'
+import { uploadApi, messageApi, sessionApi, databaseApi, getBaseURL, apiKeyApi } from '@/api'
 import { cacheFile } from '@/services/fileCache'
 import ModelKeyModal from './ModelKeyModal'
 import { useAuthStore } from '@/stores/authStore'
 import { useSyncStore } from '@/stores/syncStore'
-import { localUpdateSession, localSaveMessage } from '@/services/localStore'
+import { localUpdateSession, localSaveMessage, localGetApiKeys } from '@/services/localStore'
+import { pickModelForMode, isThinkingModel, type SavedKeyLike } from '@/utils/modelPicker'
 import { Capacitor } from '@capacitor/core'
 import { processDocument, loadKnowledgeGraph, loadKnowledgeGraphAsync, getPdfPageCount, type KnowledgeGraph } from '@/services/mobileKnowledgeService'
 import KnowledgeGraphModal from './KnowledgeGraphModal'
@@ -79,15 +80,63 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
   const [sessionHasFiles, setSessionHasFiles] = useState(false)
   const [currentModelProvider, setCurrentModelProvider] = useState<string | null>(null)
   const [currentModelNameLocal, setCurrentModelNameLocal] = useState<string | null>(null)
+  // 已配置的 API Key 列表（供 modelPicker 自动选模型使用）
+  const [savedKeys, setSavedKeys] = useState<SavedKeyLike[]>([])
 
   // 思考模式是否被当前模型支持
   const thinkingSupported = !currentModelNameLocal || THINKING_SUPPORTED_MODELS.has(currentModelNameLocal)
+
+  // 拉取已配置 Key（登录/离线切换/Key 弹窗关闭时刷新）
+  const reloadSavedKeys = async () => {
+    try {
+      if (isOffline) {
+        const keys = await localGetApiKeys(localUserId ?? -1)
+        setSavedKeys(keys.map(k => ({ provider: k.provider, model_name: k.model_name, has_key: true })))
+      } else {
+        const keys = await apiKeyApi.list()
+        setSavedKeys(keys as SavedKeyLike[])
+      }
+    } catch (e) {
+      console.warn('[InputBar] 加载 API keys 失败，picker 将跳过自动选模型', e)
+    }
+  }
+  useEffect(() => { reloadSavedKeys() }, [isOffline, localUserId])
+  // 关闭 Key 弹窗后刷新，防止新加 key 后 picker 用不到
+  useEffect(() => { if (!showModelKeyModal) reloadSavedKeys() }, [showModelKeyModal])
+
+  // 挑选 + 写入新模型（localStorage + session + 组件 state）
+  const applyPickedModel = async (wantsThinking: boolean): Promise<boolean> => {
+    const pick = pickModelForMode(savedKeys, currentModelProvider, currentModelNameLocal, wantsThinking)
+    if (!pick) {
+      // 无匹配模型：让调用方自己决定 UI 反馈
+      return false
+    }
+    if (pick.provider === currentModelProvider && pick.model === currentModelNameLocal) return true
+    setCurrentModelProvider(pick.provider)
+    setCurrentModelNameLocal(pick.model)
+    localStorage.setItem('DEFAULT_PROVIDER', pick.provider)
+    localStorage.setItem('DEFAULT_MODEL', pick.model)
+    if (sessionId) {
+      try {
+        if (isOffline) {
+          await localUpdateSession(sessionId, { model_provider: pick.provider, model_name: pick.model }).catch(() => {})
+        } else {
+          await sessionApi.updateSessionModes(sessionId, { model_provider: pick.provider, model_name: pick.model })
+        }
+        updateSession(sessionId, { model_provider: pick.provider, model_name: pick.model })
+      } catch (e) {
+        console.warn('[InputBar] 保存新模型失败，仅前端生效', e)
+      }
+    }
+    return true
+  }
 
   // 🚀 核心逻辑：从会话中恢复模式状态
   useEffect(() => {
     if (currentSession && sessionId === currentSession.id) {
       console.log('🔄 [InputBar] 正在从会话恢复模式状态:', currentSession.title);
-      setThinkingMode(!!currentSession.enable_thinking)
+      const wantsThinking = !!currentSession.enable_thinking
+      setThinkingMode(wantsThinking)
       setDataScienceMode(!!currentSession.enable_data_science_agent)
       // 从会话恢复 RAG 状态（enable_rag=true 时还原为 global，否则 off）
       if (currentSession.enable_rag) {
@@ -101,8 +150,24 @@ export default function InputBar({ sessionId, onMessageSent, currentDb }: InputB
       const model    = currentSession.model_name    || localStorage.getItem('DEFAULT_MODEL')    || null
       setCurrentModelProvider(provider)
       setCurrentModelNameLocal(model)
+
+      // 🚀 模型-模式对齐：思考按钮未点亮时，若回退出的模型是推理模型（例如 localStorage
+      //   残留的 deepseek-reasoner），自动降级为非推理模型。savedKeys 可能还没加载好，
+      //   所以延到下个微任务尝试；失败（没可用 key）不强改，维持现状。
+      if (!wantsThinking && isThinkingModel(provider, model)) {
+        queueMicrotask(() => { applyPickedModel(false).catch(() => {}) })
+      }
     }
   }, [currentSession?.id, sessionId])
+
+  // 🚀 savedKeys 加载完成后二次校准：防止首挂时 keys 未就绪、picker 走空返回 null 导致没切模型
+  useEffect(() => {
+    if (!savedKeys.length) return
+    if (!currentSession || currentSession.id !== sessionId) return
+    if (!isThinkingMode && isThinkingModel(currentModelProvider, currentModelNameLocal)) {
+      applyPickedModel(false).catch(() => {})
+    }
+  }, [savedKeys, isThinkingMode, currentModelProvider, currentModelNameLocal])
 
   // 🚀 辅助函数：同步模式到后端 + 本地 SQLite
   const syncModes = async (updates: { enable_data_science_agent?: boolean, enable_thinking?: boolean, enable_rag?: boolean, rag_scope?: string }) => {
@@ -933,22 +998,23 @@ const handleStandardUpload = async (file: File) => {
 
           <div className={`flex items-center gap-1.5 ${isMobilePortrait ? 'flex-1 justify-around' : 'ml-auto mr-3'}`}>
             <button
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.preventDefault()
                 e.stopPropagation()
-                if (!isLoading) {
-                  if (!isThinkingMode && isDataScienceMode) {
-                    alert('Scientist 模式已开启，两者不能同时使用。\n如需启用思考模式，请先关闭 Scientist 模式。')
-                    return
-                  }
-                  if (!isThinkingMode && !thinkingSupported) {
-                    alert(`当前模型 ${currentModelNameLocal} 不支持思考模式。\n请先在「Key」按钮中切换到支持推理的模型。`)
-                    return
-                  }
-                  const newVal = !isThinkingMode
-                  setThinkingMode(newVal)
-                  syncModes({ enable_thinking: newVal })
+                if (isLoading) return
+                if (!isThinkingMode && isDataScienceMode) {
+                  alert('Scientist 模式已开启，两者不能同时使用。\n如需启用思考模式，请先关闭 Scientist 模式。')
+                  return
                 }
+                const newVal = !isThinkingMode
+                // 🚀 自动适配模型：根据是否点亮 + savedKeys 自动挑选模型
+                const picked = await applyPickedModel(newVal)
+                if (newVal && !picked) {
+                  alert('未找到已配置 API Key 的推理模型。\n请先在「Key」按钮里添加一个推理模型（如 DeepSeek R1、GLM-4.7、Claude Sonnet 等）。')
+                  return
+                }
+                setThinkingMode(newVal)
+                syncModes({ enable_thinking: newVal })
               }}
               disabled={isLoading}
               className={`flex-shrink-0 px-2 h-7 data-[mobile=true]:data-[orientation=landscape]:h-6 flex items-center justify-center rounded-lg transition-all shadow-sm ${

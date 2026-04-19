@@ -11,9 +11,11 @@ import {
   localDeleteApiKey,
   localUpdateSession,
 } from '@/services/localStore'
+import { PROVIDER_MODELS, EMBEDDING_PROVIDERS, SPECIAL_PROVIDERS } from '@/utils/providerCatalog'
 
-// ─── 大模型供应商 ──────────────────────────────────────────────────────────────
-const PROVIDER_MODELS: Record<string, {
+// PROVIDER_MODELS / EMBEDDING_PROVIDERS / SPECIAL_PROVIDERS 已迁移至 utils/providerCatalog.ts
+// 如需回退历史定义请看 git（commit 前这里有 ~260 行本地定义）
+/* const _DEPRECATED_PROVIDER_MODELS: Record<string, {
   label: string
   vpn: boolean
   baseUrlHint?: string
@@ -222,10 +224,9 @@ const PROVIDER_MODELS: Record<string, {
       { value: 'pixtral-large-latest', label: 'Pixtral Large (视觉)', vision: true },
     ],
   },
-}
+} */
 
-// ─── Embedding 供应商（向量搜索，用于知识抽取 RAG）────────────────────────────
-const EMBEDDING_PROVIDERS: Record<string, {
+/* const _DEPRECATED_EMBEDDING_PROVIDERS: Record<string, {
   label: string
   vpn: boolean
   getKeyUrl: string
@@ -261,10 +262,9 @@ const EMBEDDING_PROVIDERS: Record<string, {
     getKeyUrl: 'https://console.mistral.ai/api-keys/',
     description: '与 Mistral 同一个 Key，适合多语言 RAG',
   },
-}
+} */
 
-// ─── 特殊工具 Key ──────────────────────────────────────────────────────────────
-const SPECIAL_PROVIDERS: Record<string, {
+/* const _DEPRECATED_SPECIAL_PROVIDERS: Record<string, {
   label: string
   vpn: boolean
   getKeyUrl: string
@@ -278,7 +278,7 @@ const SPECIAL_PROVIDERS: Record<string, {
     description: '用于深度模式和知识抽取，免费注册即可',
     placeholder: 'MinerU API Key（个人中心 → API Key）',
   },
-}
+} */
 
 // ─── 验证逻辑 ──────────────────────────────────────────────────────────────────
 async function validateProviderKey(providerKey: string, apiKey: string, baseUrl?: string): Promise<boolean> {
@@ -708,7 +708,7 @@ function MobileSheet({
   const tabs = [
     { key: 'select', label: '选择模型' },
     { key: 'domestic', label: '🇨🇳 国内直连' },
-    { key: 'vpn', label: '🌐 需要VPN' },
+    { key: 'vpn', label: '🌐 国外穿墙' },
   ] as const
 
   return createPortal(
@@ -1037,7 +1037,7 @@ export default function ModelKeyModal({
   const desktopTabs = [
     { key: 'select', label: '选择模型' },
     { key: 'domestic', label: '🇨🇳 国内直连' },
-    { key: 'vpn', label: '🌐 需要VPN' },
+    { key: 'vpn', label: '🌐 国外穿墙' },
   ] as const
 
   return createPortal(
