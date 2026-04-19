@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import MessageList from './MessageList'
 import InputBar from './InputBar'
 import { useSessionStore } from '../stores/sessionStore'
@@ -24,8 +24,8 @@ interface Database {
 }
 
 export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaProps) {
-  const { currentSession, messages, setMessages, updateSession } = useSessionStore()
-  const { isLoading, isMobile, orientation, landscapeUiVisible } = useChatStore()
+  const { currentSession, setMessages, updateSession } = useSessionStore()
+  const { isMobile, orientation, landscapeUiVisible } = useChatStore()
   const { offlineMode } = useAuthStore()
   const { connectionStatus } = useSyncStore()
   // On native: treat 'checking' as offline too — ping sets 'checking' before 'offline',
@@ -125,20 +125,26 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
     }
   }
 
-  const handleEditMessage = (content: string, parentId?: string) => {
-    if (!selectedSessionId || isLoading) return
+  const handleEditMessage = useCallback((content: string, parentId?: string) => {
+    // Why: 通过 getState() 现查 messages/isLoading/currentSession，避免 useCallback
+    // 依赖 messages 每次 updateMessage 都失效，从而让传给 MessageItem 的 onEditSubmit
+    // 引用稳定，使 React.memo 能命中。
+    const sessionState = useSessionStore.getState()
+    const chatState = useChatStore.getState()
+    if (!selectedSessionId || chatState.isLoading) return
 
     // 截断至父消息，确保新分支消息插入正确位置
     if (parentId) {
-      const parentIndex = messages.findIndex(m => m.id === parentId)
+      const parentIndex = sessionState.messages.findIndex(m => m.id === parentId)
       if (parentIndex !== -1) {
-        setMessages(messages.slice(0, parentIndex + 1))
+        setMessages(sessionState.messages.slice(0, parentIndex + 1))
       }
     } else {
       setMessages([])
     }
 
     const sessionId = selectedSessionId
+    const sess = sessionState.currentSession
 
     // 发起带 parent_id 的新分支请求（继承当前会话的模式标志）
     connect(
@@ -146,11 +152,11 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
       content,
       {
         parent_id: parentId,
-        enable_rag: currentSession?.enable_rag ?? false,
-        enable_data_science_agent: currentSession?.enable_data_science_agent ?? false,
-        enable_thinking: currentSession?.enable_thinking ?? false,
-        model_provider: currentSession?.model_provider ?? undefined,
-        model_name: currentSession?.model_name ?? undefined,
+        enable_rag: sess?.enable_rag ?? false,
+        enable_data_science_agent: sess?.enable_data_science_agent ?? false,
+        enable_thinking: sess?.enable_thinking ?? false,
+        model_provider: sess?.model_provider ?? undefined,
+        model_name: sess?.model_name ?? undefined,
       },
       {
         onMessageSent,
@@ -176,7 +182,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
         }
       }
     )
-  }
+  }, [selectedSessionId, setMessages, connect, onMessageSent, t])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

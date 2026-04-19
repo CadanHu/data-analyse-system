@@ -165,7 +165,7 @@ async def _handle_session_auto_title(session_id: str, user_id: int, question: st
 
 async def run_scientist_mode(request: ChatRequest, current_user: dict):
     """
-    科学家模式处理器 (Scientist Processor)
+    数据科学模式处理器 (Scientist Processor)
     规格：执行 Python 数据科学分析，严禁采集思考过程 (Thinking Isolation)
     """
     user_id = current_user["id"]
@@ -174,13 +174,13 @@ async def run_scientist_mode(request: ChatRequest, current_user: dict):
     assistant_message_id = str(uuid.uuid4())
     
     async def event_generator():
-        yield {"event": "thinking", "data": {"content": "Starting Scientist Engine (正在启动科学家引擎)..."}}
+        yield {"event": "thinking", "data": {"content": "Starting Scientist Engine (正在启动科学引擎)..."}}
         
         assistant_content = ""
         assistant_sql = "" # 存放代码
         assistant_chart_cfg = ""
         assistant_data_obj = {}
-        # 🌟 核心隔离：科学家模式强制不采集 reasoning
+        # 🌟 核心隔离：数据科学模式强制不采集 reasoning
         assistant_reasoning = "" 
 
         try:
@@ -223,7 +223,7 @@ async def run_scientist_mode(request: ChatRequest, current_user: dict):
             elif isinstance(df_to_analyze, list):
                 df_to_analyze = pd.DataFrame(df_to_analyze)
 
-            # RAG 检索：科学家模式也需要 PDF 知识库内容
+            # RAG 检索：数据科学模式也需要 PDF 知识库内容
             rag_knowledge = ""
             try:
                 from services.vector_store import VectorStore
@@ -246,7 +246,7 @@ async def run_scientist_mode(request: ChatRequest, current_user: dict):
                     rag_knowledge = budget.fit_rag_chunks(_format_rag_chunks(search_results), max_single_chunk_chars=1500)
                     if rag_knowledge:
                         hint_tip = f"（文件名匹配: {fname_hint}）" if fname_hint else ""
-                        yield {"event": "thinking", "data": {"content": f"已检索到 {len(search_results)} 条 PDF 知识{hint_tip}，注入数据科学家上下文..."}}
+                        yield {"event": "thinking", "data": {"content": f"已检索到 {len(search_results)} 条 PDF 知识{hint_tip}，注入数据科学上下文..."}}
             except Exception as rag_err:
                 print(f"⚠️ [Scientist RAG] 检索失败: {rag_err}")
 
@@ -287,7 +287,7 @@ async def run_scientist_mode(request: ChatRequest, current_user: dict):
                         "content": assistant_content, 
                         "sql": assistant_sql,
                         "chart_cfg": assistant_chart_cfg, 
-                        "thinking": "", # 🌟 科学家模式强制隔离：不采集思考过程
+                        "thinking": "", # 🌟 数据科学模式强制隔离：不采集思考过程
                         "data": json_dumps(data_payload)
                     })
                     

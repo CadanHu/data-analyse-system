@@ -124,6 +124,9 @@ ALLOWED_ORIGINS = [
     "http://172.20.10.2",
 ]
 
+# 两阶段 Schema 注入阈值（表数量超过此值时先做表选择）
+SCHEMA_TWO_PHASE_THRESHOLD = 15
+
 # 请求限制
 MAX_SQL_EXECUTION_TIME = 30  # SQL 最长执行时间（秒）
 MAX_RETRY_COUNT = 2  # SQL 执行失败最大重试次数

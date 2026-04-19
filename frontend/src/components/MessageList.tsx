@@ -103,18 +103,35 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
   }
 
   return (
-    <div 
-      ref={scrollRef} 
+    <div
+      ref={scrollRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
+      // [perf 3] 旧：className 末尾有 "scroll-smooth"——scrollTop 赋值会触发 CSS 平滑滚动动画，
+      //              长会话下浏览器要跨数十条消息画一遍动画帧（Markdown/KaTeX 都要 paint），
+      //              是"历史会话下拉空白"的重要来源之一。
+      // className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
+      className="flex-1 overflow-y-auto p-4 space-y-4"
     >
+      {/* [perf 4] 旧：直接渲染 MessageErrorBoundary + MessageItem，所有消息的 DOM
+                   都会实时参与滚动时的 layout / paint / composite，长会话下滚动卡顿。
+          新：每条消息外包一层 div，用 content-visibility: auto 让浏览器自动跳过视口外
+             的 layout 与 paint；contain-intrinsic-size 给一个占位高度估值，避免滚动跳动。
+             兼容性：Chrome/Edge 85+、Safari 18+ 原生支持；旧浏览器忽略这两条 CSS（行为回到改前）。 */}
       {Array.isArray(storeMessages) && storeMessages.map((message) => (
-        <MessageErrorBoundary key={message.id}>
-          <MessageItem
-            message={message}
-            onEditSubmit={onEditMessage}
-          />
-        </MessageErrorBoundary>
+        <div
+          key={message.id}
+          style={{
+            contentVisibility: 'auto',
+            containIntrinsicSize: 'auto 200px',
+          }}
+        >
+          <MessageErrorBoundary>
+            <MessageItem
+              message={message}
+              onEditSubmit={onEditMessage}
+            />
+          </MessageErrorBoundary>
+        </div>
       ))}
       {isLoading && storeMessages.length === 0 && (
         <MessageSkeleton />

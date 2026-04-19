@@ -157,9 +157,26 @@ export default function App() {
         return
       }
 
-      const data = await sessionApi.getMessages(sessionId)
+      // [perf 2] 旧：串行——先 await 主分支，再链式发起 allMessages 请求；allMessages 延迟 = T1 + T2
+      // const data = await sessionApi.getMessages(sessionId)
+      //
+      // sessionApi.getMessages(sessionId, true).then(allData => {
+      //   if (Array.isArray(allData)) {
+      //     const processedAll = allData.map(msg => {
+      //       if (typeof msg.data === 'string' && msg.data) {
+      //         try { return { ...msg, data: JSON.parse(msg.data) } } catch (e) {}
+      //       }
+      //       return msg
+      //     })
+      //     setAllMessages(processedAll)
+      //   }
+      // })
 
-      sessionApi.getMessages(sessionId, true).then(allData => {
+      // [perf 2] 新：两个请求同时发起，allMessages 不阻塞主分支渲染
+      const dataPromise = sessionApi.getMessages(sessionId)
+      const allDataPromise = sessionApi.getMessages(sessionId, true)
+
+      allDataPromise.then(allData => {
         if (Array.isArray(allData)) {
           const processedAll = allData.map(msg => {
             if (typeof msg.data === 'string' && msg.data) {
@@ -169,7 +186,9 @@ export default function App() {
           })
           setAllMessages(processedAll)
         }
-      })
+      }).catch(e => console.error('[App] allMessages 加载失败:', e))
+
+      const data = await dataPromise
 
       if (!Array.isArray(data)) {
         console.error('[App] Messages data is not an array:', data)
@@ -232,9 +251,12 @@ export default function App() {
       // 避免 loadMessages 与 localSaveMessage(assistant) 产生竞态
       if (streamingSessionId === sessionId) return
       clearMessages()
-      setTimeout(() => {
-        loadMessages(sessionId)
-      }, 50)
+      // [perf 2] 旧：setTimeout 50ms 延迟（让 clearMessages 先渲染再发请求），直接导致 50ms 空白
+      // setTimeout(() => {
+      //   loadMessages(sessionId)
+      // }, 50)
+      // [perf 2] 新：clearMessages 已同步完成，直接发请求，省掉 50ms
+      loadMessages(sessionId)
     }
   }
 
@@ -259,14 +281,23 @@ export default function App() {
             data-orientation={orientation}
           >
           <UserSync />
+          {/* [perf 5A] 旧：三个 animate-pulse 装饰光斑（opacity 60fps 动画）位于下面 backdrop-blur-2xl 卡片之后。
+                      这意味着卡片的 backdrop-filter 被迫每一帧重新 blur 一次，吃掉 GPU 预算，让滚动永远慢半拍。
+                      新：去掉 animate-pulse，光斑变静态——blur 成一次性成本；视觉上颜色渐变仍在，只是不再呼吸。
+                      回退方式：把三行 className 的 "animate-pulse" 加回即可。 */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl animate-pulse" />
-              <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40rem] h-[40rem] bg-gradient-to-br from-[#E0FFFF]/20 via-[#BFFFD9]/15 to-transparent rounded-full blur-3xl animate-pulse" style={{ animationDelay: '4s' }} />
+              <div className="absolute -top-32 -left-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#BFFFD9]/30 via-[#E0FFFF]/20 to-transparent rounded-full blur-3xl" />
+              <div className="absolute -bottom-32 -right-32 w-[50rem] h-[50rem] bg-gradient-to-br from-[#E6E6FA]/30 via-[#FFFACD]/20 to-transparent rounded-full blur-3xl" />
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40rem] h-[40rem] bg-gradient-to-br from-[#E0FFFF]/20 via-[#BFFFD9]/15 to-transparent rounded-full blur-3xl" />
             </div>
 
             <div className={`relative z-10 h-full ${isMobile ? 'py-4 data-[mobile=true]:data-[orientation=landscape]:p-0' : 'p-0'}`}>
-              <div className={`h-full overflow-hidden backdrop-blur-2xl bg-white/70 ${isMobile ? 'rounded-3xl data-[mobile=true]:data-[orientation=landscape]:rounded-none border border-white/60 data-[mobile=true]:data-[orientation=landscape]:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]' : ''}`}>
+              {/* [perf 5B] 旧：backdrop-blur-2xl = backdrop-filter: blur(40px)，卷积半径很大，对 GPU 极重。
+                          与上面 animate-pulse 叠加后每帧都要重做一次大半径模糊。
+                          新：降级到 backdrop-blur-sm（4px），毛玻璃质感仍在但成本降一个数量级。
+                          回退方式：把 "backdrop-blur-sm" 改回 "backdrop-blur-2xl"。 */}
+              {/* <div className={`h-full overflow-hidden backdrop-blur-2xl bg-white/70 ${isMobile ? 'rounded-3xl data-[mobile=true]:data-[orientation=landscape]:rounded-none border border-white/60 data-[mobile=true]:data-[orientation=landscape]:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]' : ''}`}> */}
+              <div className={`h-full overflow-hidden backdrop-blur-sm bg-white/70 ${isMobile ? 'rounded-3xl data-[mobile=true]:data-[orientation=landscape]:rounded-none border border-white/60 data-[mobile=true]:data-[orientation=landscape]:border-none shadow-[0_8px_32px_rgba(0,0,0,0.08)]' : ''}`}>
                 {isFullScreen && isRightPanelVisible && (
                   <div className="absolute inset-0 z-[200] bg-white">
                     <RightPanel />

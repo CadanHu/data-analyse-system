@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { Share } from '@capacitor/share'
 import { Filesystem, Directory } from '@capacitor/filesystem'
@@ -32,6 +32,7 @@ import {
 import type { Message } from '../types/message'
 import SqlBlock from './SqlBlock'
 import EChartsRenderer from './EChartsRenderer'
+import { shallow } from 'zustand/shallow'
 import { useChatStore } from '../stores/chatStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useAuthStore } from '../stores/authStore'
@@ -186,7 +187,7 @@ const DashboardPreview = ({ report, token }: { report: { title?: string, summary
   )
 }
 
-export default function MessageItem({ message, onEditSubmit }: MessageItemProps) {
+function MessageItem({ message, onEditSubmit }: MessageItemProps) {
   const isUser = message.role === 'user'
   const [thinkingCollapsed, setThinkingCollapsed] = useState(!(message.thinking && !message.content))
   const [sqlCollapsed, setSqlCollapsed] = useState(true)
@@ -211,12 +212,24 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
   // Native: PDF download progress
   const [isPdfDownloading, setIsPdfDownloading] = useState(false)
 
-  const { setCurrentAnalysis, setActiveTab, isLoading, isMobile } = useChatStore()
-  const { allMessages, setMessages, currentSession, updateMessage } = useSessionStore()
-  const { token, localUserId } = useAuthStore()
+  // Per-field selectors: 只订阅真正用到的字段，避免 store 其他字段变化触发无关重渲
+  const setCurrentAnalysis = useChatStore(s => s.setCurrentAnalysis)
+  const setActiveTab = useChatStore(s => s.setActiveTab)
+  const isLoading = useChatStore(s => s.isLoading)
+  const isMobile = useChatStore(s => s.isMobile)
+  // [perf 1b] 旧：顶层订阅 allMessages 会让 setAllMessages（历史会话加载时第二次 getMessages(all=true)
+  //         返回）强制所有 MessageItem 重渲，React.memo 挡不住 hook 订阅驱动的重渲。
+  // const allMessages = useSessionStore(s => s.allMessages)
+  // 新：handlers 里用 getState() 现查；渲染期 siblings 用 narrow selector + shallow，
+  //     仅当本条消息所属的同级分支数组发生实际变化时才重渲。
+  const setMessages = useSessionStore(s => s.setMessages)
+  const currentSession = useSessionStore(s => s.currentSession)
+  const updateMessage = useSessionStore(s => s.updateMessage)
+  const token = useAuthStore(s => s.token)
+  const localUserId = useAuthStore(s => s.localUserId)
   const { connect } = useSSE()
   const { t } = useTranslation()
-  const { language } = useLanguageStore()
+  const language = useLanguageStore(s => s.language)
 
   // 原生端：下载 PDF 后调起系统阅读器（iframe 在 Android WebView 不支持内嵌 PDF）
   const handleOpenPdfNative = async (url: string) => {
@@ -304,7 +317,8 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
         }
 
         // 找父消息（用户提问）
-        const parentMsg = allMessages.find(m => m.id === message.parent_id)
+        // [perf 1b] 旧：allMessages.find(...)。改为 getState() 现查，handler 不需要订阅。
+        const parentMsg = useSessionStore.getState().allMessages.find(m => m.id === message.parent_id)
         const userQuery = parentMsg?.content || message.content
 
         // 从 parsedData 取 SQL 结果，若不存在则重新执行 SQL（sciData 不再存储行数据）
@@ -381,16 +395,21 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   const handleRegenerate = () => {
     if (!currentSession || isLoading) return
-    
-    const parentMessage = allMessages.find(m => m.id === message.parent_id)
+
+    // [perf 1b] 旧：allMessages.find/findIndex/slice。改为 getState() 快照，避免顶层订阅。
+    // const parentMessage = allMessages.find(m => m.id === message.parent_id)
+    // const parentIndex = allMessages.findIndex(m => m.id === parentMessage.id)
+    // if (parentIndex !== -1) setMessages(allMessages.slice(0, parentIndex + 1))
+    const allMessagesSnapshot = useSessionStore.getState().allMessages
+    const parentMessage = allMessagesSnapshot.find(m => m.id === message.parent_id)
     if (!parentMessage) {
       console.warn('Parent message not found, cannot regenerate')
       return
     }
 
-    const parentIndex = allMessages.findIndex(m => m.id === parentMessage.id)
+    const parentIndex = allMessagesSnapshot.findIndex(m => m.id === parentMessage.id)
     if (parentIndex !== -1) {
-      setMessages(allMessages.slice(0, parentIndex + 1))
+      setMessages(allMessagesSnapshot.slice(0, parentIndex + 1))
     }
 
     connect(
@@ -504,11 +523,20 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
 
   const finalDisplayContent = displayContent
 
-  const siblings = allMessages.filter(m => 
-    m.parent_id === message.parent_id && 
-    m.role === message.role
-  ).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-  
+  // [perf 1b] 旧：直接从订阅的 allMessages 派生，导致 allMessages 变更即触发本条重渲。
+  // const siblings = allMessages.filter(m =>
+  //   m.parent_id === message.parent_id &&
+  //   m.role === message.role
+  // ).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  // 新：narrow selector + shallow。只选出同级分支，且只在数组元素引用真变化时才重渲。
+  // 背景刷新第二次 getMessages(all=true) 到达时，若本条消息的同级分支结果没变，跳过重渲。
+  const siblings = useSessionStore(
+    s => s.allMessages
+      .filter(m => m.parent_id === message.parent_id && m.role === message.role)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
+    shallow
+  )
+
   const currentIndex = siblings.findIndex(s => s.id === message.id)
   const totalVersions = siblings.length
 
@@ -516,14 +544,16 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     if (isLoading) return
     const newIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1
     if (newIndex < 0 || newIndex >= totalVersions) return
-    
+
     const targetMessage = siblings[newIndex]
-    
+
+    // [perf 1b] 旧：curr = allMessages.find(...)。改为 getState() 现查，避免订阅。
+    const allMessagesSnapshot = useSessionStore.getState().allMessages
     const path: string[] = []
     let curr: Message | undefined = targetMessage
     while (curr) {
       path.unshift(curr.id)
-      curr = allMessages.find(m => m.id === curr?.parent_id)
+      curr = allMessagesSnapshot.find(m => m.id === curr?.parent_id)
     }
 
     if (currentSession) {
@@ -1522,3 +1552,10 @@ export default function MessageItem({ message, onEditSubmit }: MessageItemProps)
     </div>
   )
 }
+
+export default memo(MessageItem, (prev, next) => {
+  // 只有 message 引用或 onEditSubmit 引用变化时才重渲。
+  // Why: sessionStore.updateMessage 只替换被修改条的对象引用，其他条保持原引用 →
+  // memo 命中即可跳过大量不必要的 ReactMarkdown / KaTeX / rehype 解析。
+  return prev.message === next.message && prev.onEditSubmit === next.onEditSubmit
+})

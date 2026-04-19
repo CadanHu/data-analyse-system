@@ -59,7 +59,22 @@ class AdvancedDataAgent:
         全链路分析流程：流式方案生成 + 静默代码执行
 
         路径判断：
-          rag_factual_mode  �        thinking_msg = "正在启动数据科学引擎..." if language == "zh" else "Starting Data Science Engine..."
+          rag_factual_mode  → RAG 有答案的事实查询，直接文字回答
+          rag_needs_code    → 无数据库但有 RAG + 分析/可视化需求，强制代码生成
+        """
+        # 路径判断：依据问题关键词 + 是否有 RAG 知识 + 是否有实际 df 数据
+        needs_code = _needs_code_generation(question)
+        has_rag = bool(knowledge_context and knowledge_context.strip())
+        # 空 DataFrame（chat_router 异常回落时传入）视为"无数据"，以便走 RAG 代码路径
+        has_df = (
+            (isinstance(df_input, dict) and bool(df_input))
+            or (df_input is not None and hasattr(df_input, "columns")
+                and not (hasattr(df_input, "empty") and df_input.empty))
+        )
+        rag_factual_mode = has_rag and not needs_code
+        rag_needs_code = has_rag and needs_code and not has_df
+
+        thinking_msg = "正在启动数据科学引擎..." if language == "zh" else "Starting Data Science Engine..."
         yield {"event": "thinking", "data": {"content": thinking_msg}}
 
         llm = llm_factory.get_langchain_model(
@@ -199,38 +214,6 @@ Answer the user's question directly from the RAG knowledge below.
    - **语法要求**：严禁使用中文全角引号（如 ', ', ", "），所有 Python 字符串必须使用标准 ASCII 引号 (' 或 ")。
    - **Pandas 版本约束**：我们使用的是 Pandas 2.2.0+。**严禁使用废弃的频率别名 (如 'M', 'Q', 'Y')**。对于月末、季末、年末，**强制使用 'ME', 'QE', 'YE' 等新型 offsets 特性**。
    - **NumPy 广播约束（极重要）**：**严禁**在 `np.where(condition, x, y)` 中让 `x` 或 `y` 的长度与 `condition` 不一致。例如，给满足条件的子集填入渐变值，**必须**先创建全量数组再用布尔索引赋值：`arr = np.zeros(n); arr[mask] = np.linspace(0, 5, mask.sum())`，**严禁**写成 `arr = np.where(mask, np.linspace(0, 5, mask.sum()), 0)`（形状不匹配会直接崩溃）。
-   - **浮点数格式约束（极重要）**：**严禁**对浮点数值使用 `':d'` 整数格式符（如 `f'{{value:d}}'`），这会导致 `ValueError: Unknown format code 'd' for object of type 'float'`。浮点数必须使用 `':.1f'`、`':.2f'`、`':g'` 或 `str(round(...))` 等格式。
-   - 变量命名：使用 `df_xxx` 格式（RAG 模式下可自行用 `pd.DataFrame(...)` 构建）。
-   - 最终数据 -> `result_data`。
-   - 可视化配置 (ECharts) -> `viz_config` (标题和标签也必须是英文)。
-   - 报告文本 -> `summary_text`。
-3. **禁止事项**：
-   - 严禁在 `summary_text` 中包含 `![...](data:...)` 这种图片字符串。
-   - 严禁在文字说明中使用三重反引号。
-"""
-        else:
-            system_prompt = f"""You are a top-tier Data Science Assistant.
-[Context]
-{dataset_context}
-{prev_code_context}
-{rag_section_en}
-[Core Instructions]
-{rag_only_extra_en}1. **Real-time Plan explanation**: Explain your analysis logic fluently in English first.
-2. **Mandatory Plotting**: Whenever trend, comparison, or distribution analysis is involved, you **MUST** write Matplotlib/Seaborn plotting code and explicitly call `plt.show()`. Do not just provide a config dictionary.
-   - **Layout Rule (CRITICAL)**: When using `fig.suptitle()`, you **MUST** call `plt.tight_layout(rect=[0, 0, 1, 0.94])` instead of plain `plt.tight_layout()`. Plain `tight_layout()` ignores suptitle and squashes all subplots into the top of the figure, leaving a large blank area below. Without suptitle, `plt.tight_layout()` is fine. Set `figsize` height to at least rows × 4 (e.g., 3 rows → `figsize=(15, 12)`).
-3. **Code Implementation**: Put the analysis code in a unique ```python ... ``` block.
-   - **Syntax**: Use standard ASCII quotes (' or ") for Python strings.
-   - **Pandas Version Constraint**: We use Pandas 2.2.0+. **DO NOT** use deprecated frequency aliases like 'M', 'Q', or 'Y'. You **MUST** use 'ME' (Month End), 'QE' (Quarter End), 'YE' (Year End) instead.
-   - **NumPy Broadcasting Constraint (CRITICAL)**: **NEVER** pass arrays of different lengths as the `x` or `y` arguments to `np.where(condition, x, y)`. To assign a linspace to a masked subset, pre-allocate and use boolean indexing: `arr = np.zeros(n); arr[mask] = np.linspace(0, 5, mask.sum())`. **NEVER** write `arr = np.where(mask, np.linspace(0, 5, mask.sum()), 0)` — this causes a shape mismatch crash.
-   - **Float Format Constraint (CRITICAL)**: **NEVER** use the `':d'` integer format specifier on float values (e.g. `f'{{value:d}}'`) — this raises `ValueError: Unknown format code 'd' for object of type 'float'`. Always use `':.1f'`, `':.2f'`, `':g'`, or `str(round(...))` for floats.
-   - Must use `df_xxx` variables.
-   - Final data -> `result_data`.
-   - Visualization config (ECharts) -> `viz_config`.
-   - Report text -> `summary_text`.
-3. **Prohibitions**:
-   - DO NOT include `![...](data:...)` image strings in `summary_text`.
-   - DO NOT use triple backticks within the text explanation.
-"""件的子集填入渐变值，**必须**先创建全量数组再用布尔索引赋值：`arr = np.zeros(n); arr[mask] = np.linspace(0, 5, mask.sum())`，**严禁**写成 `arr = np.where(mask, np.linspace(0, 5, mask.sum()), 0)`（形状不匹配会直接崩溃）。
    - **浮点数格式约束（极重要）**：**严禁**对浮点数值使用 `':d'` 整数格式符（如 `f'{{value:d}}'`），这会导致 `ValueError: Unknown format code 'd' for object of type 'float'`。浮点数必须使用 `':.1f'`、`':.2f'`、`':g'` 或 `str(round(...))` 等格式。
    - 变量命名：使用 `df_xxx` 格式（RAG 模式下可自行用 `pd.DataFrame(...)` 构建）。
    - 最终数据 -> `result_data`。
