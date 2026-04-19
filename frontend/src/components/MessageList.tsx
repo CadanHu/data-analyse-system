@@ -112,26 +112,20 @@ export default function MessageList({ onEditMessage }: MessageListProps) {
       // className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
       className="flex-1 overflow-y-auto p-4 space-y-4"
     >
-      {/* [perf 4] 旧：直接渲染 MessageErrorBoundary + MessageItem，所有消息的 DOM
-                   都会实时参与滚动时的 layout / paint / composite，长会话下滚动卡顿。
-          新：每条消息外包一层 div，用 content-visibility: auto 让浏览器自动跳过视口外
-             的 layout 与 paint；contain-intrinsic-size 给一个占位高度估值，避免滚动跳动。
-             兼容性：Chrome/Edge 85+、Safari 18+ 原生支持；旧浏览器忽略这两条 CSS（行为回到改前）。 */}
+      {/* [perf 4 已回退 2026-04-19]
+          曾尝试在每条消息外包一层 div 并加 content-visibility: auto + contain-intrinsic-size
+          以跳过视口外消息的 layout/paint；但 content-visibility: auto 隐式开启的 contain: layout
+          会让该 div 成为内部 fixed 定位弹窗（如对照预览蒙层 fixed inset-0）的新 containing block，
+          导致弹窗蒙层只覆盖该条消息的 bounding box、不再铺满视口——与 MessageItem 里的全屏弹窗冲突。
+          滚动卡顿的真正根因已由 Step 5（App.tsx 去掉 animate-pulse + 降级 backdrop-blur）解决，
+          因此这一步无需保留，恢复原来的直接渲染。 */}
       {Array.isArray(storeMessages) && storeMessages.map((message) => (
-        <div
-          key={message.id}
-          style={{
-            contentVisibility: 'auto',
-            containIntrinsicSize: 'auto 200px',
-          }}
-        >
-          <MessageErrorBoundary>
-            <MessageItem
-              message={message}
-              onEditSubmit={onEditMessage}
-            />
-          </MessageErrorBoundary>
-        </div>
+        <MessageErrorBoundary key={message.id}>
+          <MessageItem
+            message={message}
+            onEditSubmit={onEditMessage}
+          />
+        </MessageErrorBoundary>
       ))}
       {isLoading && storeMessages.length === 0 && (
         <MessageSkeleton />
