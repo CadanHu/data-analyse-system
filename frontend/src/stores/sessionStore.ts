@@ -34,10 +34,15 @@ export const useSessionStore = create<SessionState>((set) => ({
   setCurrentSession: (session) => set({ currentSession: session }),
   setMessages: (messages) => set({ messages }),
   setAllMessages: (allMessages) => set({ allMessages }),
-  addMessage: (message) => set((state) => ({ 
-    messages: [...state.messages, message],
-    allMessages: [...state.allMessages, message]
-  })),
+  addMessage: (message) => set((state) => {
+    if (state.currentSession?.id === message.session_id) {
+      return { 
+        messages: [...state.messages, message],
+        allMessages: [...state.allMessages, message]
+      }
+    }
+    return state;
+  }),
   updateMessage: (id, updates) => set((state) => ({
     messages: state.messages.map(m => m.id === id ? { ...m, ...updates } : m),
     allMessages: state.allMessages.map(m => m.id === id ? { ...m, ...updates } : m)

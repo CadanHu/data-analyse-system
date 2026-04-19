@@ -59,7 +59,7 @@ export function useSSE() {
     setStreamingSessionId
   } = useChatStore()
   const { language } = useLanguageStore()
-  const { addMessage, updateLastMessage, updateSession, updateMessageId } = useSessionStore()
+  const { addMessage, updateLastMessage, updateSession, updateMessageId, updateMessage } = useSessionStore()
   const { connectionStatus } = useSyncStore()
   const { localUserId, offlineMode } = useAuthStore()
 
@@ -115,6 +115,27 @@ export function useSSE() {
       let scientistSqliteSQL = ''   // 带 biz 前缀的 SQLite 版本，用于报告重新执行
       let scientistQueryResults: any[] = []
       let scientistQueryColumns: string[] = []
+
+      const ensureAssistantMessage = (updates: any = {}) => {
+        if (!assistantMessageAdded) {
+          addMessage({
+            id: assistantMessageId,
+            session_id: sessionId,
+            parent_id: userMessageId,
+            role: 'assistant',
+            content: assistantContent,
+            thinking: assistantModelThinking || undefined,
+            sql: assistantSql || undefined,
+            chart_cfg: assistantChartCfg || undefined,
+            data: assistantData ? JSON.stringify(assistantData) : undefined,
+            created_at: new Date().toISOString(),
+            ...updates
+          })
+          assistantMessageAdded = true
+        } else {
+          updateMessage(assistantMessageId, updates)
+        }
+      }
 
       try {
         // 2a. Offline mode → direct AI
@@ -362,20 +383,7 @@ export function useSSE() {
               assistantModelThinking += chunk
               setThinkingContent(assistantModelThinking)
               handlers?.onModelThinking?.(chunk)
-              if (!assistantMessageAdded) {
-                addMessage({
-                  id: assistantMessageId,
-                  session_id: sessionId,
-                  parent_id: userMessageId,
-                  role: 'assistant',
-                  content: '',
-                  thinking: assistantModelThinking,
-                  created_at: new Date().toISOString()
-                })
-                assistantMessageAdded = true
-              } else {
-                updateLastMessage({ thinking: assistantModelThinking })
-              }
+              ensureAssistantMessage({ thinking: assistantModelThinking })
             },
             onSummary: (chunk) => {
               assistantContent += chunk
@@ -394,20 +402,7 @@ export function useSSE() {
                   displayContent = ''
                 }
               }
-              if (!assistantMessageAdded) {
-                addMessage({
-                  id: assistantMessageId,
-                  session_id: sessionId,
-                  parent_id: userMessageId,
-                  role: 'assistant',
-                  content: displayContent,
-                  thinking: assistantModelThinking,
-                  created_at: new Date().toISOString()
-                })
-                assistantMessageAdded = true
-              } else {
-                updateLastMessage({ content: displayContent, thinking: assistantModelThinking })
-              }
+              ensureAssistantMessage({ content: displayContent, thinking: assistantModelThinking })
             },
             onDone: () => {
               console.log('📥 [Offline-AI] Full response:', assistantContent)
@@ -472,17 +467,17 @@ export function useSSE() {
                     setCurrentAnalysis(scientistSql, sqlResult, chartType !== 'none' ? chartType : 'table', chartOption)
                   }
                 }
-                const sciData = JSON.stringify({
+                const sciData = {
                   is_data_science: true,
                   can_generate_report: true,
                   ...(scientistQueryResults.length > 0 ? { total_count: scientistQueryResults.length } : {}),
                   ...(scientistSqliteSQL ? { sqlite_sql: scientistSqliteSQL } : {}),
-                })
-                updateLastMessage({
+                }
+                ensureAssistantMessage({
                   content: analysisText,
                   sql: scientistSql || undefined,
                   chart_cfg: chartOption ? JSON.stringify(chartOption) : undefined,
-                  data: sciData,
+                  data: JSON.stringify(sciData),
                 })
                 await localUpdateMessage(assistantMessageId, {
                   content: analysisText,
@@ -517,7 +512,7 @@ export function useSSE() {
                 if (!rawSql.trim()) {
                   // Plan proposal (step 1): show reasoning text only, not raw JSON
                   if (reasoning) {
-                    updateLastMessage({ content: reasoning })
+                    ensureAssistantMessage({ content: reasoning })
                     await localUpdateMessage(assistantMessageId, { content: reasoning }).catch(() => {})
                   }
                 } else if (rawSql.trim()) {
@@ -603,11 +598,11 @@ export function useSSE() {
                       ...sqlResult,
                       ...(cleanRows.length >= 3 ? { can_generate_report: true } : {})
                     }
-                    updateLastMessage({
+                    ensureAssistantMessage({
                       content: displayContent,
                       sql: rawSql,
                       chart_cfg: offlineChartOption ? JSON.stringify(offlineChartOption) : undefined,
-                      data: offlineData,
+                      data: JSON.stringify(offlineData),
                     })
                     await localUpdateMessage(assistantMessageId, {
                       content: displayContent,
@@ -619,7 +614,7 @@ export function useSSE() {
                   } catch (execErr) {
                     const errMsg = execErr instanceof Error ? execErr.message : 'SQL执行失败'
                     console.error('❌ [Offline-SQL] Execution error:', errMsg)
-                    updateLastMessage({ content: `${reasoning}\n\n❌ ${errMsg}\n\`\`\`sql\n${rawSql}\n\`\`\`` })
+                    ensureAssistantMessage({ content: `${reasoning}\n\n❌ ${errMsg}\n\`\`\`sql\n${rawSql}\n\`\`\`` })
                   }
                 }
               } catch { /* not valid JSON, keep as plain text */ }
@@ -745,7 +740,7 @@ export function useSSE() {
                   const hint = eventData.hint ? `（${eventData.hint}）` : ''
                   setThinkingContent(`SQL 有误，正在自动修正 (${attempt}/${max})...${hint}`)
                   // 把纠错信息追加到当前助手消息的 data 里，MessageItem 会展示橙色提示条
-                  updateLastMessage({
+                  ensureAssistantMessage({
                     data: JSON.stringify({
                       ...(() => { try { return JSON.parse(assistantData ? JSON.stringify(assistantData) : '{}') } catch { return {} } })(),
                       sql_correction: {
@@ -777,22 +772,9 @@ export function useSSE() {
                   setThinkingContent(assistantModelThinking)
                   handlers?.onModelThinking?.(eventData.content)
 
-                  if (!assistantMessageAdded) {
-                    addMessage({
-                      id: assistantMessageId,
-                      session_id: sessionId,
-                      parent_id: userMessageId,
-                      role: 'assistant',
-                      content: '',
-                      thinking: assistantModelThinking,
-                      created_at: new Date().toISOString()
-                    })
-                    assistantMessageAdded = true
-                  } else {
-                    updateLastMessage({
-                      thinking: assistantModelThinking
-                    })
-                  }
+                  ensureAssistantMessage({
+                    thinking: assistantModelThinking
+                  })
                   break
                 case 'sql_generated':
                   assistantSql = eventData.sql || ''
@@ -807,7 +789,7 @@ export function useSSE() {
                 case 'execution_result':
                   // 数据科学模式专用：包含 plot_image_base64 / is_data_science / can_generate_report
                   assistantData = eventData
-                  updateLastMessage({ data: JSON.stringify(eventData) })
+                  ensureAssistantMessage({ data: JSON.stringify(eventData) })
                   break
                 case 'chart_ready':
                   assistantChartCfg = JSON.stringify(eventData.option)
@@ -816,29 +798,9 @@ export function useSSE() {
                   break
                 case 'summary':
                   assistantContent += eventData.content || ''
-                  if (!assistantMessageAdded) {
-                    addMessage({
-                      id: assistantMessageId,
-                      session_id: sessionId,
-                      parent_id: userMessageId,
-                      role: 'assistant',
-                      content: assistantContent,
-                      sql: assistantSql,
-                      chart_cfg: assistantChartCfg,
-                      data: assistantData,
-                      thinking: assistantModelThinking,
-                      created_at: new Date().toISOString()
-                    })
-                    assistantMessageAdded = true
-                  } else {
-                    updateLastMessage({
-                      content: assistantContent,
-                      sql: assistantSql,
-                      chart_cfg: assistantChartCfg,
-                      data: assistantData,
-                      thinking: assistantModelThinking
-                    })
-                  }
+                  ensureAssistantMessage({
+                    content: assistantContent
+                  })
                   handlers?.onSummary?.(eventData.content)
                   break
                 case 'done':
@@ -875,7 +837,6 @@ export function useSSE() {
                     assistantMessageId = eventData.message_id; // 同步闭包变量
                   }
 
-                  // 🚀 核心修复 2：同步所有最终标记
                   const finalData = {
                     ...assistantData,
                     ...(eventData.html_report ? { html_report: eventData.html_report } : {}),
@@ -884,7 +845,7 @@ export function useSSE() {
 
                   if (Object.keys(finalData).length > 0) {
                     console.log('✨ [SSE] 流结束，同步最终数据至 UI');
-                    updateLastMessage({
+                    ensureAssistantMessage({
                       data: JSON.stringify(finalData)
                     })
                   }
@@ -896,23 +857,10 @@ export function useSSE() {
                 case 'db_confirmation_needed': {
                   // RAG 不足以回答，询问用户是否查数据库
                   const confirmText = eventData.message || '知识库中未找到完整答案，是否允许我从数据库查询？'
-                  if (!assistantMessageAdded) {
-                    addMessage({
-                      id: assistantMessageId,
-                      session_id: sessionId,
-                      parent_id: userMessageId,
-                      role: 'assistant',
-                      content: confirmText,
-                      data: JSON.stringify({ db_confirmation_needed: true }),
-                      created_at: new Date().toISOString()
-                    })
-                    assistantMessageAdded = true
-                  } else {
-                    updateLastMessage({
-                      content: confirmText,
-                      data: JSON.stringify({ db_confirmation_needed: true })
-                    })
-                  }
+                  ensureAssistantMessage({
+                    content: confirmText,
+                    data: JSON.stringify({ db_confirmation_needed: true })
+                  })
                   break
                 }
                 case 'error':
@@ -939,7 +887,7 @@ export function useSSE() {
         setStreamingSessionId(null)
       }
     },
-    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateLastMessage, isThinkingMode, connectionStatus, offlineMode, localUserId, setStreamingSessionId]
+    [setIsLoading, setThinkingContent, setCurrentSql, setChartOption, setSqlResult, addMessage, updateMessage, isThinkingMode, connectionStatus, offlineMode, localUserId, setStreamingSessionId]
   )
 
   const disconnect = useCallback(() => {

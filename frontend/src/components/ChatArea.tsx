@@ -262,6 +262,7 @@ export default function ChatArea({ selectedSessionId, onMessageSent }: ChatAreaP
         onClick={(e) => e.stopPropagation()}
       >
         <InputBar
+          key={selectedSessionId || "new"}
           sessionId={selectedSessionId}
           onMessageSent={onMessageSent}
           currentDb={currentDb}

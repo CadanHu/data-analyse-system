@@ -84,3 +84,6 @@ xcuserdata/
 
 # macOS / editor temp files (e.g. .!10797!filename)
 .!*!*
+
+# Screenshots
+screenshots/
