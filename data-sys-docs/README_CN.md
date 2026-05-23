@@ -8,6 +8,8 @@ DataPulse 是一款专为现代企业设计的全栈 AI 数据分析中台。它
 
 ## 📸 界面预览
 
+> 想看真实运行截图（非示意图）？请见 **[SCREENSHOTS.md](../SCREENSHOTS.md)** —— 覆盖所有主要页面与模态框的桌面 + 移动端配对截图。
+
 ### 🖥️ 桌面端控制台
 ![Desktop Dashboard](./assets/web_mockup.svg)
 *三栏式布局 · 实时推理流 · Python 沙盒 · 多图表动态切换 · SQL 预览*

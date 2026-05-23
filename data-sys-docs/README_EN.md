@@ -8,6 +8,8 @@ An AI-driven intelligent data analysis system, a multi-engine commercial platfor
 
 ## 📸 Interface Preview
 
+> Looking for real in-app captures instead of mockups? See **[SCREENSHOTS.md](../SCREENSHOTS.md)** — desktop + mobile pairs across all main pages and modals.
+
 ### 🖥️ Web Dashboard
 ![Web Dashboard](./assets/web_mockup.svg)
 *Three-column layout · Real-time streaming · Python Sandbox · Multi-chart switching · SQL preview*
