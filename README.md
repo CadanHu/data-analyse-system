@@ -11,9 +11,9 @@ DataPulse is an open-source, full-stack AI data analysis platform designed for b
 
 Choose your language:
 
-- **[English Documentation](./docs/README_EN.md)**: Full project guide, setup, and features.
-- **[中文说明文档](./docs/README_CN.md)**: 核心功能介绍、快速部署与 AI 数据科学模式指南。
-- **[移动端知识库规格](./docs/MOBILE_KNOWLEDGE_SPEC.md)**: 本地 PDF 解析、RAG 检索、知识图谱完整规格。
+- **[English Documentation](./data-sys-docs/README_EN.md)**: Full project guide, setup, and features.
+- **[中文说明文档](./data-sys-docs/README_CN.md)**: 核心功能介绍、快速部署与 AI 数据科学模式指南。
+- **[移动端知识库规格](./data-sys-docs/MOBILE_KNOWLEDGE_SPEC.md)**: 本地 PDF 解析、RAG 检索、知识图谱完整规格。
 
 ---
 

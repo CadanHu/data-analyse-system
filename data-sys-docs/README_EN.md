@@ -109,7 +109,7 @@ data-analyse-system/
 │       ├── services/  # Local SQLite store, file cache, sync manager
 │       └── components/ # ModelKeyModal, InputBar, Charts
 ├── scripts/            # Simulation & External Agent Testing scripts
-└── docs/               # Technical Guides & Roadmap
+└── data-sys-docs/      # Technical Guides & Roadmap
 ```
 
 ---
