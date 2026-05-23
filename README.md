@@ -51,6 +51,10 @@ docker-compose up --build
 - **Analysis**: Pandas, Matplotlib, Seaborn, Scikit-learn.
 - **Database**: MySQL (business data) + PostgreSQL (knowledge base / vector store).
 
+## 📸 Screenshots
+
+Real in-app screenshots (desktop + mobile pairs across all main pages and modals): [screenshots/](./screenshots)
+
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
