@@ -53,7 +53,7 @@ docker-compose up --build
 
 ## 📸 Screenshots
 
-Real in-app screenshots (desktop + mobile pairs across all main pages and modals): [screenshots/](./screenshots)
+See real in-app screenshots (desktop + mobile pairs across all main pages and modals): **[SCREENSHOTS.md](./SCREENSHOTS.md)**
 
 ## 📄 License
 
