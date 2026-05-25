@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { v2Api, type V2Workspace, type V2Session, type V2CanvasNode, type V2Board, type V2Profile } from '../../../api'
+import EChartsRenderer from '../../../components/EChartsRenderer'
 import { useV2Ask } from './useV2Ask'
 
 type ChartKind = 'bar' | 'area' | 'funnel' | 'funnel2' | 'compare'
@@ -23,6 +24,7 @@ type Node = {
   title: string
   tag: string
   chart: ChartKind | null     // null = 纯对话，无图表
+  chartOption?: any | null    // 真实 ECharts option (优先于 chart kind)
   thinking: string[]
   sql?: string
   branches?: Branch[]
@@ -186,7 +188,17 @@ function NodeCard({
           {n.thinking.map((t, i) => <div key={i}>{i + 1}. {t}</div>)}
         </div>
       )}
-      {n.chart ? (
+      {n.chartOption?.series ? (
+        <div className="chart">
+          <div className="chart-meta">
+            <span className="title">{n.title}</span>
+            <span className="tag">{n.tag}</span>
+          </div>
+          <div style={{ width: '100%', height: 200, borderRadius: 'var(--r-lg)', overflow: 'hidden' }}>
+            <EChartsRenderer option={n.chartOption} style={{ width: '100%', height: '100%' }} />
+          </div>
+        </div>
+      ) : n.chart ? (
         <div className="chart">
           <div className="chart-meta">
             <span className="title">{n.title}</span>
@@ -261,9 +273,12 @@ function canvasNodesToNodes(cn: V2CanvasNode[]): Node[] {
   // 按 position_index 升序成对消费 user → assistant
   const sorted = [...cn].sort((a, b) => a.position_index - b.position_index)
   const nodes: Node[] = []
+  let lastAssistantNodeId: string | null = null  // 最近一个 assistant 的 node_id，用于判断分支
   for (let i = 0; i < sorted.length; i++) {
     const u = sorted[i]
     if (u.role !== 'user') continue
+    // 分支判定：user 的 parent_node_id 不是上一个 assistant 节点（说明从历史节点叉出来）
+    const isBranch = !!u.parent_node_id && lastAssistantNodeId !== null && u.parent_node_id !== lastAssistantNodeId
     const a = sorted[i + 1]
     if (!a || a.role !== 'assistant') {
       // 流式中 / LLM 失败 — user 已落但 assistant 还没来
@@ -284,15 +299,17 @@ function canvasNodesToNodes(cn: V2CanvasNode[]): Node[] {
     nodes.push({
       id: a.node_id,
       who: '你',
-      q: u.content || '',
+      q: (isBranch ? '↳ ' : '') + (u.content || ''),
       steps: thinkingLines.length,
       elapsed,
       title: chart ? titleFromCfg(a.chart_cfg_json, '分析结果') : (a.content || '回答'),
-      tag: chart ? (TAG_BY_KIND[chart] || '') : (isChat ? '对话' : ''),
+      tag: isBranch ? '分支' : (chart ? (TAG_BY_KIND[chart] || '') : (isChat ? '对话' : '')),
       chart,
+      chartOption: parseCfg(a.chart_cfg_json),
       thinking: thinkingLines,
       sql: a.sql || undefined,
     })
+    lastAssistantNodeId = a.node_id
     i += 1
   }
   return nodes
@@ -650,13 +667,17 @@ export function CanvasA() {
   }
 
   const handleBranch = (id: string) => {
-    setNodes(nodes.map(n => n.id === id ? {
-      ...n,
-      branches: [
-        ...(n.branches ?? []),
-        { id: 'br-' + (Date.now() % 100000), label: `分支 ${String.fromCharCode(65 + (n.branches?.length ?? 0))} · 新探索`, title: '新分支', tag: '已分支', chart: 'area' as ChartKind, q: '从此处分支' },
-      ],
-    } : n))
+    if (!currentSession?.id) return
+    const q = window.prompt('从此节点叉出去问什么？（会以该节点为父节点保存到 canvas_nodes）', '')
+    if (!q || !q.trim()) return
+    const sid = currentSession.id
+    ask(sid, q.trim(), {
+      parentNodeId: id,
+      noDatabase: true,
+      onUserSaved: () => reloadNodes(sid),
+      onDone: () => reloadNodes(sid),
+      onError: (msg) => console.warn('[CanvasA] branch ask error:', msg),
+    })
   }
 
   const handlePin = async (n: Node | Branch) => {

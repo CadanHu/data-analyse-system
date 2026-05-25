@@ -1,8 +1,159 @@
 // @ts-nocheck
 // Ported verbatim from datapulse-ai-design-system/project/v2/Settings.jsx
+// 真实数据接入：在 SettingsProfile / SettingsNotify 顶部插入 Live 浮动条
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { v2Api } from '../../../api'
 
 const { useState: useS_ST } = React;
+
+const ROLE_OPTS = [
+  { v: 'exec', l: '高管' }, { v: 'sales', l: '销售' }, { v: 'pm', l: '产品' },
+  { v: 'ops', l: '运营' }, { v: 'analyst', l: '分析师' }, { v: 'admin', l: '管理员' },
+]
+const THEME_OPTS = [{ v: 'light', l: '亮' }, { v: 'dark', l: '暗' }, { v: 'auto', l: '跟随系统' }]
+const LANG_OPTS = [{ v: 'zh-CN', l: '简体中文' }, { v: 'en-US', l: 'English' }]
+const DENSITY_OPTS = [{ v: 'cozy', l: '舒适' }, { v: 'compact', l: '紧凑' }]
+const NOTIFY_CHANNELS = ['email', 'im', 'push', 'inapp']
+const NOTIFY_EVENTS = ['mention', 'comment', 'alert', 'share', 'digest', 'system']
+
+function ProfileLiveBar() {
+  const [profile, setProfile] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(null)
+  useEffect(() => { v2Api.getMyProfile().then(setProfile).catch(() => {}) }, [])
+  if (!profile) return <LiveBar title="个人资料 · 真实数据" loading />
+
+  const save = async (updates) => {
+    setSaving(true)
+    try {
+      const next = await v2Api.updateMyProfile(updates)
+      setProfile(next)
+      setSavedAt(new Date().toLocaleTimeString())
+    } catch (err) { console.warn('[Settings] 保存失败:', err?.message || err) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <LiveBar title="个人资料 · 真实数据" footer={savedAt ? `已保存 ${savedAt}` : null}>
+      <Field label="角色">
+        <select value={profile.role || ''} disabled={saving} onChange={e => save({ role: e.target.value })}>
+          <option value="">未设置</option>
+          {ROLE_OPTS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+        </select>
+      </Field>
+      <Field label="昵称">
+        <input
+          defaultValue={profile.display_name || ''}
+          disabled={saving}
+          onBlur={e => e.target.value !== (profile.display_name || '') && save({ display_name: e.target.value })}
+          placeholder="(空)"
+        />
+      </Field>
+      <Field label="主题">
+        <select value={profile.theme || 'light'} disabled={saving} onChange={e => save({ theme: e.target.value })}>
+          {THEME_OPTS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+        </select>
+      </Field>
+      <Field label="语言">
+        <select value={profile.lang || 'zh-CN'} disabled={saving} onChange={e => save({ lang: e.target.value })}>
+          {LANG_OPTS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+        </select>
+      </Field>
+      <Field label="密度">
+        <select value={profile.density || 'cozy'} disabled={saving} onChange={e => save({ density: e.target.value })}>
+          {DENSITY_OPTS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+        </select>
+      </Field>
+    </LiveBar>
+  )
+}
+
+function NotifyLiveBar() {
+  const [prefs, setPrefs] = useState(null) // Record<`${ch}:${ev}`, bool>
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState(null)
+
+  useEffect(() => {
+    v2Api.getMyNotificationPrefs?.()
+    // 没有 getMyNotificationPrefs? 用 axios 直调
+    import('../../../api').then(m => m.default.get('/v2/me/notification-prefs').then(r => {
+      const map = {}
+      ;(r.data || []).forEach(p => { map[`${p.channel}:${p.event_type}`] = p.enabled })
+      setPrefs(map)
+    }).catch(() => setPrefs({})))
+  }, [])
+
+  if (!prefs) return <LiveBar title="通知偏好 · 真实数据" loading />
+
+  const toggle = async (ch, ev) => {
+    const key = `${ch}:${ev}`
+    const next = { ...prefs, [key]: !prefs[key] }
+    setPrefs(next)
+    setSaving(true)
+    try {
+      const items = Object.entries(next).map(([k, enabled]) => {
+        const [channel, event_type] = k.split(':')
+        return { channel, event_type, enabled }
+      })
+      const apiMod = await import('../../../api')
+      await apiMod.default.put('/v2/me/notification-prefs', items)
+      setSavedAt(new Date().toLocaleTimeString())
+    } catch (err) { console.warn('[Settings] 保存通知偏好失败:', err?.message || err) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <LiveBar title="通知偏好 · 真实数据" footer={savedAt ? `已保存 ${savedAt}` : '4 渠道 × 6 场景'}>
+      <div style={{ display: 'grid', gridTemplateColumns: `auto repeat(${NOTIFY_CHANNELS.length}, auto)`, gap: '6px 14px', alignItems: 'center', fontSize: 12 }}>
+        <div></div>
+        {NOTIFY_CHANNELS.map(ch => <div key={ch} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)', textTransform: 'uppercase' }}>{ch}</div>)}
+        {NOTIFY_EVENTS.map(ev => (
+          <React.Fragment key={ev}>
+            <div style={{ color: 'var(--ink-2)' }}>{ev}</div>
+            {NOTIFY_CHANNELS.map(ch => (
+              <input
+                key={ch}
+                type="checkbox"
+                checked={!!prefs[`${ch}:${ev}`]}
+                onChange={() => toggle(ch, ev)}
+                disabled={saving}
+                style={{ cursor: 'pointer' }}
+              />
+            ))}
+          </React.Fragment>
+        ))}
+      </div>
+    </LiveBar>
+  )
+}
+
+function LiveBar({ title, loading, footer, children }) {
+  return (
+    <div style={{
+      padding: '12px 18px', background: 'oklch(0.78 0.16 65 / 0.10)',
+      borderBottom: '1px solid var(--amber-deep)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: children ? 10 : 0 }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--amber-deep)' }}>
+          ● {title}
+        </span>
+        {loading && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>加载中…</span>}
+        {footer && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-4)' }}>{footer}</span>}
+      </div>
+      {children && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>{children}</div>
+      )}
+    </div>
+  )
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-3)' }}>
+      {label}：{children}
+    </label>
+  )
+}
 
 /* =========================================================
    Settings · Profile / Notify / Security
@@ -42,6 +193,7 @@ export function SettingsProfile() {
   const [notify2, setNotify2] = useS_ST(true);
   return (
     <div className="p0-frame">
+      <ProfileLiveBar />
       <div className="set-shell">
         <SetSide on="profile"/>
         <div className="set-main">
@@ -219,6 +371,7 @@ const NOTIFY_ROWS = [
 export function SettingsNotify() {
   return (
     <div className="p0-frame">
+      <NotifyLiveBar />
       <div className="set-shell">
         <SetSide on="notify"/>
         <div className="set-main">
