@@ -500,6 +500,33 @@ export const v2Api = {
     api.delete(`/v2/boards/${boardId}/widgets/${widgetId}`).then(r => r.data),
   listBoardTemplates: (category?: string) =>
     api.get<V2BoardTemplate[]>('/v2/board-templates', { params: category ? { category } : {} }).then(r => r.data),
+
+  // 阶段 4 · 分享 + 通知
+  createShareLink: (targetType: string, targetId: string, permission = 'view', expiresDays?: number) =>
+    api.post('/v2/share-links', { target_type: targetType, target_id: targetId, permission, expires_days: expiresDays }).then(r => r.data),
+  listShareLinks: (targetType?: string, targetId?: string) =>
+    api.get('/v2/share-links', { params: { target_type: targetType, target_id: targetId } }).then(r => r.data),
+  revokeShareLink: (linkId: string) =>
+    api.post(`/v2/share-links/${linkId}/revoke`).then(r => r.data),
+  deleteShareLink: (linkId: string) =>
+    api.delete(`/v2/share-links/${linkId}`).then(r => r.data),
+  upsertShareGrant: (targetType: string, targetId: string, userId: number, permission = 'view') =>
+    api.post('/v2/share-grants', { target_type: targetType, target_id: targetId, user_id: userId, permission }).then(r => r.data),
+  listShareGrants: (targetType: string, targetId: string) =>
+    api.get('/v2/share-grants', { params: { target_type: targetType, target_id: targetId } }).then(r => r.data),
+  deleteShareGrant: (grantId: string) =>
+    api.delete(`/v2/share-grants/${grantId}`).then(r => r.data),
+
+  listNotifications: (onlyUnread = false, limit = 50, offset = 0) =>
+    api.get('/v2/notifications', { params: { only_unread: onlyUnread, limit, offset } }).then(r => r.data),
+  countUnreadNotifications: () =>
+    api.get('/v2/notifications/_count').then(r => r.data),
+  markNotificationRead: (notifId: string) =>
+    api.patch(`/v2/notifications/${notifId}/read`).then(r => r.data),
+  markAllNotificationsRead: () =>
+    api.post('/v2/notifications/_read_all').then(r => r.data),
+  deleteNotification: (notifId: string) =>
+    api.delete(`/v2/notifications/${notifId}`).then(r => r.data),
 }
 
 export default api

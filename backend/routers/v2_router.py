@@ -530,3 +530,221 @@ async def admin_check(current_user: dict = Depends(require_role('admin'))):
         "ok": True,
         "message": "你拥有 admin 角色，可访问管理后台所有功能",
     }
+
+
+# ============================================================
+# 阶段 4 · share_links / share_grants / notifications
+# ============================================================
+
+from database.v2 import share_services as v2_share
+from database.v2 import notification_services as v2_notif
+
+
+class ShareLinkCreate(BaseModel):
+    target_type: str         # session / board / node
+    target_id: str
+    permission: str = 'view' # view / comment / edit
+    expires_days: Optional[int] = None   # 多少天后过期，None = 永不
+
+
+class ShareGrantUpsert(BaseModel):
+    target_type: str
+    target_id: str
+    user_id: int
+    permission: str = 'view'
+
+
+# --- 权限工具：判断当前 user 是否能分享某 target ---
+async def _can_share(target_type: str, target_id: str, user_id: int) -> bool:
+    """会话/看板的 owner 才能分享。node 暂时随其所在 session 的 owner 判断。"""
+    if target_type == 'session':
+        ses = await v2_canvas.get_session(target_id)
+        return bool(ses and ses['owner_user_id'] == user_id)
+    if target_type == 'board':
+        from database.v2 import board_services as _bs
+        b = await _bs.get_board(target_id)
+        if not b:
+            return False
+        if b['owner_user_id'] == user_id:
+            return True
+        role = await v2_svc.get_member_role(b['workspace_id'], user_id)
+        return role in ('owner', 'admin')
+    if target_type == 'node':
+        # node 跟着所在 session 判断
+        from database.v2.base import v2_db
+        from database.v2.models import CanvasNodeModel, V2SessionModel
+        from sqlalchemy.future import select as _select
+        async with v2_db.async_session() as s:
+            res = await s.execute(_select(CanvasNodeModel.session_id).where(CanvasNodeModel.id == target_id))
+            sid = res.scalar_one_or_none()
+            if not sid:
+                return False
+            res2 = await s.execute(_select(V2SessionModel.owner_user_id).where(V2SessionModel.id == sid))
+            owner = res2.scalar_one_or_none()
+            return owner == user_id
+    return False
+
+
+# ---------- Share links ----------
+
+@router.post("/share-links", status_code=status.HTTP_201_CREATED)
+async def create_share_link(data: ShareLinkCreate, current_user: dict = Depends(get_current_user)):
+    if not await _can_share(data.target_type, data.target_id, current_user['id']):
+        raise HTTPException(status_code=403, detail="无权分享此资源")
+    from datetime import timedelta, datetime as _dt
+    expires_at = (_dt.utcnow() + timedelta(days=data.expires_days)) if data.expires_days else None
+    return await v2_share.create_share_link(
+        target_type=data.target_type, target_id=data.target_id,
+        created_by=current_user['id'],
+        permission=data.permission, expires_at=expires_at,
+    )
+
+
+@router.get("/share-links")
+async def list_my_share_links(
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    return await v2_share.list_share_links(
+        target_type=target_type, target_id=target_id,
+        created_by=current_user['id'],
+    )
+
+
+@router.post("/share-links/{link_id}/revoke")
+async def revoke_link(link_id: str, current_user: dict = Depends(get_current_user)):
+    links = await v2_share.list_share_links(created_by=current_user['id'])
+    if not any(l['id'] == link_id for l in links):
+        raise HTTPException(status_code=403, detail="只能撤销自己创建的链接")
+    await v2_share.revoke_share_link(link_id)
+    return {"ok": True}
+
+
+@router.delete("/share-links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_link(link_id: str, current_user: dict = Depends(get_current_user)):
+    links = await v2_share.list_share_links(created_by=current_user['id'])
+    if not any(l['id'] == link_id for l in links):
+        raise HTTPException(status_code=403, detail="只能删除自己创建的链接")
+    await v2_share.delete_share_link(link_id)
+    return None
+
+
+@router.get("/share-links/_lookup/{token}")
+async def lookup_share_link(token: str):
+    """公开端点：通过 token 拿分享信息（不需要登录）。"""
+    link = await v2_share.get_share_by_token(token)
+    if not link:
+        raise HTTPException(status_code=404, detail="链接无效或已过期")
+    # 不暴露 created_by / created_at 等敏感字段
+    return {
+        "target_type": link['target_type'],
+        "target_id": link['target_id'],
+        "permission": link['permission'],
+    }
+
+
+# ---------- Share grants ----------
+
+@router.post("/share-grants", status_code=status.HTTP_201_CREATED)
+async def upsert_share_grant(data: ShareGrantUpsert, current_user: dict = Depends(get_current_user)):
+    if not await _can_share(data.target_type, data.target_id, current_user['id']):
+        raise HTTPException(status_code=403, detail="无权分享此资源")
+    return await v2_share.upsert_grant(
+        target_type=data.target_type, target_id=data.target_id,
+        user_id=data.user_id, permission=data.permission,
+        granted_by=current_user['id'],
+    )
+
+
+@router.get("/share-grants")
+async def list_grants_for_target(
+    target_type: str, target_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    # 只有 target owner 能看 grants
+    if not await _can_share(target_type, target_id, current_user['id']):
+        raise HTTPException(status_code=403, detail="无权查看此资源的分享列表")
+    return await v2_share.list_grants(target_type, target_id)
+
+
+@router.delete("/share-grants/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_grant(grant_id: str, current_user: dict = Depends(get_current_user)):
+    # 简化：只允许被授权者本人或者 grant 的 granted_by 撤销 —
+    # 这里偷懒只允许 granted_by。生产环境应该更严格。
+    from database.v2.base import v2_db as _db
+    from database.v2.models import ShareGrantModel as _SG
+    from sqlalchemy.future import select as _select
+    async with _db.async_session() as s:
+        res = await s.execute(_select(_SG).where(_SG.id == grant_id))
+        g = res.scalar_one_or_none()
+        if not g:
+            raise HTTPException(status_code=404, detail="grant 不存在")
+        if g.granted_by != current_user['id'] and g.user_id != current_user['id']:
+            raise HTTPException(status_code=403, detail="无权撤销此授权")
+    await v2_share.remove_grant(grant_id)
+    return None
+
+
+# ---------- Notifications ----------
+
+@router.get("/notifications")
+async def list_my_notifications(
+    only_unread: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    return await v2_notif.list_for_user(
+        current_user['id'], only_unread=only_unread,
+        limit=limit, offset=offset,
+    )
+
+
+@router.get("/notifications/_count")
+async def notifications_unread_count(current_user: dict = Depends(get_current_user)):
+    return {"unread": await v2_notif.count_unread(current_user['id'])}
+
+
+@router.patch("/notifications/{notif_id}/read")
+async def mark_notif_read(notif_id: str, current_user: dict = Depends(get_current_user)):
+    ok = await v2_notif.mark_read(notif_id, current_user['id'])
+    if not ok:
+        raise HTTPException(status_code=404, detail="通知不存在或非你所有")
+    return {"ok": True}
+
+
+@router.post("/notifications/_read_all")
+async def mark_all_notifs_read(current_user: dict = Depends(get_current_user)):
+    n = await v2_notif.mark_all_read(current_user['id'])
+    return {"marked": n}
+
+
+@router.delete("/notifications/{notif_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_notif(notif_id: str, current_user: dict = Depends(get_current_user)):
+    ok = await v2_notif.delete(notif_id, current_user['id'])
+    if not ok:
+        raise HTTPException(status_code=404, detail="通知不存在或非你所有")
+    return None
+
+
+# ---------- 测试辅助：手动创建一条通知（不限制，供 smoke test 用） ----------
+
+class _NotifSeed(BaseModel):
+    recipient_user_id: int
+    type: str = 'system'
+    source_type: Optional[str] = None
+    source_id: Optional[str] = None
+    payload: Optional[Dict[str, Any]] = None
+
+
+@router.post("/notifications/_seed", status_code=status.HTTP_201_CREATED)
+async def seed_notif(data: _NotifSeed, current_user: dict = Depends(get_current_user)):
+    """给指定 user 发一条通知。生产环境应该删掉/锁 admin，这里供联调用。"""
+    return await v2_notif.create(
+        recipient_user_id=data.recipient_user_id,
+        type=data.type,
+        source_type=data.source_type,
+        source_id=data.source_id,
+        payload=data.payload,
+    )

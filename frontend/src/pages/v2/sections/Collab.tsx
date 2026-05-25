@@ -1,8 +1,170 @@
 // @ts-nocheck
 // Ported verbatim from datapulse-ai-design-system/project/v2/Collab.jsx
+// 阶段 4 真实数据接入：ShareLiveBar / NotifLiveBar 浮动条
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { v2Api } from '../../../api'
 
 const { useState: useS_CL } = React;
+
+/* ---------- Live data bars (阶段 4) ---------- */
+
+function ShareLiveBar() {
+  const [workspace, setWorkspace] = useState(null)
+  const [boards, setBoards] = useState([])
+  const [sessions, setSessions] = useState([])
+  const [targetType, setTargetType] = useState('board')
+  const [targetId, setTargetId] = useState('')
+  const [permission, setPermission] = useState('view')
+  const [expiresDays, setExpiresDays] = useState(7)
+  const [links, setLinks] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
+  useEffect(() => {
+    if (!workspace) return
+    v2Api.listBoards(workspace.id).then(setBoards).catch(() => {})
+    v2Api.listSessions(workspace.id).then(setSessions).catch(() => {})
+  }, [workspace])
+
+  const reloadLinks = async () => {
+    if (!targetType || !targetId) { setLinks([]); return }
+    try { setLinks(await v2Api.listShareLinks(targetType, targetId)) } catch {}
+  }
+  useEffect(() => { reloadLinks() }, [targetType, targetId])
+
+  const options = targetType === 'board' ? boards : sessions
+  const create = async () => {
+    if (!targetId) return
+    setBusy(true); setMsg(null)
+    try {
+      const link = await v2Api.createShareLink(targetType, targetId, permission, expiresDays || undefined)
+      setMsg(`链接已生成: /shared/${link.token.slice(0, 12)}...`)
+      reloadLinks()
+    } catch (e) { setMsg(`失败: ${e?.message || e}`) }
+    finally { setBusy(false); setTimeout(() => setMsg(null), 3500) }
+  }
+  const revoke = async (id) => {
+    setBusy(true)
+    try { await v2Api.revokeShareLink(id); reloadLinks() }
+    catch (e) { setMsg(`撤销失败: ${e?.message || e}`); setTimeout(() => setMsg(null), 3000) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <LiveBarCL title="分享链接 · 真实数据" footer={msg}>
+      <Inline label="目标">
+        <select value={targetType} onChange={e => { setTargetType(e.target.value); setTargetId('') }}>
+          <option value="board">board</option>
+          <option value="session">session</option>
+        </select>
+      </Inline>
+      <Inline label="选择">
+        <select value={targetId} onChange={e => setTargetId(e.target.value)} style={{ minWidth: 200 }}>
+          <option value="">{targetType === 'board' ? `选看板…(${boards.length})` : `选会话…(${sessions.length})`}</option>
+          {options.map(o => <option key={o.id} value={o.id}>{o.title || o.name || o.id.slice(0,8)}</option>)}
+        </select>
+      </Inline>
+      <Inline label="权限">
+        <select value={permission} onChange={e => setPermission(e.target.value)}>
+          <option value="view">仅查看</option>
+          <option value="comment">可评论</option>
+          <option value="edit">可编辑</option>
+        </select>
+      </Inline>
+      <Inline label="过期">
+        <input type="number" value={expiresDays} onChange={e => setExpiresDays(parseInt(e.target.value || '0'))} style={{ width: 60 }} /> 天
+      </Inline>
+      <button disabled={busy || !targetId} onClick={create} style={btnPri}>{busy ? '...' : '生成链接'}</button>
+
+      {links.length > 0 && (
+        <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {links.map(l => (
+            <div key={l.id} style={liveRow}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: l.revoked_at ? 'var(--ink-4)' : 'var(--ink-1)', flex: 1, textDecoration: l.revoked_at ? 'line-through' : 'none' }}>
+                {l.token.slice(0, 24)}...
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{l.permission}</span>
+              {l.revoked_at ? <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>已撤销</span>
+                : <button onClick={() => revoke(l.id)} style={btnGhost}>撤销</button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </LiveBarCL>
+  )
+}
+
+function NotifLiveBar() {
+  const [list, setList] = useState([])
+  const [unread, setUnread] = useState(0)
+  const [busy, setBusy] = useState(false)
+
+  const reload = async () => {
+    try {
+      const [items, cnt] = await Promise.all([
+        v2Api.listNotifications(false, 20),
+        v2Api.countUnreadNotifications(),
+      ])
+      setList(items); setUnread(cnt.unread || 0)
+    } catch {}
+  }
+  useEffect(() => { reload() }, [])
+
+  const markOne = async (id) => { await v2Api.markNotificationRead(id); reload() }
+  const markAll = async () => {
+    setBusy(true)
+    try { await v2Api.markAllNotificationsRead(); await reload() } finally { setBusy(false) }
+  }
+  const del = async (id) => { await v2Api.deleteNotification(id); reload() }
+
+  return (
+    <LiveBarCL title={`通知中心 · 真实数据 · ${unread} 条未读`}>
+      <button onClick={reload} style={btnGhost}>刷新</button>
+      <button onClick={markAll} disabled={busy || unread === 0} style={btnGhost}>全部已读</button>
+      <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>共 {list.length} 条</span>
+
+      {list.length === 0 ? (
+        <div style={{ width: '100%', padding: '8px 0', color: 'var(--ink-4)', fontSize: 12 }}>
+          收件箱是空的。可用 POST /api/v2/notifications/_seed 灌测试数据。
+        </div>
+      ) : (
+        <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {list.map(n => (
+            <div key={n.id} style={{ ...liveRow, opacity: n.read_at ? 0.55 : 1 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-deep)', textTransform: 'uppercase', padding: '1px 5px', background: 'oklch(0.78 0.16 65 / 0.12)', borderRadius: 4 }}>{n.type}</span>
+              <span style={{ flex: 1, fontSize: 12 }}>
+                {(n.payload_json?.title) || '(无标题)'} {n.payload_json?.body && <span style={{ color: 'var(--ink-3)' }}>· {n.payload_json.body}</span>}
+              </span>
+              {!n.read_at && <button onClick={() => markOne(n.id)} style={btnGhost}>已读</button>}
+              <button onClick={() => del(n.id)} style={{ ...btnGhost, color: 'var(--ink-4)' }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </LiveBarCL>
+  )
+}
+
+const liveRow = { padding: '6px 10px', background: 'var(--paper)', border: '1px solid var(--line-1)', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 10 }
+const btnPri = { padding: '6px 12px', background: 'var(--amber-deep)', color: 'var(--paper)', border: 0, borderRadius: 6, fontSize: 12, cursor: 'pointer' }
+const btnGhost = { padding: '4px 10px', background: 'transparent', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 11, cursor: 'pointer' }
+
+function LiveBarCL({ title, footer, children }) {
+  return (
+    <div style={{ padding: '12px 18px', background: 'oklch(0.78 0.16 65 / 0.10)', borderBottom: '1px solid var(--amber-deep)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--amber-deep)' }}>● {title}</span>
+        {children}
+        {footer && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-3)' }}>{footer}</span>}
+      </div>
+    </div>
+  )
+}
+
+function Inline({ label, children }) {
+  return <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--ink-3)' }}>{label}: {children}</label>
+}
 
 /* =========================================================
    Collab · ShareDialog / NotificationCenter / TeamWorkspace
@@ -43,6 +205,7 @@ export function ShareDialog() {
   const [tab, setTab] = useS_CL('people');
   return (
     <div className="p0-frame">
+      <ShareLiveBar />
       <div className="ai-scene">
         <P1Top crumbs={['工作区','Q3 渠道复盘']} badge="分享设置"/>
         <div className="shr-stage">
@@ -158,6 +321,7 @@ export function NotificationCenter() {
   const [filter, setFilter] = useS_CL('all');
   return (
     <div className="p0-frame">
+      <NotifLiveBar />
       <div className="notif">
         <div className="notif-side">
           <div className="brand"><span className="dot"/>DataPulse</div>

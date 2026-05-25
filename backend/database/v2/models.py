@@ -300,3 +300,70 @@ class BoardTemplateModel(V2Base):
     layout_json = Column(JSON, nullable=True)                   # widgets + override 配置的预设
     is_builtin = Column(Boolean, default=False)                 # 内置模板不能删
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================
+# 模块 5 · 分享（2 表）
+# ============================================================
+
+class ShareLinkModel(V2Base):
+    """链接分享：任何人凭 token 访问，按 permission 控制能做什么。"""
+    __tablename__ = 'share_links'
+
+    id = Column(String(36), primary_key=True)
+    target_type = Column(String(16), nullable=False)             # session / board / node
+    target_id = Column(String(36), nullable=False)
+    token = Column(String(64), nullable=False)                   # URL-safe 32 字节 base64
+    permission = Column(String(16), nullable=False, default='view')   # view / comment / edit
+    expires_at = Column(DateTime, nullable=True)
+    created_by = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    revoked_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('token', name='uq_share_token'),
+        Index('idx_sl_target', 'target_type', 'target_id'),
+        Index('idx_sl_creator', 'created_by'),
+    )
+
+
+class ShareGrantModel(V2Base):
+    """指定人分享：把 target 授权给某个用户（不发链接）。"""
+    __tablename__ = 'share_grants'
+
+    id = Column(String(36), primary_key=True)
+    target_type = Column(String(16), nullable=False)
+    target_id = Column(String(36), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    permission = Column(String(16), nullable=False, default='view')
+    granted_by = Column(Integer, nullable=False)
+    granted_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('target_type', 'target_id', 'user_id', name='uq_grant_target_user'),
+        Index('idx_sg_user', 'user_id'),
+    )
+
+
+# ============================================================
+# 模块 6 · 通知（1 表）
+# ============================================================
+
+class NotificationModel(V2Base):
+    """统一通知收件箱 — mention/comment/alert/share/system 全走这一张表。"""
+    __tablename__ = 'notifications'
+
+    id = Column(String(36), primary_key=True)
+    recipient_user_id = Column(Integer, nullable=False)
+    type = Column(String(16), nullable=False)                    # mention / comment / alert / share / system
+    source_type = Column(String(32), nullable=True)              # node / board / session / alert_rule / ...
+    source_id = Column(String(36), nullable=True)
+    payload_json = Column(JSON, nullable=True)                   # 渲染所需的 title / body / actor 等
+    read_at = Column(DateTime, nullable=True)
+    actioned_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_notif_recipient', 'recipient_user_id', 'created_at'),
+        Index('idx_notif_unread', 'recipient_user_id', 'read_at'),
+    )
