@@ -1,6 +1,9 @@
 // @ts-nocheck
 // Ported verbatim from datapulse-ai-design-system/project/v2/BoardEditor.jsx
+// 阶段 3 后半段：BoardEditor 顶部加"真实看板连接条"，能看到从 canvas 钉过来的真实 widgets，能删除。
+// 完整拖拽编辑暂未做（demo 视觉保留）。
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { v2Api } from '../../../api'
 
 const { useState: useS_BE } = React;
 
@@ -39,11 +42,126 @@ function P1Top_BE({ crumbs, badge, clock='14:52 · main' }) {
    1. Board editor — drag nodes onto a free-form canvas
    ========================================================= */
 
+function RealBoardConnector() {
+  const [workspace, setWorkspace] = useState(null)
+  const [boards, setBoards] = useState([])
+  const [activeBoardId, setActiveBoardId] = useState('')
+  const [board, setBoard] = useState(null)
+  const [expanded, setExpanded] = useState(false)
+  const [reloadTick, setReloadTick] = useState(0)
+
+  useEffect(() => {
+    v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!workspace) return
+    v2Api.listBoards(workspace.id).then(setBoards).catch(() => {})
+  }, [workspace, reloadTick])
+
+  useEffect(() => {
+    if (!activeBoardId) { setBoard(null); return }
+    v2Api.getBoard(activeBoardId).then(setBoard).catch(() => {})
+  }, [activeBoardId, reloadTick])
+
+  const widgets = board?.widgets || []
+  const handleDelete = async (widgetId) => {
+    if (!activeBoardId) return
+    try {
+      await v2Api.deleteWidget(activeBoardId, widgetId)
+      setReloadTick(t => t + 1)
+    } catch (err) {
+      console.warn('[BoardEditor] 删除 widget 失败:', err?.message || err)
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'sticky', top: 0, zIndex: 50,
+      padding: '10px 18px',
+      background: 'oklch(0.78 0.16 65 / 0.10)',
+      borderBottom: '1px solid var(--amber-deep)',
+      display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+      fontSize: 13,
+    }}>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em',
+        textTransform: 'uppercase', color: 'var(--amber-deep)',
+      }}>● 真实看板</span>
+      {workspace ? (
+        <>
+          <span style={{ color: 'var(--ink-3)' }}>{workspace.name}</span>
+          <select
+            value={activeBoardId}
+            onChange={e => { setActiveBoardId(e.target.value); setExpanded(true) }}
+            style={{
+              padding: '4px 8px', fontSize: 12,
+              background: 'var(--paper)', border: '1px solid var(--line-1)',
+              borderRadius: 6,
+            }}
+          >
+            <option value="">选看板...（共 {boards.length}）</option>
+            {boards.map(b => (
+              <option key={b.id} value={b.id}>{b.title}</option>
+            ))}
+          </select>
+          {board && (
+            <>
+              <span style={{ color: 'var(--ink-2)' }}>
+                {widgets.length} 个真实 widget
+              </span>
+              <button
+                onClick={() => setExpanded(!expanded)}
+                style={{
+                  border: '1px solid var(--line-1)', background: 'transparent',
+                  padding: '4px 10px', fontSize: 11, borderRadius: 6, cursor: 'pointer',
+                }}
+              >{expanded ? '收起 ▴' : '展开 ▾'}</button>
+            </>
+          )}
+        </>
+      ) : (
+        <span style={{ color: 'var(--ink-4)' }}>正在连接 v2 后端...</span>
+      )}
+
+      {expanded && board && (
+        <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {widgets.length === 0 ? (
+            <div style={{ color: 'var(--ink-4)', fontSize: 12, padding: '8px 0' }}>
+              这个看板还没有真实 widget。回 canvas 点节点的"钉到看板"加一个。
+            </div>
+          ) : widgets.map(w => (
+            <div key={w.widget_id} style={{
+              padding: '8px 12px', background: 'var(--paper)',
+              border: '1px solid var(--line-1)', borderRadius: 8,
+              display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>
+                ({w.grid_x},{w.grid_y}) {w.w}×{w.h}
+              </span>
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--ink-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {w.node_role === 'assistant' ? '🤖 ' : '👤 '}{(w.node_content || '(无内容)').slice(0, 80)}
+              </span>
+              {w.node_sql && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-deep)', background: 'oklch(0.78 0.16 65 / 0.12)', padding: '1px 5px', borderRadius: 4 }}>SQL</span>}
+              <button
+                onClick={() => handleDelete(w.widget_id)}
+                style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 14 }}
+                title="删除 widget"
+              >✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BoardEditor() {
   const [tab, setTab] = useS_BE('nodes');
   return (
     <div className="p0-frame">
       <div className="ai-scene">
+        <RealBoardConnector />
         <P1Top_BE crumbs={['工作区','看板','Q3 渠道复盘 · 编辑']} badge="编辑中"/>
         <div className="be">
           {/* LHS — node library */}
