@@ -9,6 +9,7 @@ import './p2.css'
 import './proto.css'
 
 import { CanvasA } from './sections/CanvasA'
+import { ExecView, SalesView, PMView } from './sections/RoleViews'
 import { ShareDialog, NotificationCenter, TeamWorkspace } from './sections/Collab'
 import { BoardEditor, BoardTemplates, BoardSchedule } from './sections/BoardEditor'
 import { AlertWizard, AlertDetail } from './sections/Alerts'
@@ -28,6 +29,14 @@ const GROUPS: Group[] = [
     id: 'app', title: '① 应用主界面',
     items: [
       { slug: 'canvas', label: '变体 A · 横向时间线 + 内联分支', el: <CanvasA /> },
+    ],
+  },
+  {
+    id: 'roles', title: '② 角色默认视图',
+    items: [
+      { slug: 'roles/exec', label: '高管 · 本周一图、不需要 SQL', el: <ExecView /> },
+      { slug: 'roles/sales', label: '销售 · 管线 + 漏斗 + 区域', el: <SalesView /> },
+      { slug: 'roles/pm', label: '产品 · 健康度 + A/B 实验', el: <PMView /> },
     ],
   },
   {
@@ -94,19 +103,50 @@ function filterGroupsByRole(role: string | null | undefined): Group[] {
   return GROUPS.filter(g => !g.allowedRoles || (role && g.allowedRoles.includes(role)))
 }
 
+// B 档 · 角色默认视图推荐 (role → 该角色一进来就该看的 slug)
+const ROLE_DEFAULT_VIEW: Record<string, { slug: string; label: string; tagline: string }> = {
+  exec:    { slug: 'roles/exec',  label: '高管 · 本周一图', tagline: '不用 SQL，看最关键的 4 个数字' },
+  sales:   { slug: 'roles/sales', label: '销售 · 管线诊断', tagline: '我的管线 / 区域 / 漏斗' },
+  pm:      { slug: 'roles/pm',    label: '产品 · 健康度 + A/B', tagline: 'DAU / 留存 / 实验结果' },
+  ops:     { slug: 'canvas',      label: '运营 · 自由问', tagline: '画布式分析起点' },
+  analyst: { slug: 'canvas',      label: '分析师 · 自由探索', tagline: 'SQL / 血缘 / 自由探索' },
+  admin:   { slug: 'admin/audit', label: '管理员 · 审计日志', tagline: '谁·什么时候·改了什么' },
+}
+
 function Index({ profile }: { profile: V2Profile | null }) {
   const role = profile?.role ?? null
   const visibleGroups = filterGroupsByRole(role)
+  const defaultView = role ? ROLE_DEFAULT_VIEW[role] : null
   return (
     <div style={{ padding: '48px 64px', maxWidth: 1100, margin: '0 auto', color: 'var(--ink-1)' }}>
       <div className="eyebrow">DataPulse v2 · Design Preview · {role ? `角色: ${role}` : '未设置角色 (默认非 admin)'}</div>
       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 56, fontWeight: 400, margin: '12px 0 8px' }}>
         画布式分析 · 设计预览
       </h1>
-      <p style={{ color: 'var(--ink-3)', fontSize: 15, lineHeight: 1.7, marginBottom: 32, maxWidth: 720 }}>
-        暖色系 · 时间线 + 分支 · 业务人员友好。下面所有页面都是<strong>静态预览</strong>，
-        不连后端、不动数据。任何 section 验收通过后再考虑接入真实数据。
+      <p style={{ color: 'var(--ink-3)', fontSize: 15, lineHeight: 1.7, marginBottom: 24, maxWidth: 720 }}>
+        暖色系 · 时间线 + 分支 · 业务人员友好。canvas 已接真实数据；其它页面仍是设计预览。
       </p>
+      {defaultView && (
+        <Link
+          to={defaultView.slug}
+          style={{
+            display: 'block',
+            padding: '20px 24px',
+            marginBottom: 40,
+            background: 'linear-gradient(135deg, oklch(0.78 0.16 65 / 0.12), oklch(0.58 0.16 35 / 0.08))',
+            border: '1px solid var(--amber-deep)',
+            borderRadius: 'var(--r-xl)',
+            textDecoration: 'none',
+            color: 'var(--ink-1)',
+          }}
+        >
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em', color: 'var(--amber-deep)', textTransform: 'uppercase', marginBottom: 6 }}>
+            ★ 你的角色默认视图 · {role}
+          </div>
+          <div style={{ fontFamily: 'var(--font-serif)', fontSize: 24, marginBottom: 4 }}>{defaultView.label}</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{defaultView.tagline} →</div>
+        </Link>
+      )}
       {visibleGroups.map(g => (
         <div key={g.id} style={{ marginBottom: 32 }}>
           <div style={{ fontFamily: 'var(--font-serif)', fontSize: 22, marginBottom: 12, color: 'var(--ink-1)' }}>
