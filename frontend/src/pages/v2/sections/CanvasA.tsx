@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useSessionStore } from '../../../stores/sessionStore'
-import { useChatStore } from '../../../stores/chatStore'
-import { useSSE } from '../../../hooks/useSSE'
-import { sessionApi } from '../../../api'
-import type { Message } from '../../../types/message'
-import type { Session } from '../../../types'
+import { v2Api, type V2Workspace, type V2Session, type V2CanvasNode } from '../../../api'
+import { useV2Ask } from './useV2Ask'
 
 type ChartKind = 'bar' | 'area' | 'funnel' | 'funnel2' | 'compare'
 
@@ -223,7 +219,7 @@ function NodeCard({
   )
 }
 
-/* ---------- Real-data adapters: message[] -> Node[] ---------- */
+/* ---------- Real-data adapters: V2CanvasNode[] -> Node[] ---------- */
 function parseCfg(cfg: unknown): any {
   if (!cfg) return null
   if (typeof cfg === 'string') {
@@ -246,36 +242,41 @@ function titleFromCfg(cfg: unknown, fallback: string): string {
 const TAG_BY_KIND: Record<ChartKind, string> = {
   bar: '柱状图', area: '面积图', funnel: '漏斗图', funnel2: '漏斗图', compare: '对比折线',
 }
-function messagesToNodes(messages: Message[]): Node[] {
+
+function canvasNodesToNodes(cn: V2CanvasNode[]): Node[] {
+  // 按 position_index 升序成对消费 user → assistant
+  const sorted = [...cn].sort((a, b) => a.position_index - b.position_index)
   const nodes: Node[] = []
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i]
-    if (m.role !== 'user') continue
-    const next = messages[i + 1]
-    if (!next || next.role !== 'assistant') {
+  for (let i = 0; i < sorted.length; i++) {
+    const u = sorted[i]
+    if (u.role !== 'user') continue
+    const a = sorted[i + 1]
+    if (!a || a.role !== 'assistant') {
+      // 流式中 / LLM 失败 — user 已落但 assistant 还没来
       nodes.push({
-        id: m.id, who: '你', q: m.content,
+        id: u.node_id, who: '你', q: u.content || '',
         steps: 0, elapsed: '—',
         title: '等待回答', tag: '', chart: 'bar',
         thinking: [],
       })
       continue
     }
-    const chart = chartKindFromCfg(next.chart_cfg)
-    const elapsedMs = new Date(next.created_at).getTime() - new Date(m.created_at).getTime()
-    const elapsed = elapsedMs > 0 && elapsedMs < 3_600_000 ? `${(elapsedMs / 1000).toFixed(1)}s` : '—'
-    const thinkingLines = (next.thinking || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+    const chart = chartKindFromCfg(a.chart_cfg_json)
+    const elapsed = a.elapsed_ms && a.elapsed_ms > 0
+      ? `${(a.elapsed_ms / 1000).toFixed(1)}s`
+      : '—'
+    const thinkingLines = Array.isArray(a.thinking_steps_json) ? a.thinking_steps_json : []
     nodes.push({
-      id: next.id,
+      id: a.node_id,
       who: '你',
-      q: m.content,
+      q: u.content || '',
       steps: thinkingLines.length,
       elapsed,
-      title: titleFromCfg(next.chart_cfg, '分析结果'),
+      title: titleFromCfg(a.chart_cfg_json, '分析结果'),
       tag: TAG_BY_KIND[chart] || '',
       chart,
       thinking: thinkingLines,
-      sql: next.sql || undefined,
+      sql: a.sql || undefined,
     })
     i += 1
   }
@@ -415,59 +416,80 @@ function CanvasEmpty({
   hasSession,
   sessions,
   loading,
+  workspace,
   onPick,
+  onCreate,
 }: {
   hasSession: boolean
-  sessions: Session[]
+  sessions: V2Session[]
   loading: boolean
+  workspace: V2Workspace | null
   onPick: (id: string) => void
+  onCreate: () => void
 }) {
   return (
     <div className="v2-root" style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', background: 'var(--paper)' }}>
       <div style={{ textAlign: 'center', maxWidth: 520, padding: 32 }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>DataPulse · 画布</div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>DataPulse · v2 画布</div>
         <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 400, margin: '0 0 12px', color: 'var(--ink-1)' }}>
           {hasSession ? '这个会话还没有消息' : '挑一个会话开始'}
         </h1>
-        <p style={{ color: 'var(--ink-3)', fontSize: 14, lineHeight: 1.7, marginBottom: 24 }}>
-          {hasSession
-            ? '在 /app 里向它提一个问题，回来就能看到时间线。'
-            : '从下面选一个已有会话，或者回 /app 新建。'}
+        <p style={{ color: 'var(--ink-3)', fontSize: 14, lineHeight: 1.7, marginBottom: 8 }}>
+          {hasSession ? '直接在底部提问即可。' : '选一个已有的 v2 会话，或新建一个。'}
         </p>
+        {workspace && (
+          <p style={{ color: 'var(--ink-4)', fontSize: 12, marginBottom: 24 }}>
+            工作区：{workspace.name}
+          </p>
+        )}
 
         {!hasSession && (
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: 20, display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
             {loading ? (
-              <div style={{ color: 'var(--ink-4)', fontSize: 13 }}>正在加载会话列表…</div>
-            ) : sessions.length === 0 ? (
-              <div style={{ color: 'var(--ink-4)', fontSize: 13 }}>没找到会话（未登录或后端不可达）</div>
+              <div style={{ color: 'var(--ink-4)', fontSize: 13 }}>正在加载 v2 会话列表…</div>
             ) : (
-              <select
-                defaultValue=""
-                onChange={e => e.target.value && onPick(e.target.value)}
-                style={{
-                  padding: '10px 14px',
-                  fontFamily: 'var(--font-sans)',
-                  fontSize: 14,
-                  background: 'var(--paper)',
-                  color: 'var(--ink-1)',
-                  border: '1px solid var(--line-1)',
-                  borderRadius: 'var(--r-lg)',
-                  minWidth: 320,
-                  cursor: 'pointer',
-                }}
-              >
-                <option value="" disabled>选会话…（共 {sessions.length} 个）</option>
-                {sessions.map(s => (
-                  <option key={s.id} value={s.id}>{s.title || '未命名'} · {s.id.slice(0, 8)}</option>
-                ))}
-              </select>
+              <>
+                {sessions.length > 0 && (
+                  <select
+                    defaultValue=""
+                    onChange={e => e.target.value && onPick(e.target.value)}
+                    style={{
+                      padding: '10px 14px',
+                      fontFamily: 'var(--font-sans)',
+                      fontSize: 14,
+                      background: 'var(--paper)',
+                      color: 'var(--ink-1)',
+                      border: '1px solid var(--line-1)',
+                      borderRadius: 'var(--r-lg)',
+                      minWidth: 280,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="" disabled>选会话…（共 {sessions.length} 个）</option>
+                    {sessions.map(s => (
+                      <option key={s.id} value={s.id}>{s.title || '未命名'} · {s.id.slice(0, 8)}</option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  onClick={onCreate}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'var(--amber-deep)',
+                    color: 'var(--paper)',
+                    border: 0,
+                    borderRadius: 999,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                  }}
+                >＋ 新建会话</button>
+              </>
             )}
           </div>
         )}
 
         <Link
-          to="/app"
+          to="/v2-preview"
           style={{
             display: 'inline-block',
             padding: '10px 20px',
@@ -478,31 +500,28 @@ function CanvasEmpty({
             border: '1px solid var(--line-1)',
             textDecoration: 'none',
           }}
-        >去 /app →</Link>
+        >← 返回 v2 索引</Link>
       </div>
     </div>
   )
 }
 
 export function CanvasA() {
-  const currentSession = useSessionStore(s => s.currentSession)
-  const sessions = useSessionStore(s => s.sessions)
-  const sessionMessages = useSessionStore(s => s.messages)
-  const setSessions = useSessionStore(s => s.setSessions)
-  const setCurrentSession = useSessionStore(s => s.setCurrentSession)
-  const setMessages = useSessionStore(s => s.setMessages)
+  const [workspace, setWorkspace] = useState<V2Workspace | null>(null)
+  const [sessions, setSessions] = useState<V2Session[]>([])
+  const [currentSession, setCurrentSession] = useState<V2Session | null>(null)
+  const [canvasNodes, setCanvasNodes] = useState<V2CanvasNode[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
 
-  const realNodes = useMemo(() => messagesToNodes(sessionMessages), [sessionMessages])
+  const realNodes = useMemo(() => canvasNodesToNodes(canvasNodes), [canvasNodes])
   const hasRealData = !!currentSession && realNodes.length > 0
 
   const [mode, setMode] = useState<Mode>('business')
   const [nodes, setNodes] = useState<Node[]>(realNodes)
   const [currentId, setCurrentId] = useState<string>(realNodes[realNodes.length - 1]?.id ?? '')
-  const [sessionsLoading, setSessionsLoading] = useState(false)
   const [askInput, setAskInput] = useState('')
 
-  const { connect } = useSSE()
-  const isLoading = useChatStore(s => s.isLoading)
+  const { ask, isLoading } = useV2Ask()
 
   useEffect(() => {
     if (hasRealData) {
@@ -511,32 +530,50 @@ export function CanvasA() {
     }
   }, [hasRealData, realNodes])
 
-  // 整页刷新进来时，store 是空的 — 主动拉一次会话列表（用 authStore 已持久化的 token）
+  // 1. 进入时初始化工作区（无则后端自动建"我的工作区"）
   useEffect(() => {
-    if (!currentSession && sessions.length === 0 && !sessionsLoading) {
-      setSessionsLoading(true)
-      sessionApi.getSessions()
-        .then(list => setSessions(list || []))
-        .catch(err => console.warn('[CanvasA] 拉会话列表失败:', err?.message || err))
-        .finally(() => setSessionsLoading(false))
+    if (workspace) return
+    v2Api.getCurrentWorkspace()
+      .then(setWorkspace)
+      .catch(err => console.warn('[CanvasA] 拉工作区失败:', err?.message || err))
+  }, [workspace])
+
+  // 2. 拿到工作区后拉 v2 sessions 列表
+  useEffect(() => {
+    if (!workspace || currentSession) return
+    setSessionsLoading(true)
+    v2Api.listSessions(workspace.id)
+      .then(list => setSessions(list || []))
+      .catch(err => console.warn('[CanvasA] 拉 v2 sessions 失败:', err?.message || err))
+      .finally(() => setSessionsLoading(false))
+  }, [workspace, currentSession])
+
+  const reloadNodes = async (sessionId: string) => {
+    try {
+      const nodes = await v2Api.listCanvasNodes(sessionId)
+      setCanvasNodes(nodes || [])
+    } catch (err: any) {
+      console.warn('[CanvasA] 拉 canvas_nodes 失败:', err?.message || err)
     }
-  }, [currentSession, sessions.length, sessionsLoading, setSessions])
+  }
 
   const pickSession = (id: string) => {
     const target = sessions.find(s => s.id === id)
     if (!target) return
     setCurrentSession(target)
-    sessionApi.getMessages(id)
-      .then(msgs => {
-        const processed = (msgs || []).map(m => {
-          if (typeof (m as any).data === 'string' && (m as any).data) {
-            try { return { ...m, data: JSON.parse((m as any).data) } } catch { return m }
-          }
-          return m
-        })
-        setMessages(processed)
-      })
-      .catch(err => console.warn('[CanvasA] 拉消息失败:', err?.message || err))
+    reloadNodes(id)
+  }
+
+  const createSession = async () => {
+    if (!workspace) return
+    try {
+      const ses = await v2Api.createSession(workspace.id, '新会话 · ' + new Date().toLocaleTimeString())
+      setSessions([ses, ...sessions])
+      setCurrentSession(ses)
+      setCanvasNodes([])
+    } catch (err: any) {
+      console.warn('[CanvasA] 新建会话失败:', err?.message || err)
+    }
   }
   const [focused, setFocused] = useState<(Node | Branch) | null>(null)
   const [pinned, setPinned] = useState<string[]>([])
@@ -552,7 +589,13 @@ export function CanvasA() {
     const q = askInput.trim()
     if (!q || !currentSession?.id || isLoading) return
     setAskInput('')
-    connect(currentSession.id, q).catch(err => console.warn('[CanvasA] SSE 失败:', err?.message || err))
+    const sid = currentSession.id
+    ask(sid, q, {
+      noDatabase: true,        // 阶段 2 暂不接 v2 自己的数据源；下个阶段做语义层时再开
+      onUserSaved: () => { reloadNodes(sid) },
+      onDone: () => { reloadNodes(sid) },
+      onError: (msg) => console.warn('[CanvasA] v2 ask error:', msg),
+    })
   }
 
   const handleBranch = (id: string) => {
@@ -585,7 +628,9 @@ export function CanvasA() {
         hasSession={!!currentSession}
         sessions={sessions}
         loading={sessionsLoading}
+        workspace={workspace}
         onPick={pickSession}
+        onCreate={createSession}
       />
     )
   }

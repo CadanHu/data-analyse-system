@@ -1,16 +1,20 @@
-"""v2 API 路由 — 阶段 1（workspace + user profile + notification_prefs）。
+"""v2 API 路由 — 阶段 1 (workspace + profile + prefs) + 阶段 2 (v2 sessions + canvas + SSE ask)。
 
 所有路由前缀 /api/v2，鉴权复用旧 get_current_user。
-后续阶段（canvas_nodes / boards / alerts / ...）继续在此文件加，或拆子 router。
 """
+import traceback
+import asyncio
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from routers.auth_router import get_current_user
 from database.v2 import services as v2_svc
+from database.v2 import canvas_services as v2_canvas
+from services.stream_service import StreamableHTTPService
 
-router = APIRouter(prefix="/api/v2", tags=["v2 · workspace/user"])
+router = APIRouter(prefix="/api/v2", tags=["v2"])
 
 
 # ============================================================
@@ -157,3 +161,200 @@ async def update_my_notification_prefs(
         [p.model_dump() for p in prefs],
     )
     return {"written": written}
+
+
+# ============================================================
+# 阶段 2 · v2 sessions / canvas-nodes / ask(SSE)
+# ============================================================
+
+class V2SessionCreate(BaseModel):
+    workspace_id: str
+    title: Optional[str] = None
+    model_provider: Optional[str] = None
+    model_name: Optional[str] = None
+
+
+class V2AskRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    parent_node_id: Optional[str] = None     # 用于分支：从某个节点叉出去
+    enable_thinking: bool = False
+    no_database: bool = False
+    rag_scope: Optional[str] = None
+    model_provider: Optional[str] = None
+    model_name: Optional[str] = None
+    language: str = 'zh-CN'
+
+
+async def _require_session_owner(session_id: str, user_id: int) -> Dict[str, Any]:
+    """权限：必须是 session.owner_user_id == user_id 才能访问。"""
+    ses = await v2_canvas.get_session(session_id)
+    if not ses:
+        raise HTTPException(status_code=404, detail="session 不存在")
+    if ses['owner_user_id'] != user_id:
+        raise HTTPException(status_code=403, detail="不是该会话的拥有者")
+    return ses
+
+
+@router.get("/sessions")
+async def list_v2_sessions(workspace_id: str, current_user: dict = Depends(get_current_user)):
+    # 必须是 workspace 成员才能列会话
+    role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    return await v2_canvas.list_sessions(workspace_id, current_user['id'])
+
+
+@router.post("/sessions", status_code=status.HTTP_201_CREATED)
+async def create_v2_session(data: V2SessionCreate, current_user: dict = Depends(get_current_user)):
+    role = await v2_svc.get_member_role(data.workspace_id, current_user['id'])
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    return await v2_canvas.create_session(
+        workspace_id=data.workspace_id,
+        owner_user_id=current_user['id'],
+        title=data.title,
+        model_provider=data.model_provider,
+        model_name=data.model_name,
+    )
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_v2_session(session_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_session_owner(session_id, current_user['id'])
+    await v2_canvas.delete_session(session_id)
+    return None
+
+
+@router.get("/sessions/{session_id}/canvas-nodes")
+async def list_canvas_nodes(session_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_session_owner(session_id, current_user['id'])
+    return await v2_canvas.list_canvas_nodes(session_id)
+
+
+@router.post("/sessions/{session_id}/ask")
+async def ask_v2(session_id: str, request: V2AskRequest, current_user: dict = Depends(get_current_user)):
+    """提问 → SSE 流式 → 写 v2_messages + canvas_nodes。
+
+    LLM 调用复用旧 chat_router 的 agent_instance.process_question_with_history。
+    与旧 standard_mode 的区别只在于 storage 走 v2 表。
+    """
+    await _require_session_owner(session_id, current_user['id'])
+    user_id = current_user['id']
+
+    # 复用旧 LLM agent
+    from routers.chat_router import get_sql_agent
+    from utils.json_utils import json_dumps  # 旧代码用过的
+    agent_instance = get_sql_agent()
+
+    async def event_generator():
+        yield {"event": "thinking", "data": {"content": "Starting (正在启动)..."}}
+
+        import time
+        start_ts = time.time()
+
+        # 1. 立刻把 user message + canvas_node 落表，前端订阅 canvas_nodes 会立即看到
+        user_pair = await v2_canvas.add_message_with_node(
+            session_id=session_id,
+            role='user',
+            content=request.question,
+            parent_node_id=request.parent_node_id,
+        )
+        user_msg = user_pair['message']
+        user_node = user_pair['node']
+        yield {"event": "user_message_saved", "data": {
+            "message_id": user_msg['id'], "node_id": user_node['id'],
+        }}
+
+        # 2. 构造历史 (从 v2_messages 取这个 session 之前的消息)
+        prior_nodes = await v2_canvas.list_canvas_nodes(session_id)
+        # 排除刚刚加的 user message
+        history_lines = []
+        for n in prior_nodes:
+            if n['message_id'] == user_msg['id']:
+                continue
+            role = n['role']
+            content = n['content'] or ''
+            if n.get('sql'):
+                content += f"\n[SQL] {n['sql']}"
+            history_lines.append(f"{role}: {content}")
+        history_str = "\n".join(history_lines[-20:])  # 最近 20 条
+
+        # 3. 流式调 LLM，累积 assistant 字段
+        assistant_content = ""
+        assistant_sql = ""
+        assistant_chart_cfg = None
+        assistant_thinking = ""
+        assistant_data: Any = None
+        assistant_msg_id = None
+        assistant_node_id = None
+
+        try:
+            async for event in agent_instance.process_question_with_history(
+                request.question, history_str,
+                knowledge_context="",                  # v2 RAG 暂未接，先空
+                enable_thinking=request.enable_thinking,
+                provider=request.model_provider,
+                model_name=request.model_name,
+                language=request.language,
+                force_chat=request.no_database,
+            ):
+                event_type = event["event"]
+                event_data = event.get("data", {})
+
+                if event_type == "model_thinking":
+                    assistant_thinking += event_data.get("content", "")
+                elif event_type == "summary":
+                    assistant_content += event_data.get("content", "")
+                elif event_type == "sql_generated":
+                    assistant_sql = event_data.get("sql", "")
+                elif event_type == "sql_result":
+                    assistant_data = event_data
+                elif event_type == "chart_ready":
+                    assistant_chart_cfg = event_data.get("option", {})
+
+                if event_type != "done":
+                    yield event
+                else:
+                    # 4. 流结束，落 assistant message + canvas_node
+                    thinking_steps = [
+                        s.strip() for s in (assistant_thinking or "").splitlines() if s.strip()
+                    ]
+                    elapsed_ms = int((time.time() - start_ts) * 1000)
+                    assistant_pair = await v2_canvas.add_message_with_node(
+                        session_id=session_id,
+                        role='assistant',
+                        content=assistant_content,
+                        parent_msg_id=user_msg['id'],
+                        parent_node_id=user_node['id'],
+                        sql=assistant_sql or None,
+                        chart_cfg=assistant_chart_cfg,
+                        data=assistant_data,
+                        thinking_steps=thinking_steps or None,
+                        elapsed_ms=elapsed_ms,
+                        model_provider=request.model_provider,
+                        model_name=request.model_name,
+                    )
+                    assistant_msg_id = assistant_pair['message']['id']
+                    assistant_node_id = assistant_pair['node']['id']
+
+                    # 5. 异步更新 session 标题（第一条提问时）
+                    async def _maybe_update_title():
+                        ses = await v2_canvas.get_session(session_id)
+                        if ses and (not ses.get('title') or ses['title'] == '新会话'):
+                            await v2_canvas.update_session_title(session_id, request.question[:50])
+                    asyncio.create_task(_maybe_update_title())
+
+                    yield {"event": "done", "data": {
+                        "message_id": assistant_msg_id,
+                        "node_id": assistant_node_id,
+                        "user_message_id": user_msg['id'],
+                        "user_node_id": user_node['id'],
+                    }}
+        except Exception as e:
+            traceback.print_exc()
+            yield {"event": "error", "data": {"message": f"v2 ask error: {str(e)}"}}
+
+    return StreamingResponse(
+        StreamableHTTPService.generate_stream(event_generator()),
+        media_type="text/event-stream",
+    )

@@ -366,4 +366,64 @@ export const knowledgeGraphApi = {
     }).then(r => r.data),
 }
 
+// ============================================================
+// v2 API (workspace / v2 sessions / canvas nodes)
+// 详见 data-sys-docs/v2-schema.md
+// ============================================================
+
+export interface V2Workspace {
+  id: string
+  name: string
+  slug: string
+  owner_user_id: number
+  plan_tier: string
+  role?: string
+}
+
+export interface V2Session {
+  id: string
+  workspace_id: string
+  owner_user_id: number
+  title: string | null
+  model_provider: string | null
+  model_name: string | null
+  mode_flags_json: any
+  created_at: string
+  updated_at: string
+}
+
+export interface V2CanvasNode {
+  node_id: string
+  parent_node_id: string | null
+  branch_label: string | null
+  pinned_to_board_id: string | null
+  position_index: number
+  clarify_status: string
+  hitl_status: string
+  message_id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string | null
+  sql: string | null
+  chart_cfg_json: any
+  data_json: any
+  thinking_steps_json: string[] | null
+  elapsed_ms: number | null
+  created_at: string
+}
+
+export const v2Api = {
+  getCurrentWorkspace: () =>
+    api.get<V2Workspace>('/v2/workspaces/current').then(r => r.data),
+  listWorkspaces: () =>
+    api.get<V2Workspace[]>('/v2/workspaces').then(r => r.data),
+  listSessions: (workspaceId: string) =>
+    api.get<V2Session[]>('/v2/sessions', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createSession: (workspaceId: string, title?: string) =>
+    api.post<V2Session>('/v2/sessions', { workspace_id: workspaceId, title }).then(r => r.data),
+  listCanvasNodes: (sessionId: string) =>
+    api.get<V2CanvasNode[]>(`/v2/sessions/${sessionId}/canvas-nodes`).then(r => r.data),
+  // ask 是 SSE 流式，单独走 fetch（不走 axios）
+  askStreamUrl: (sessionId: string) => `/api/v2/sessions/${sessionId}/ask`,
+}
+
 export default api

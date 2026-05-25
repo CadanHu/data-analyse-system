@@ -130,3 +130,100 @@ class WorkspaceMemberModel(V2Base):
     __table_args__ = (
         Index('idx_wm_user', 'user_id'),
     )
+
+
+# ============================================================
+# 模块 3 · 画布节点（5 表，v2 核心）
+# ============================================================
+
+class V2SessionModel(V2Base):
+    """新会话 — 替代旧 sessions 表，归属 workspace。"""
+    __tablename__ = 'v2_sessions'
+
+    id = Column(String(36), primary_key=True)
+    workspace_id = Column(String(36), nullable=False)
+    owner_user_id = Column(Integer, nullable=False)
+    title = Column(String(255), nullable=True)
+    model_provider = Column(String(32), nullable=True)
+    model_name = Column(String(128), nullable=True)
+    mode_flags_json = Column(JSON, nullable=True)                # {thinking, rag, data_science}
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_v2s_ws', 'workspace_id'),
+        Index('idx_v2s_owner', 'owner_user_id'),
+    )
+
+
+class V2MessageModel(V2Base):
+    """新消息 — 替代旧 messages 表，承载"内容"层。"""
+    __tablename__ = 'v2_messages'
+
+    id = Column(String(36), primary_key=True)
+    session_id = Column(String(36), nullable=False)
+    parent_msg_id = Column(String(36), nullable=True)            # LLM 候选树
+    role = Column(String(20), nullable=False)                    # user / assistant / system
+    content = Column(Text, nullable=True)
+    sql = Column(Text, nullable=True)
+    chart_cfg_json = Column(JSON, nullable=True)
+    data_json = Column(JSON, nullable=True)
+    thinking_steps_json = Column(JSON, nullable=True)            # 结构化思考链 (数组)
+    elapsed_ms = Column(Integer, nullable=True)
+    tokens_prompt = Column(Integer, default=0)
+    tokens_completion = Column(Integer, default=0)
+    confidence = Column(Integer, nullable=True)                  # 0-100，整数避免浮点
+    model_provider = Column(String(32), nullable=True)
+    model_name = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('idx_v2m_session', 'session_id'),)
+
+
+class CanvasNodeModel(V2Base):
+    """画布节点 — 承载"拓扑"层 (分支 / 钉看板 / 位置 / clarify / HITL 状态)。"""
+    __tablename__ = 'canvas_nodes'
+
+    id = Column(String(36), primary_key=True)
+    session_id = Column(String(36), nullable=False)
+    parent_node_id = Column(String(36), nullable=True)           # 画布分支父节点
+    message_id = Column(String(36), nullable=False)              # FK→v2_messages.id (1:1)
+    branch_label = Column(String(64), nullable=True)             # "分支 A · 仅抖音"
+    branch_color = Column(String(32), nullable=True)
+    pinned_to_board_id = Column(String(36), nullable=True)
+    clarify_status = Column(String(16), default='none')          # none/pending/cleared/skipped
+    hitl_status = Column(String(16), default='none')             # none/waiting/approved/rejected
+    position_index = Column(Integer, default=0)                  # 时间线排序
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_cn_session', 'session_id'),
+        Index('idx_cn_parent', 'parent_node_id'),
+        UniqueConstraint('message_id', name='uq_cn_message'),    # 一个 message 只对应一个 node
+    )
+
+
+class NodeCommentModel(V2Base):
+    """节点评论 (NodeDetail-评论 tab)。"""
+    __tablename__ = 'node_comments'
+
+    id = Column(String(36), primary_key=True)
+    node_id = Column(String(36), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    body = Column(Text, nullable=False)
+    parent_comment_id = Column(String(36), nullable=True)        # 楼中楼
+    resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('idx_nc_node', 'node_id'),)
+
+
+class NodeMentionModel(V2Base):
+    """@提及 (组合主键)，催化 notifications。"""
+    __tablename__ = 'node_mentions'
+
+    node_id = Column(String(36), primary_key=True)
+    mentioned_user_id = Column(Integer, primary_key=True)
+    by_user_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    read_at = Column(DateTime, nullable=True)
