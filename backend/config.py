@@ -76,6 +76,10 @@ MYSQL_USER = os.getenv("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "root")
 MYSQL_SESSION_DATABASE = os.getenv("MYSQL_SESSION_DATABASE", "data_pulse_sessions")
 
+# v2 新设计数据库 (workspaces / boards / canvas_nodes / alerts / 等独立物理库)
+# 与旧 data_pulse_sessions 隔离：备份/迁移/性能各自独立
+MYSQL_V2_DATABASE = os.getenv("MYSQL_V2_DATABASE", "data_pulse_v2")
+
 # 多数据库配置 (移除 SQLite)
 DATABASES = {
     "classic_business": {

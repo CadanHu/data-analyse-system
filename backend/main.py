@@ -16,6 +16,7 @@ from database.user_db import user_db
 from database.knowledge_db import knowledge_db
 from database.business_db import init_business_db
 from database.datasource_db import datasource_db
+from database.v2 import v2_db
 
 from middleware import setup_exception_handlers, rate_limit_middleware
 from utils.logger import setup_logging
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     await user_db.init_db()
     await knowledge_db.init_db()
     await datasource_db.init_db()
+    await v2_db.init_db()
     print("✅ 数据库初始化完成")
     try:
         yield
@@ -121,6 +123,7 @@ from routers.sync_router import router as sync_router
 from routers.business_sync_router import router as business_sync_router
 from routers.knowledge_graph_router import router as knowledge_graph_router
 from routers.datasource_router import router as datasource_router
+from routers.v2_router import router as v2_router
 from fastapi.staticfiles import StaticFiles
 
 app.include_router(session_router.router, prefix="/api", tags=["会话管理"])
@@ -136,6 +139,7 @@ app.include_router(sync_router, prefix="/api", tags=["移动端同步"])
 app.include_router(business_sync_router, prefix="/api", tags=["业务数据同步"])
 app.include_router(knowledge_graph_router, prefix="/api", tags=["知识图谱管理"])
 app.include_router(datasource_router)
+app.include_router(v2_router)
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
