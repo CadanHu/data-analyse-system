@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
+import { v2Api, type V2Profile } from '../../api'
 import './tokens.css'
 import './app.css'
 import './p0.css'
@@ -16,7 +18,10 @@ import { NotFound, OfflineMode, SkeletonLoad, GenericError } from './sections/Sy
 import { PricingPage, DocsPage, ChangelogPage } from './sections/MarketingExtras'
 
 type Item = { slug: string; label: string; el: React.ReactNode }
-type Group = { id: string; title: string; items: Item[] }
+type Group = { id: string; title: string; items: Item[]; allowedRoles?: string[] }
+// 角色 → 可见 group id（C 档：admin 系列仅 admin 可见；其它公开）
+// allowedRoles 缺省 = 所有人可见
+// 未设置 role 的兜底：和默认 'ops' 同等可见
 
 const GROUPS: Group[] = [
   {
@@ -50,6 +55,7 @@ const GROUPS: Group[] = [
   },
   {
     id: 'admin', title: '⑩ P2-A · 管理后台',
+    allowedRoles: ['admin'],
     items: [
       { slug: 'admin/audit', label: '审计日志 · 谁·什么时候·改了什么', el: <AdminAudit /> },
       { slug: 'admin/keys', label: 'API Key · 4 个 Key + 轮换提醒', el: <AdminApiKeys /> },
@@ -84,10 +90,16 @@ const GROUPS: Group[] = [
   },
 ]
 
-function Index() {
+function filterGroupsByRole(role: string | null | undefined): Group[] {
+  return GROUPS.filter(g => !g.allowedRoles || (role && g.allowedRoles.includes(role)))
+}
+
+function Index({ profile }: { profile: V2Profile | null }) {
+  const role = profile?.role ?? null
+  const visibleGroups = filterGroupsByRole(role)
   return (
     <div style={{ padding: '48px 64px', maxWidth: 1100, margin: '0 auto', color: 'var(--ink-1)' }}>
-      <div className="eyebrow">DataPulse v2 · Design Preview</div>
+      <div className="eyebrow">DataPulse v2 · Design Preview · {role ? `角色: ${role}` : '未设置角色 (默认非 admin)'}</div>
       <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 56, fontWeight: 400, margin: '12px 0 8px' }}>
         画布式分析 · 设计预览
       </h1>
@@ -95,7 +107,7 @@ function Index() {
         暖色系 · 时间线 + 分支 · 业务人员友好。下面所有页面都是<strong>静态预览</strong>，
         不连后端、不动数据。任何 section 验收通过后再考虑接入真实数据。
       </p>
-      {GROUPS.map(g => (
+      {visibleGroups.map(g => (
         <div key={g.id} style={{ marginBottom: 32 }}>
           <div style={{ fontFamily: 'var(--font-serif)', fontSize: 22, marginBottom: 12, color: 'var(--ink-1)' }}>
             {g.title}
@@ -163,23 +175,59 @@ function BackBar() {
   )
 }
 
+function ForbiddenPage({ groupTitle }: { groupTitle: string }) {
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', height: '100vh', padding: 32 }}>
+      <div style={{ textAlign: 'center', maxWidth: 480 }}>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>403 · 无权访问</div>
+        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 400, margin: '0 0 12px' }}>
+          这一区你的角色看不到
+        </h1>
+        <p style={{ color: 'var(--ink-3)', fontSize: 14, marginBottom: 24 }}>
+          「{groupTitle}」需要 admin 角色。<br />
+          可以去 canvas 顶栏点角色切换试试，或者联系工作区 owner。
+        </p>
+        <Link to="/v2-preview" style={{
+          display: 'inline-block', padding: '10px 20px', background: 'var(--ink-1)',
+          color: 'var(--paper)', borderRadius: 999, fontSize: 13, textDecoration: 'none',
+        }}>← 返回索引</Link>
+      </div>
+    </div>
+  )
+}
+
 export default function V2Preview() {
+  const [profile, setProfile] = useState<V2Profile | null>(null)
+  useEffect(() => {
+    v2Api.getMyProfile().then(setProfile).catch(() => {/* 未登录则保持 null */})
+  }, [])
+  const role = profile?.role ?? null
+
   return (
     <div className="v2-root" style={{ position: 'fixed', inset: 0, overflow: 'auto', background: 'oklch(0.92 0.015 70)' }}>
       <BackBar />
       <Routes>
-        <Route index element={<Index />} />
-        {GROUPS.flatMap(g => g.items).map(it => (
-          <Route
-            key={it.slug}
-            path={it.slug}
-            element={
-              <div style={{ width: '100%', minHeight: '100vh', height: '100vh' }}>
-                {it.el}
-              </div>
-            }
-          />
-        ))}
+        <Route index element={<Index profile={profile} />} />
+        {GROUPS.flatMap(g =>
+          g.items.map(it => ({ group: g, item: it }))
+        ).map(({ group, item }) => {
+          const blocked = group.allowedRoles && (!role || !group.allowedRoles.includes(role))
+          return (
+            <Route
+              key={item.slug}
+              path={item.slug}
+              element={
+                blocked ? (
+                  <ForbiddenPage groupTitle={group.title} />
+                ) : (
+                  <div style={{ width: '100%', minHeight: '100vh', height: '100vh' }}>
+                    {item.el}
+                  </div>
+                )
+              }
+            />
+          )
+        })}
       </Routes>
     </div>
   )

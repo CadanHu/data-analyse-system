@@ -18,6 +18,26 @@ router = APIRouter(prefix="/api/v2", tags=["v2"])
 
 
 # ============================================================
+# 角色权限依赖 — C 档基础设施
+# 用法: current_user = Depends(require_role('admin'))
+# 也支持多个角色: Depends(require_role('admin', 'analyst'))
+# ============================================================
+
+def require_role(*allowed_roles: str):
+    """依赖项工厂：要求 user_profiles.role 在 allowed_roles 内。"""
+    async def _dep(current_user: dict = Depends(get_current_user)) -> dict:
+        profile = await v2_svc.get_profile(current_user['id'])
+        role = (profile or {}).get('role')
+        if role in allowed_roles:
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail=f"需要角色 {' / '.join(allowed_roles)}（你当前: {role or '未设置'}）",
+        )
+    return _dep
+
+
+# ============================================================
 # Pydantic schemas
 # ============================================================
 
@@ -496,3 +516,17 @@ async def delete_widget(board_id: str, widget_id: str, current_user: dict = Depe
 @router.get("/board-templates")
 async def list_board_templates(category: Optional[str] = None, current_user: dict = Depends(get_current_user)):
     return await v2_board.list_templates(category=category)
+
+
+# ============================================================
+# C 档示例 · admin-only 路由 (后续 P2-A 管理后台真实接口会复用 require_role)
+# ============================================================
+
+@router.get("/admin/_check")
+async def admin_check(current_user: dict = Depends(require_role('admin'))):
+    """探针：当前用户是否拥有 admin 角色。403 表示无权。"""
+    return {
+        "user_id": current_user['id'],
+        "ok": True,
+        "message": "你拥有 admin 角色，可访问管理后台所有功能",
+    }
