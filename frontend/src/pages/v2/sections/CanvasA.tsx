@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { v2Api, type V2Workspace, type V2Session, type V2CanvasNode } from '../../../api'
+import { v2Api, type V2Workspace, type V2Session, type V2CanvasNode, type V2Board } from '../../../api'
 import { useV2Ask } from './useV2Ask'
 
 type ChartKind = 'bar' | 'area' | 'funnel' | 'funnel2' | 'compare'
@@ -22,7 +22,7 @@ type Node = {
   elapsed: string
   title: string
   tag: string
-  chart: ChartKind
+  chart: ChartKind | null     // null = 纯对话，无图表
   thinking: string[]
   sql?: string
   branches?: Branch[]
@@ -137,7 +137,8 @@ function LineCompareChart() {
   )
 }
 
-function ChartFor({ chart, label }: { chart: ChartKind; label: string }) {
+function ChartFor({ chart, label }: { chart: ChartKind | null; label: string }) {
+  if (!chart) return null
   if (chart === 'bar') return <BarChart />
   if (chart === 'area') return <AreaChart label={label} />
   if (chart === 'funnel') return <FunnelChart />
@@ -185,13 +186,26 @@ function NodeCard({
           {n.thinking.map((t, i) => <div key={i}>{i + 1}. {t}</div>)}
         </div>
       )}
-      <div className="chart">
-        <div className="chart-meta">
-          <span className="title">{n.title}</span>
-          <span className="tag">{n.tag}</span>
+      {n.chart ? (
+        <div className="chart">
+          <div className="chart-meta">
+            <span className="title">{n.title}</span>
+            <span className="tag">{n.tag}</span>
+          </div>
+          <ChartFor chart={n.chart} label={n.id} />
         </div>
-        <ChartFor chart={n.chart} label={n.id} />
-      </div>
+      ) : (
+        <div className="chart" style={{ padding: 'var(--s-4) var(--s-5)' }}>
+          <div className="chart-meta" style={{ marginBottom: 0 }}>
+            <span className="tag">{n.tag || '对话'}</span>
+            <span className="tag" style={{ color: 'var(--ink-4)' }}>{n.elapsed}</span>
+          </div>
+          <div style={{
+            marginTop: 8, fontSize: 14, lineHeight: 1.6,
+            color: 'var(--ink-1)', whiteSpace: 'pre-wrap',
+          }}>{n.title}</div>
+        </div>
+      )}
       {mode === 'analyst' && n.sql && (
         <div className="sql">
           {n.sql.split('\n').map((line, i) => (
@@ -227,13 +241,13 @@ function parseCfg(cfg: unknown): any {
   }
   return cfg
 }
-function chartKindFromCfg(cfg: unknown): ChartKind {
+function chartKindFromCfg(cfg: unknown): ChartKind | null {
   const p = parseCfg(cfg)
   const t = p?.series?.[0]?.type
   if (t === 'bar') return 'bar'
   if (t === 'line') return 'area'
   if (t === 'funnel') return 'funnel'
-  return 'bar'
+  return null     // 不识别 / 无 series → 纯对话，不渲染图表
 }
 function titleFromCfg(cfg: unknown, fallback: string): string {
   const p = parseCfg(cfg)
@@ -266,14 +280,15 @@ function canvasNodesToNodes(cn: V2CanvasNode[]): Node[] {
       ? `${(a.elapsed_ms / 1000).toFixed(1)}s`
       : '—'
     const thinkingLines = Array.isArray(a.thinking_steps_json) ? a.thinking_steps_json : []
+    const isChat = !chart && !a.sql
     nodes.push({
       id: a.node_id,
       who: '你',
       q: u.content || '',
       steps: thinkingLines.length,
       elapsed,
-      title: titleFromCfg(a.chart_cfg_json, '分析结果'),
-      tag: TAG_BY_KIND[chart] || '',
+      title: chart ? titleFromCfg(a.chart_cfg_json, '分析结果') : (a.content || '回答'),
+      tag: chart ? (TAG_BY_KIND[chart] || '') : (isChat ? '对话' : ''),
       chart,
       thinking: thinkingLines,
       sql: a.sql || undefined,
@@ -514,7 +529,7 @@ export function CanvasA() {
   const [sessionsLoading, setSessionsLoading] = useState(false)
 
   const realNodes = useMemo(() => canvasNodesToNodes(canvasNodes), [canvasNodes])
-  const hasRealData = !!currentSession && realNodes.length > 0
+  const hasSession = !!currentSession
 
   const [mode, setMode] = useState<Mode>('business')
   const [nodes, setNodes] = useState<Node[]>(realNodes)
@@ -523,12 +538,11 @@ export function CanvasA() {
 
   const { ask, isLoading } = useV2Ask()
 
+  // 节点数据变化时同步本地 state；空 session 也允许（用户能在 dock 提第一个问题）
   useEffect(() => {
-    if (hasRealData) {
-      setNodes(realNodes)
-      setCurrentId(realNodes[realNodes.length - 1].id)
-    }
-  }, [hasRealData, realNodes])
+    setNodes(realNodes)
+    setCurrentId(realNodes[realNodes.length - 1]?.id ?? '')
+  }, [realNodes])
 
   // 1. 进入时初始化工作区（无则后端自动建"我的工作区"）
   useEffect(() => {
@@ -608,10 +622,32 @@ export function CanvasA() {
     } : n))
   }
 
-  const handlePin = (n: Node | Branch) => {
-    setPinned([...pinned, n.id])
-    setPinToast(n.title)
-    setTimeout(() => setPinToast(null), 2200)
+  const handlePin = async (n: Node | Branch) => {
+    // 分支节点是本地 demo 数据（v2 canvas_nodes 表里没有），不持久化
+    const isLocalDemoBranch = !nodes.find(x => x.id === n.id)
+    if (isLocalDemoBranch) {
+      setPinToast('分支暂未持久化，仅在画布内可见')
+      setTimeout(() => setPinToast(null), 2500)
+      return
+    }
+    if (!workspace) return
+    try {
+      // 拿/建默认看板（boards 编辑器还没接入，所以暂时一键钉到首个看板）
+      let boards: V2Board[] = await v2Api.listBoards(workspace.id)
+      let board = boards[0]
+      if (!board) {
+        board = await v2Api.createBoard(workspace.id, '我的看板', '画布钉选项默认看板')
+      }
+      await v2Api.pinNodeToBoard(board.id, n.id)
+      setPinned([...pinned, n.id])
+      setPinToast(`已钉到「${board.title}」`)
+      setTimeout(() => setPinToast(null), 2500)
+      // 刷新让 pinned_to_board_id 同步
+      if (currentSession) reloadNodes(currentSession.id)
+    } catch (err: any) {
+      setPinToast(`钉失败: ${err?.message || err}`)
+      setTimeout(() => setPinToast(null), 3000)
+    }
   }
 
   const jumpTo = (id: string) => {
@@ -622,10 +658,10 @@ export function CanvasA() {
     }
   }
 
-  if (!hasRealData) {
+  if (!hasSession) {
     return (
       <CanvasEmpty
-        hasSession={!!currentSession}
+        hasSession={false}
         sessions={sessions}
         loading={sessionsLoading}
         workspace={workspace}

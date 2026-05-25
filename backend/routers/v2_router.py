@@ -358,3 +358,141 @@ async def ask_v2(session_id: str, request: V2AskRequest, current_user: dict = De
         StreamableHTTPService.generate_stream(event_generator()),
         media_type="text/event-stream",
     )
+
+
+# ============================================================
+# 阶段 3 · boards / widgets / templates
+# ============================================================
+
+from database.v2 import board_services as v2_board
+
+
+class BoardCreate(BaseModel):
+    workspace_id: str
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    grid_cols: int = 12
+    from_template_id: Optional[str] = None
+
+
+class BoardUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    grid_cols: Optional[int] = None
+    schedule_cron: Optional[str] = None
+
+
+class WidgetPin(BaseModel):
+    source_node_id: str
+    grid_x: int = 0
+    grid_y: int = 0
+    w: int = 4
+    h: int = 3
+    override_cfg: Optional[Dict[str, Any]] = None
+
+
+class WidgetUpdate(BaseModel):
+    grid_x: Optional[int] = None
+    grid_y: Optional[int] = None
+    w: Optional[int] = None
+    h: Optional[int] = None
+    override_cfg_json: Optional[Dict[str, Any]] = None
+    order_index: Optional[int] = None
+
+
+async def _require_board_writable(board_id: str, user_id: int) -> Dict[str, Any]:
+    """看板可写权限：board owner 或 workspace owner/admin。"""
+    board = await v2_board.get_board(board_id)
+    if not board:
+        raise HTTPException(status_code=404, detail="board 不存在")
+    if board['owner_user_id'] == user_id:
+        return board
+    role = await v2_svc.get_member_role(board['workspace_id'], user_id)
+    if role in ('owner', 'admin'):
+        return board
+    raise HTTPException(status_code=403, detail="无权修改此看板")
+
+
+async def _require_board_readable(board_id: str, user_id: int) -> Dict[str, Any]:
+    """看板可读权限：workspace 任意成员。"""
+    board = await v2_board.get_board(board_id)
+    if not board:
+        raise HTTPException(status_code=404, detail="board 不存在")
+    role = await v2_svc.get_member_role(board['workspace_id'], user_id)
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    return board
+
+
+@router.get("/boards")
+async def list_v2_boards(workspace_id: str, current_user: dict = Depends(get_current_user)):
+    role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    return await v2_board.list_boards(workspace_id)
+
+
+@router.post("/boards", status_code=status.HTTP_201_CREATED)
+async def create_v2_board(data: BoardCreate, current_user: dict = Depends(get_current_user)):
+    role = await v2_svc.get_member_role(data.workspace_id, current_user['id'])
+    if role not in ('owner', 'admin', 'editor'):
+        raise HTTPException(status_code=403, detail="只有 owner/admin/editor 能创建看板")
+    return await v2_board.create_board(
+        workspace_id=data.workspace_id,
+        owner_user_id=current_user['id'],
+        title=data.title,
+        description=data.description,
+        grid_cols=data.grid_cols,
+        from_template_id=data.from_template_id,
+    )
+
+
+@router.get("/boards/{board_id}")
+async def get_v2_board(board_id: str, current_user: dict = Depends(get_current_user)):
+    board = await _require_board_readable(board_id, current_user['id'])
+    widgets = await v2_board.list_widgets(board_id)
+    return {**board, 'widgets': widgets}
+
+
+@router.patch("/boards/{board_id}")
+async def update_v2_board(board_id: str, data: BoardUpdate, current_user: dict = Depends(get_current_user)):
+    await _require_board_writable(board_id, current_user['id'])
+    return await v2_board.update_board(board_id, data.model_dump(exclude_unset=True))
+
+
+@router.delete("/boards/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_v2_board(board_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_board_writable(board_id, current_user['id'])
+    await v2_board.delete_board(board_id)
+    return None
+
+
+@router.post("/boards/{board_id}/widgets", status_code=status.HTTP_201_CREATED)
+async def pin_widget(board_id: str, data: WidgetPin, current_user: dict = Depends(get_current_user)):
+    """把 canvas_node 钉到看板。"""
+    await _require_board_writable(board_id, current_user['id'])
+    return await v2_board.pin_node_to_board(
+        board_id=board_id,
+        source_node_id=data.source_node_id,
+        grid_x=data.grid_x, grid_y=data.grid_y,
+        w=data.w, h=data.h,
+        override_cfg=data.override_cfg,
+    )
+
+
+@router.patch("/boards/{board_id}/widgets/{widget_id}")
+async def update_widget(board_id: str, widget_id: str, data: WidgetUpdate, current_user: dict = Depends(get_current_user)):
+    await _require_board_writable(board_id, current_user['id'])
+    return await v2_board.update_widget(widget_id, data.model_dump(exclude_unset=True))
+
+
+@router.delete("/boards/{board_id}/widgets/{widget_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_widget(board_id: str, widget_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_board_writable(board_id, current_user['id'])
+    await v2_board.delete_widget(widget_id)
+    return None
+
+
+@router.get("/board-templates")
+async def list_board_templates(category: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    return await v2_board.list_templates(category=category)

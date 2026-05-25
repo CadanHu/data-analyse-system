@@ -411,6 +411,46 @@ export interface V2CanvasNode {
   created_at: string
 }
 
+export interface V2Board {
+  id: string
+  workspace_id: string
+  title: string
+  description: string | null
+  grid_cols: number
+  schedule_cron: string | null
+  owner_user_id: number
+  from_template_id: string | null
+  created_at: string
+  updated_at: string
+  widgets?: V2BoardWidget[]
+}
+
+export interface V2BoardWidget {
+  widget_id: string
+  board_id: string
+  source_node_id: string
+  grid_x: number
+  grid_y: number
+  w: number
+  h: number
+  override_cfg_json: any
+  order_index: number
+  node_role: string
+  node_content: string | null
+  node_sql: string | null
+  node_chart_cfg_json: any
+  node_branch_label: string | null
+}
+
+export interface V2BoardTemplate {
+  id: string
+  category: string | null
+  name: string
+  preview_url: string | null
+  layout_json: any
+  is_builtin: boolean
+}
+
 export const v2Api = {
   getCurrentWorkspace: () =>
     api.get<V2Workspace>('/v2/workspaces/current').then(r => r.data),
@@ -422,8 +462,27 @@ export const v2Api = {
     api.post<V2Session>('/v2/sessions', { workspace_id: workspaceId, title }).then(r => r.data),
   listCanvasNodes: (sessionId: string) =>
     api.get<V2CanvasNode[]>(`/v2/sessions/${sessionId}/canvas-nodes`).then(r => r.data),
-  // ask 是 SSE 流式，单独走 fetch（不走 axios）
   askStreamUrl: (sessionId: string) => `/api/v2/sessions/${sessionId}/ask`,
+
+  // 阶段 3 · 看板
+  listBoards: (workspaceId: string) =>
+    api.get<V2Board[]>('/v2/boards', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createBoard: (workspaceId: string, title: string, description?: string) =>
+    api.post<V2Board>('/v2/boards', { workspace_id: workspaceId, title, description }).then(r => r.data),
+  getBoard: (boardId: string) =>
+    api.get<V2Board>(`/v2/boards/${boardId}`).then(r => r.data),
+  updateBoard: (boardId: string, updates: Partial<{ title: string; description: string; grid_cols: number; schedule_cron: string }>) =>
+    api.patch<V2Board>(`/v2/boards/${boardId}`, updates).then(r => r.data),
+  deleteBoard: (boardId: string) =>
+    api.delete(`/v2/boards/${boardId}`).then(r => r.data),
+  pinNodeToBoard: (boardId: string, sourceNodeId: string, opts?: { grid_x?: number; grid_y?: number; w?: number; h?: number }) =>
+    api.post<V2BoardWidget>(`/v2/boards/${boardId}/widgets`, { source_node_id: sourceNodeId, ...opts }).then(r => r.data),
+  updateWidget: (boardId: string, widgetId: string, updates: Partial<{ grid_x: number; grid_y: number; w: number; h: number }>) =>
+    api.patch<V2BoardWidget>(`/v2/boards/${boardId}/widgets/${widgetId}`, updates).then(r => r.data),
+  deleteWidget: (boardId: string, widgetId: string) =>
+    api.delete(`/v2/boards/${boardId}/widgets/${widgetId}`).then(r => r.data),
+  listBoardTemplates: (category?: string) =>
+    api.get<V2BoardTemplate[]>('/v2/board-templates', { params: category ? { category } : {} }).then(r => r.data),
 }
 
 export default api

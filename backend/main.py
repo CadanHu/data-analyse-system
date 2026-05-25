@@ -42,6 +42,14 @@ async def lifespan(app: FastAPI):
     await knowledge_db.init_db()
     await datasource_db.init_db()
     await v2_db.init_db()
+    # 阶段 3：内置 6 个看板模板 (空表才灌)
+    try:
+        from database.v2 import board_services as _v2_board
+        n = await _v2_board.seed_builtin_templates_if_empty()
+        if n:
+            print(f"✅ v2 board_templates 灌入 {n} 条内置模板")
+    except Exception as e:
+        print(f"⚠️ [v2 警告] 灌入内置看板模板失败: {e}")
     print("✅ 数据库初始化完成")
     try:
         yield

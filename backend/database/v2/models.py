@@ -227,3 +227,76 @@ class NodeMentionModel(V2Base):
     by_user_id = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     read_at = Column(DateTime, nullable=True)
+
+
+# ============================================================
+# 模块 4 · 看板（4 表）
+# ============================================================
+
+class BoardModel(V2Base):
+    """看板 — BoardEditor 主体，归属 workspace。"""
+    __tablename__ = 'boards'
+
+    id = Column(String(36), primary_key=True)
+    workspace_id = Column(String(36), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    grid_cols = Column(Integer, default=12)
+    schedule_cron = Column(String(64), nullable=True)
+    owner_user_id = Column(Integer, nullable=False)
+    from_template_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_board_ws', 'workspace_id'),
+        Index('idx_board_owner', 'owner_user_id'),
+    )
+
+
+class BoardWidgetModel(V2Base):
+    """看板上的每张图 (引用 canvas_node)。"""
+    __tablename__ = 'board_widgets'
+
+    id = Column(String(36), primary_key=True)
+    board_id = Column(String(36), nullable=False)
+    source_node_id = Column(String(36), nullable=False)         # FK 概念上指向 canvas_nodes.id
+    grid_x = Column(Integer, default=0)
+    grid_y = Column(Integer, default=0)
+    w = Column(Integer, default=4)                              # 默认 4 列宽
+    h = Column(Integer, default=3)                              # 默认 3 行高
+    override_cfg_json = Column(JSON, nullable=True)             # 覆盖标题 / 图表配色
+    order_index = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('idx_widget_board', 'board_id'),)
+
+
+class BoardVersionModel(V2Base):
+    """看板版本 — VersionDiff 用。每次大改动建一条快照。"""
+    __tablename__ = 'board_versions'
+
+    id = Column(String(36), primary_key=True)
+    board_id = Column(String(36), nullable=False)
+    version_num = Column(Integer, nullable=False)
+    layout_snapshot_json = Column(JSON, nullable=True)
+    changed_by_user_id = Column(Integer, nullable=False)
+    change_summary = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('board_id', 'version_num', name='uq_board_version'),
+    )
+
+
+class BoardTemplateModel(V2Base):
+    """看板模板库 — BoardTemplates 6 个行业起手式。"""
+    __tablename__ = 'board_templates'
+
+    id = Column(String(36), primary_key=True)
+    category = Column(String(64), nullable=True)                # exec / sales / pm / ops 等
+    name = Column(String(128), nullable=False)
+    preview_url = Column(String(512), nullable=True)
+    layout_json = Column(JSON, nullable=True)                   # widgets + override 配置的预设
+    is_builtin = Column(Boolean, default=False)                 # 内置模板不能删
+    created_at = Column(DateTime, default=datetime.utcnow)
