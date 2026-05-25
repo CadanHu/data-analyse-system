@@ -748,3 +748,183 @@ async def seed_notif(data: _NotifSeed, current_user: dict = Depends(get_current_
         source_id=data.source_id,
         payload=data.payload,
     )
+
+
+# ============================================================
+# 阶段 5 · 告警 (alert_rules / alert_events / alert_subscriptions)
+# ============================================================
+
+from database.v2 import alert_services as v2_alert
+
+
+class AlertRuleCreate(BaseModel):
+    workspace_id: str
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    metric_id: Optional[str] = None
+    widget_id: Optional[str] = None
+    threshold: Dict[str, Any]                 # {op,value,window,...}
+    schedule_cron: Optional[str] = None
+    channels: Optional[List[Dict[str, Any]]] = None
+    enabled: bool = True
+
+
+class AlertRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    threshold_json: Optional[Dict[str, Any]] = None
+    schedule_cron: Optional[str] = None
+    channels_json: Optional[List[Dict[str, Any]]] = None
+    enabled: Optional[bool] = None
+
+
+class AlertTrigger(BaseModel):
+    current_value: str
+    threshold_value: Optional[str] = None
+    severity: str = 'warn'           # info / warn / critical
+    attribution: Optional[Dict[str, Any]] = None
+
+
+class AlertSubscribe(BaseModel):
+    channel_overrides: Optional[Dict[str, Any]] = None
+
+
+async def _require_rule_writable(rule_id: str, user_id: int) -> Dict[str, Any]:
+    rule = await v2_alert.get_rule(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="规则不存在")
+    if rule['owner_user_id'] == user_id:
+        return rule
+    role = await v2_svc.get_member_role(rule['workspace_id'], user_id)
+    if role in ('owner', 'admin'):
+        return rule
+    raise HTTPException(status_code=403, detail="无权修改此规则")
+
+
+async def _require_rule_readable(rule_id: str, user_id: int) -> Dict[str, Any]:
+    rule = await v2_alert.get_rule(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="规则不存在")
+    role = await v2_svc.get_member_role(rule['workspace_id'], user_id)
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    return rule
+
+
+@router.get("/alert-rules")
+async def list_alert_rules(workspace_id: str, current_user: dict = Depends(get_current_user)):
+    role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    return await v2_alert.list_rules(workspace_id)
+
+
+@router.post("/alert-rules", status_code=status.HTTP_201_CREATED)
+async def create_alert_rule(data: AlertRuleCreate, current_user: dict = Depends(get_current_user)):
+    role = await v2_svc.get_member_role(data.workspace_id, current_user['id'])
+    if role not in ('owner', 'admin', 'editor'):
+        raise HTTPException(status_code=403, detail="只有 owner/admin/editor 能创建告警规则")
+    return await v2_alert.create_rule(
+        workspace_id=data.workspace_id,
+        owner_user_id=current_user['id'],
+        name=data.name, description=data.description,
+        metric_id=data.metric_id, widget_id=data.widget_id,
+        threshold=data.threshold,
+        schedule_cron=data.schedule_cron,
+        channels=data.channels, enabled=data.enabled,
+    )
+
+
+@router.get("/alert-rules/{rule_id}")
+async def get_alert_rule(rule_id: str, current_user: dict = Depends(get_current_user)):
+    return await _require_rule_readable(rule_id, current_user['id'])
+
+
+@router.patch("/alert-rules/{rule_id}")
+async def update_alert_rule(rule_id: str, data: AlertRuleUpdate, current_user: dict = Depends(get_current_user)):
+    await _require_rule_writable(rule_id, current_user['id'])
+    return await v2_alert.update_rule(rule_id, data.model_dump(exclude_unset=True))
+
+
+@router.delete("/alert-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_alert_rule(rule_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_rule_writable(rule_id, current_user['id'])
+    await v2_alert.delete_rule(rule_id)
+    return None
+
+
+# --- events ---
+
+@router.get("/alert-events")
+async def list_alert_events(
+    rule_id: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    status: Optional[str] = None,   # noqa: A002 — 这里只是查询参数
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    if rule_id:
+        await _require_rule_readable(rule_id, current_user['id'])
+    elif workspace_id:
+        role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+        if not role:
+            raise HTTPException(status_code=403, detail="不是该工作区成员")
+    else:
+        raise HTTPException(status_code=400, detail="需要 rule_id 或 workspace_id")
+    return await v2_alert.list_events(rule_id=rule_id, workspace_id=workspace_id, status=status, limit=limit)
+
+
+@router.post("/alert-rules/{rule_id}/_trigger", status_code=status.HTTP_201_CREATED)
+async def trigger_alert(rule_id: str, data: AlertTrigger, current_user: dict = Depends(get_current_user)):
+    """手动触发一条告警事件 (联调 / 管理员强制触发用)。
+    真正的 cron worker 评估留作下次。"""
+    await _require_rule_writable(rule_id, current_user['id'])
+    return await v2_alert.trigger_event(
+        rule_id=rule_id,
+        current_value=data.current_value,
+        threshold_value=data.threshold_value,
+        severity=data.severity,
+        attribution=data.attribution,
+    )
+
+
+@router.patch("/alert-events/{event_id}/ack")
+async def ack_alert_event(event_id: str, current_user: dict = Depends(get_current_user)):
+    ev = await v2_alert.ack_event(event_id, current_user['id'])
+    if not ev:
+        raise HTTPException(status_code=404, detail="事件不存在")
+    return ev
+
+
+@router.patch("/alert-events/{event_id}/resolve")
+async def resolve_alert_event(event_id: str, current_user: dict = Depends(get_current_user)):
+    ev = await v2_alert.resolve_event(event_id, current_user['id'])
+    if not ev:
+        raise HTTPException(status_code=404, detail="事件不存在")
+    return ev
+
+
+# --- subscriptions ---
+
+@router.post("/alert-rules/{rule_id}/subscribe")
+async def subscribe_to_alert(rule_id: str, data: AlertSubscribe, current_user: dict = Depends(get_current_user)):
+    await _require_rule_readable(rule_id, current_user['id'])
+    return await v2_alert.subscribe(rule_id, current_user['id'], data.channel_overrides)
+
+
+@router.delete("/alert-rules/{rule_id}/subscribe", status_code=status.HTTP_204_NO_CONTENT)
+async def unsubscribe_from_alert(rule_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_rule_readable(rule_id, current_user['id'])
+    await v2_alert.unsubscribe(rule_id, current_user['id'])
+    return None
+
+
+@router.get("/alert-rules/{rule_id}/subscribers")
+async def list_alert_subscribers(rule_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_rule_readable(rule_id, current_user['id'])
+    return await v2_alert.list_subscribers(rule_id)
+
+
+@router.get("/me/alert-subscriptions")
+async def list_my_alert_subscriptions(current_user: dict = Depends(get_current_user)):
+    return await v2_alert.list_user_subscriptions(current_user['id'])

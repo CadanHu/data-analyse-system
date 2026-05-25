@@ -367,3 +367,68 @@ class NotificationModel(V2Base):
         Index('idx_notif_recipient', 'recipient_user_id', 'created_at'),
         Index('idx_notif_unread', 'recipient_user_id', 'read_at'),
     )
+
+
+# ============================================================
+# 模块 7 · 告警（3 表）
+# ============================================================
+
+class AlertRuleModel(V2Base):
+    """告警规则 — AlertWizard 创建的订阅 + 阈值。"""
+    __tablename__ = 'alert_rules'
+
+    id = Column(String(36), primary_key=True)
+    workspace_id = Column(String(36), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    # 数据来源 — metric_id 指向 metrics(C 档/阶段 8) 或 widget_id 指向 board_widget
+    metric_id = Column(String(36), nullable=True)
+    widget_id = Column(String(36), nullable=True)
+    threshold_json = Column(JSON, nullable=False)               # {op:>, value:100, window:'1h', comparator:'wow_pct'}
+    schedule_cron = Column(String(64), nullable=True)           # null = 实时；否则 cron 串
+    channels_json = Column(JSON, nullable=True)                 # [{channel:'email', template:'...'}]
+    owner_user_id = Column(Integer, nullable=False)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_ar_workspace', 'workspace_id'),
+        Index('idx_ar_owner', 'owner_user_id'),
+    )
+
+
+class AlertEventModel(V2Base):
+    """告警事件 — 规则触发一次产生一条。"""
+    __tablename__ = 'alert_events'
+
+    id = Column(String(36), primary_key=True)
+    rule_id = Column(String(36), nullable=False)
+    fired_at = Column(DateTime, default=datetime.utcnow)
+    current_value = Column(String(64), nullable=True)           # 用 string 避免数值/百分比/文本混淆
+    threshold_value = Column(String(64), nullable=True)
+    severity = Column(String(16), default='warn')               # info / warn / critical
+    attribution_json = Column(JSON, nullable=True)              # AI 归因结果 (按维度/区域/渠道)
+    status = Column(String(16), default='open')                 # open / ack / resolved
+    acked_at = Column(DateTime, nullable=True)
+    acked_by_user_id = Column(Integer, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by_user_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_ae_rule', 'rule_id', 'fired_at'),
+        Index('idx_ae_status', 'status'),
+    )
+
+
+class AlertSubscriptionModel(V2Base):
+    """告警订阅 — 一条规则可以被多个用户订阅，可单独覆盖渠道偏好。"""
+    __tablename__ = 'alert_subscriptions'
+
+    rule_id = Column(String(36), primary_key=True)
+    user_id = Column(Integer, primary_key=True)
+    channel_overrides_json = Column(JSON, nullable=True)        # null = 跟随 user_notification_prefs
+    subscribed_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('idx_asub_user', 'user_id'),)

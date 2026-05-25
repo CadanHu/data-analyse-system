@@ -527,6 +527,32 @@ export const v2Api = {
     api.post('/v2/notifications/_read_all').then(r => r.data),
   deleteNotification: (notifId: string) =>
     api.delete(`/v2/notifications/${notifId}`).then(r => r.data),
+
+  // 阶段 5 · 告警
+  listAlertRules: (workspaceId: string) =>
+    api.get('/v2/alert-rules', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createAlertRule: (data: any) =>
+    api.post('/v2/alert-rules', data).then(r => r.data),
+  updateAlertRule: (ruleId: string, updates: any) =>
+    api.patch(`/v2/alert-rules/${ruleId}`, updates).then(r => r.data),
+  deleteAlertRule: (ruleId: string) =>
+    api.delete(`/v2/alert-rules/${ruleId}`).then(r => r.data),
+  listAlertEvents: (params: { rule_id?: string; workspace_id?: string; status?: string; limit?: number }) =>
+    api.get('/v2/alert-events', { params }).then(r => r.data),
+  triggerAlert: (ruleId: string, data: any) =>
+    api.post(`/v2/alert-rules/${ruleId}/_trigger`, data).then(r => r.data),
+  ackAlertEvent: (eventId: string) =>
+    api.patch(`/v2/alert-events/${eventId}/ack`).then(r => r.data),
+  resolveAlertEvent: (eventId: string) =>
+    api.patch(`/v2/alert-events/${eventId}/resolve`).then(r => r.data),
+  subscribeAlert: (ruleId: string, channelOverrides?: any) =>
+    api.post(`/v2/alert-rules/${ruleId}/subscribe`, { channel_overrides: channelOverrides }).then(r => r.data),
+  unsubscribeAlert: (ruleId: string) =>
+    api.delete(`/v2/alert-rules/${ruleId}/subscribe`).then(r => r.data),
+  listAlertSubscribers: (ruleId: string) =>
+    api.get(`/v2/alert-rules/${ruleId}/subscribers`).then(r => r.data),
+  myAlertSubscriptions: () =>
+    api.get('/v2/me/alert-subscriptions').then(r => r.data),
 }
 
 export default api

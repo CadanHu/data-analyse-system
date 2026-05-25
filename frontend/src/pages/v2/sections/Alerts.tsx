@@ -1,8 +1,184 @@
 // @ts-nocheck
 // Ported verbatim from datapulse-ai-design-system/project/v2/Alerts.jsx
+// 阶段 5 真实数据接入：AlertWizard/Detail 顶部 Live 浮动条
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { v2Api } from '../../../api'
 
 const { useState: useS_AL } = React;
+
+/* ---------- Live data bars (阶段 5) ---------- */
+
+function AlertWizardLiveBar() {
+  const [workspace, setWorkspace] = useState(null)
+  const [rules, setRules] = useState([])
+  const [name, setName] = useState('')
+  const [op, setOp] = useState('<')
+  const [value, setValue] = useState('-10')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
+  const reload = async () => {
+    if (!workspace) return
+    try { setRules(await v2Api.listAlertRules(workspace.id)) } catch {}
+  }
+  useEffect(() => { reload() }, [workspace])
+
+  const create = async () => {
+    if (!workspace || !name.trim()) return
+    setBusy(true); setMsg(null)
+    try {
+      const r = await v2Api.createAlertRule({
+        workspace_id: workspace.id,
+        name: name.trim(),
+        threshold: { op, value: parseFloat(value), comparator: 'wow_pct', window: '1d' },
+        channels: [{ channel: 'inapp' }],
+      })
+      setMsg(`已创建: ${r.id.slice(0, 8)}...`)
+      setName('')
+      reload()
+    } catch (e) { setMsg(`失败: ${e?.message || e}`) }
+    finally { setBusy(false); setTimeout(() => setMsg(null), 3500) }
+  }
+
+  const trigger = async (rid) => {
+    setBusy(true)
+    try {
+      await v2Api.triggerAlert(rid, {
+        current_value: `${value}% (mock)`,
+        threshold_value: `${value}%`,
+        severity: 'warn',
+      })
+      setMsg('手动触发了一次告警事件 → 看通知中心')
+    } catch (e) { setMsg(`触发失败: ${e?.message || e}`) }
+    finally { setBusy(false); setTimeout(() => setMsg(null), 3500) }
+  }
+
+  const del = async (rid) => {
+    if (!confirm('删除规则？关联事件 / 订阅会一并删除。')) return
+    setBusy(true)
+    try { await v2Api.deleteAlertRule(rid); reload() }
+    catch (e) { setMsg(`删除失败: ${e?.message || e}`); setTimeout(() => setMsg(null), 3000) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <LiveBarAL title="告警规则 · 真实数据" footer={msg}>
+      <InlineAL label="名称">
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="如 D7 留存下降" style={{ minWidth: 200, padding: '4px 8px' }} />
+      </InlineAL>
+      <InlineAL label="阈值">
+        <select value={op} onChange={e => setOp(e.target.value)}>
+          <option value="<">小于</option>
+          <option value=">">大于</option>
+          <option value="<=">小等于</option>
+          <option value=">=">大等于</option>
+        </select>
+        <input value={value} onChange={e => setValue(e.target.value)} style={{ width: 60, padding: '4px 8px' }} />%
+      </InlineAL>
+      <button disabled={busy || !name.trim()} onClick={create} style={btnPriAL}>创建</button>
+
+      {rules.length > 0 && (
+        <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {rules.map(r => (
+            <div key={r.id} style={liveRowAL}>
+              <span style={{ flex: 1, fontSize: 12 }}>
+                <b>{r.name}</b>
+                <span style={{ color: 'var(--ink-3)', marginLeft: 8 }}>
+                  {r.threshold_json?.op}{r.threshold_json?.value}%
+                </span>
+              </span>
+              <span style={{ fontSize: 10, color: r.enabled ? 'var(--success)' : 'var(--ink-4)' }}>{r.enabled ? '●启用' : '○停用'}</span>
+              <button onClick={() => trigger(r.id)} style={btnGhostAL}>▶ 触发</button>
+              <button onClick={() => del(r.id)} style={{ ...btnGhostAL, color: 'var(--ink-4)' }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </LiveBarAL>
+  )
+}
+
+function AlertDetailLiveBar() {
+  const [workspace, setWorkspace] = useState(null)
+  const [events, setEvents] = useState([])
+  const [filter, setFilter] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
+  const reload = async () => {
+    if (!workspace) return
+    try {
+      const list = await v2Api.listAlertEvents({ workspace_id: workspace.id, status: filter || undefined, limit: 30 })
+      setEvents(list)
+    } catch {}
+  }
+  useEffect(() => { reload() }, [workspace, filter])
+
+  const ack = async (eid) => { setBusy(true); try { await v2Api.ackAlertEvent(eid); reload() } finally { setBusy(false) } }
+  const resolve = async (eid) => { setBusy(true); try { await v2Api.resolveAlertEvent(eid); reload() } finally { setBusy(false) } }
+
+  return (
+    <LiveBarAL title={`告警事件 · 真实数据 · 共 ${events.length}`}>
+      <InlineAL label="状态">
+        <select value={filter} onChange={e => setFilter(e.target.value)}>
+          <option value="">全部</option>
+          <option value="open">open</option>
+          <option value="ack">ack</option>
+          <option value="resolved">resolved</option>
+        </select>
+      </InlineAL>
+      <button onClick={reload} style={btnGhostAL}>刷新</button>
+
+      {events.length === 0 ? (
+        <div style={{ width: '100%', padding: '8px 0', color: 'var(--ink-4)', fontSize: 12 }}>
+          没有事件。回 AlertWizard 创建规则并点"▶ 触发"造测试数据。
+        </div>
+      ) : (
+        <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {events.map(e => (
+            <div key={e.id} style={{ ...liveRowAL, opacity: e.status === 'resolved' ? 0.5 : 1 }}>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, textTransform: 'uppercase', padding: '1px 5px',
+                background: e.severity === 'critical' ? 'oklch(0.56 0.20 25 / 0.15)' : 'oklch(0.74 0.16 75 / 0.15)',
+                color: e.severity === 'critical' ? 'var(--danger)' : 'var(--warning)',
+                borderRadius: 4,
+              }}>{e.severity}</span>
+              <span style={{ flex: 1, fontSize: 12 }}>
+                当前 <b>{e.current_value}</b>
+                {e.threshold_value && <span style={{ color: 'var(--ink-3)' }}> · 阈值 {e.threshold_value}</span>}
+                {e.attribution_json?.top_value && <span style={{ color: 'var(--ink-3)' }}> · 主因 {e.attribution_json.top_value} ({e.attribution_json.contrib_pct}%)</span>}
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase' }}>{e.status}</span>
+              {e.status === 'open' && <button onClick={() => ack(e.id)} disabled={busy} style={btnGhostAL}>ack</button>}
+              {e.status !== 'resolved' && <button onClick={() => resolve(e.id)} disabled={busy} style={btnGhostAL}>resolve</button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </LiveBarAL>
+  )
+}
+
+const liveRowAL = { padding: '6px 10px', background: 'var(--paper)', border: '1px solid var(--line-1)', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 10 }
+const btnPriAL = { padding: '6px 12px', background: 'var(--amber-deep)', color: 'var(--paper)', border: 0, borderRadius: 6, fontSize: 12, cursor: 'pointer' }
+const btnGhostAL = { padding: '4px 10px', background: 'transparent', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 11, cursor: 'pointer' }
+
+function LiveBarAL({ title, footer, children }) {
+  return (
+    <div style={{ padding: '12px 18px', background: 'oklch(0.78 0.16 65 / 0.10)', borderBottom: '1px solid var(--amber-deep)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--amber-deep)' }}>● {title}</span>
+        {children}
+        {footer && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-3)' }}>{footer}</span>}
+      </div>
+    </div>
+  )
+}
+
+function InlineAL({ label, children }) {
+  return <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--ink-3)' }}>{label}: {children}</label>
+}
 
 /* =========================================================
    Alerts · Subscription wizard + Anomaly detail
@@ -53,6 +229,7 @@ export function AlertWizard() {
 
   return (
     <div className="p0-frame">
+      <AlertWizardLiveBar />
       <div className="ai-scene">
         <P1Top_AL crumbs={['工作区','+ 新建提醒']} badge="新建 · STEP 1/2"/>
         <div className="aw">
@@ -232,6 +409,7 @@ function Sparkline() {
 export function AlertDetail() {
   return (
     <div className="p0-frame">
+      <AlertDetailLiveBar />
       <div className="ai-scene">
         <P1Top_AL crumbs={['收件箱','告警','GMV 异常 · 9 月 29 日']} badge="未处理" alarm/>
         <div className="ad">
