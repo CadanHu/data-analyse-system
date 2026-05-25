@@ -1,0 +1,556 @@
+import { useEffect, useRef, useState } from 'react'
+
+type ChartKind = 'bar' | 'area' | 'funnel' | 'funnel2' | 'compare'
+
+type Branch = {
+  id: string
+  label: string
+  title: string
+  tag: string
+  chart: ChartKind
+  q: string
+}
+
+type Node = {
+  id: string
+  who: string
+  q: string
+  steps: number
+  elapsed: string
+  title: string
+  tag: string
+  chart: ChartKind
+  thinking: string[]
+  sql?: string
+  branches?: Branch[]
+}
+
+type Scenario = {
+  title: string
+  who: string
+  avatar: string
+  chips: string[]
+  placeholder: string
+  nodes: Node[]
+}
+
+type RoleId = 'exec' | 'sales' | 'pm' | 'ops'
+
+/* ---------- Tiny SVG charts ---------- */
+function AreaChart({ label, data, stroke = 'var(--amber-deep)' }: { label: string; data?: number[]; stroke?: string }) {
+  const points = data ?? [22, 28, 26, 35, 41, 38, 48, 55, 52, 64, 70, 78]
+  const max = Math.max(...points), min = Math.min(...points)
+  const W = 320, H = 140, P = 8
+  const xs = points.map((_, i) => P + (i / (points.length - 1)) * (W - 2 * P))
+  const ys = points.map(v => H - P - ((v - min) / (max - min || 1)) * (H - 2 * P))
+  const path = xs.map((x, i) => `${i ? 'L' : 'M'}${x},${ys[i]}`).join(' ')
+  const area = `${path} L${xs[xs.length - 1]},${H - P} L${xs[0]},${H - P} Z`
+  const gid = `g-${label}`
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={gid} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="oklch(0.78 0.16 65 / 0.35)" />
+          <stop offset="100%" stopColor="oklch(0.78 0.16 65 / 0)" />
+        </linearGradient>
+      </defs>
+      {[0.25, 0.5, 0.75].map(t => (
+        <line key={t} x1={P} x2={W - P} y1={H * t} y2={H * t} stroke="oklch(0.85 0.018 60)" strokeDasharray="2 4" strokeWidth="0.8" />
+      ))}
+      <path d={area} fill={`url(#${gid})`} />
+      <path d={path} fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={xs[xs.length - 1]} cy={ys[ys.length - 1]} r="3.5" fill={stroke} stroke="var(--paper)" strokeWidth="2" />
+    </svg>
+  )
+}
+
+function BarChart({ stroke = 'var(--terracotta)' }: { stroke?: string }) {
+  const data = [42, 56, 38, 71, 64, 88, 52]
+  const labels = ['抖音', '小红书', '微信', '微博', '快手', '私域', '搜索']
+  const max = Math.max(...data)
+  const W = 320, H = 140, P = 8, GAP = 6
+  const bw = (W - 2 * P - GAP * (data.length - 1)) / data.length
+  return (
+    <svg viewBox={`0 0 ${W} ${H + 12}`} className="chart-svg" preserveAspectRatio="none">
+      <line x1={P} x2={W - P} y1={H * 0.5} y2={H * 0.5} stroke="oklch(0.85 0.018 60)" strokeDasharray="2 4" strokeWidth="0.8" />
+      {data.map((v, i) => {
+        const h = (v / max) * (H - 2 * P)
+        const x = P + i * (bw + GAP)
+        const y = H - P - h
+        return <rect key={i} x={x} y={y} width={bw} height={h} fill={stroke} opacity={0.55 + 0.4 * (v / max)} rx="2" />
+      })}
+      {labels.map((l, i) => (
+        <text key={i} x={P + i * (bw + GAP) + bw / 2} y={H + 8} textAnchor="middle" fontSize="8" fill="var(--ink-4)" fontFamily="var(--font-mono)">{l}</text>
+      ))}
+    </svg>
+  )
+}
+
+function FunnelChart({ ratios }: { ratios?: number[] }) {
+  const r = ratios ?? [100, 62, 38, 14]
+  const labels = ['访问', '注册', '激活', '付费']
+  const colors = ['oklch(0.78 0.16 65)', 'oklch(0.70 0.16 55)', 'oklch(0.62 0.18 45)', 'oklch(0.55 0.16 35)']
+  const W = 320, H = 140
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
+      {r.map((v, i) => {
+        const top = (i / r.length) * H + 4
+        const bot = ((i + 1) / r.length) * H - 2
+        const tw = (v / 100) * (W - 40)
+        const tx = (W - tw) / 2
+        const nv = i < r.length - 1 ? r[i + 1] : v
+        const bw = (nv / 100) * (W - 40)
+        const bx = (W - bw) / 2
+        return (
+          <g key={i}>
+            <path d={`M${tx},${top} L${tx + tw},${top} L${bx + bw},${bot} L${bx},${bot} Z`} fill={colors[i]} opacity="0.85" />
+            <text x={W / 2} y={(top + bot) / 2 + 4} textAnchor="middle" fontSize="11" fill="white" fontWeight="600">{labels[i]} · {v}%</text>
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+function LineCompareChart() {
+  const a = [22, 28, 26, 35, 41, 38, 48, 55, 52, 64, 70, 78]
+  const b = [30, 32, 34, 33, 38, 41, 44, 46, 48, 51, 53, 55]
+  const W = 320, H = 140, P = 10, max = 80, min = 20
+  const toPath = (arr: number[]) => arr.map((v, i) => {
+    const x = P + (i / (arr.length - 1)) * (W - 2 * P)
+    const y = H - P - ((v - min) / (max - min)) * (H - 2 * P)
+    return `${i ? 'L' : 'M'}${x},${y}`
+  }).join(' ')
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="chart-svg" preserveAspectRatio="none">
+      {[0.25, 0.5, 0.75].map(t => (
+        <line key={t} x1={P} x2={W - P} y1={H * t} y2={H * t} stroke="oklch(0.85 0.018 60)" strokeDasharray="2 4" strokeWidth="0.8" />
+      ))}
+      <path d={toPath(a)} fill="none" stroke="var(--amber-deep)" strokeWidth="2" strokeLinecap="round" />
+      <path d={toPath(b)} fill="none" stroke="var(--terracotta)" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 3" />
+      <text x={W - 12} y={28} textAnchor="end" fontSize="10" fill="var(--amber-deep)" fontFamily="var(--font-mono)">抖音</text>
+      <text x={W - 12} y={42} textAnchor="end" fontSize="10" fill="var(--terracotta)" fontFamily="var(--font-mono)">私域</text>
+    </svg>
+  )
+}
+
+function ChartFor({ chart, label }: { chart: ChartKind; label: string }) {
+  if (chart === 'bar') return <BarChart />
+  if (chart === 'area') return <AreaChart label={label} />
+  if (chart === 'funnel') return <FunnelChart />
+  if (chart === 'funnel2') return <FunnelChart ratios={[100, 78, 56, 31]} />
+  if (chart === 'compare') return <LineCompareChart />
+  return null
+}
+
+function highlightSql(s: string) {
+  return s
+    .replace(/('[^']*')/g, '<span style="color:oklch(0.75 0.13 35)">$1</span>')
+    .replace(/\b(\d+)\b/g, '<span style="color:oklch(0.7 0.16 145)">$1</span>')
+    .replace(/\b(SELECT|FROM|WHERE|AND|OR|GROUP BY|ORDER BY|BETWEEN|AS|COUNT|DISTINCT|JOIN|ON|LIMIT|HAVING)\b/g, '<span style="color:oklch(0.78 0.16 65)">$1</span>')
+}
+
+/* ---------- Node card ---------- */
+type Mode = 'business' | 'analyst'
+
+function NodeCard({
+  n, isCurrent, mode, onBranch, onAsk, onFocus, onPin,
+}: {
+  n: Node
+  isCurrent: boolean
+  mode: Mode
+  onBranch: () => void
+  onAsk: () => void
+  onFocus: () => void
+  onPin: () => void
+}) {
+  const [thinkOpen, setThinkOpen] = useState(false)
+  const [sqlOpen, setSqlOpen] = useState(false)
+  return (
+    <div className={`card ${isCurrent ? 'is-current' : ''}`}>
+      <div className="q">
+        <span className="who">{n.who || '运营'}</span>
+        <span className="text">{n.q}</span>
+      </div>
+      <div className="think" onClick={() => setThinkOpen(!thinkOpen)} style={{ cursor: 'pointer' }}>
+        <span className="chev" style={{ display: 'inline-block', transform: thinkOpen ? 'rotate(90deg)' : '', transition: 'transform 200ms' }}>▸</span>
+        已思考 <span className="count">{n.steps} 步</span>
+        <span style={{ marginLeft: 'auto', color: 'var(--ink-4)' }}>{n.elapsed}</span>
+      </div>
+      {thinkOpen && (
+        <div style={{ padding: '10px 20px', background: 'var(--paper-2)', borderBottom: '1px solid var(--line-2)', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--ink-3)', lineHeight: 1.7 }}>
+          {n.thinking.map((t, i) => <div key={i}>{i + 1}. {t}</div>)}
+        </div>
+      )}
+      <div className="chart">
+        <div className="chart-meta">
+          <span className="title">{n.title}</span>
+          <span className="tag">{n.tag}</span>
+        </div>
+        <ChartFor chart={n.chart} label={n.id} />
+      </div>
+      {mode === 'analyst' && n.sql && (
+        <div className="sql">
+          {n.sql.split('\n').map((line, i) => (
+            <div key={i} dangerouslySetInnerHTML={{ __html: highlightSql(line) }} />
+          ))}
+        </div>
+      )}
+      <div className="actions">
+        {mode === 'business' && n.sql && (
+          <button onClick={() => setSqlOpen(!sqlOpen)}>{sqlOpen ? '收起 SQL' : '查看 SQL'}</button>
+        )}
+        <button onClick={onBranch}>＋ 分支</button>
+        <button onClick={onAsk}>追问</button>
+        <button onClick={onFocus}>放大</button>
+        <button className="primary" onClick={onPin}>钉到看板 →</button>
+      </div>
+      {mode === 'business' && sqlOpen && n.sql && (
+        <div className="sql">
+          {n.sql.split('\n').map((line, i) => (
+            <div key={i} dangerouslySetInnerHTML={{ __html: highlightSql(line) }} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ---------- Role-specific seed canvases ---------- */
+const ROLE_SCENARIOS: Record<RoleId, Scenario> = {
+  exec: {
+    title: 'Q3 营收复盘',
+    who: '高管',
+    avatar: '高',
+    chips: ['▸ 与去年同期对比', '▸ 哪个渠道贡献最大', '▸ 给我一个执行摘要'],
+    placeholder: "问点什么? 试试 '这周营收为什么创新高'...",
+    nodes: [
+      { id: 'n1', who: '高管', q: '这周营收怎么样?', steps: 4, elapsed: '0.5s',
+        title: '12 周营收走势', tag: '面积图 · 同比', chart: 'area',
+        thinking: ['识别意图 → 营收概览', '默认时间窗 → 12 周', '加入同比对照', '渲染面积图'],
+        sql: "SELECT week, SUM(revenue) AS rev\nFROM orders\nWHERE week BETWEEN '2026-W05' AND '2026-W17'\nGROUP BY 1 ORDER BY 1" },
+      { id: 'n2', who: '高管', q: '是谁带动的?按渠道看', steps: 6, elapsed: '0.9s',
+        title: '渠道 GMV 占比', tag: '柱状 · 7 渠道', chart: 'bar',
+        thinking: ['解析 → 拆解到渠道维度', '复用上一节点时间窗', '按 GMV 排序', '渲染柱状图', '..2 步'],
+        sql: "SELECT channel, SUM(gmv) AS gmv\nFROM orders\nWHERE week = '2026-W17'\nGROUP BY channel ORDER BY gmv DESC" },
+      { id: 'n3', who: '高管', q: '抖音和私域哪个 ROI 更高?', steps: 9, elapsed: '1.4s',
+        title: '抖音 vs 私域 · ROI 对比', tag: '对比折线', chart: 'compare',
+        thinking: ['识别意图 → ROI 对比', '选择渠道 → tiktok, private', '计算 ROI = GMV / 投放成本', '..6 步'],
+        sql: "SELECT channel, week, SUM(gmv)/SUM(cost) AS roi\nFROM ad_spend JOIN orders USING(channel, week)\nWHERE channel IN ('tiktok','private')\nGROUP BY 1,2",
+        branches: [
+          { id: 'n3a', label: '分支 A · 仅抖音', title: '抖音 ROI', tag: '已分支', chart: 'area', q: '只看抖音' },
+          { id: 'n3b', label: '分支 B · 仅私域', title: '私域 ROI', tag: '已分支 · 对比', chart: 'area', q: '只看私域' },
+        ] },
+    ],
+  },
+  sales: {
+    title: '销售管线诊断',
+    who: '销售',
+    avatar: '销',
+    chips: ['▸ 卡住最久的单子', '▸ 华东 vs 华南成交速度', '▸ 本周我该拜访谁'],
+    placeholder: "问点什么? 试试 '把华东漏斗和华南漏斗放一起'...",
+    nodes: [
+      { id: 'n1', who: '销售', q: '本周新签和回款情况', steps: 5, elapsed: '0.7s',
+        title: '本周新签 / 回款', tag: '柱状 · 7 天', chart: 'bar',
+        thinking: ['识别意图 → 业绩看板', '聚合 daily', '分别取 new / collect', '渲染柱状', '..1 步'],
+        sql: "SELECT day, SUM(amount) FILTER (WHERE type='new') AS new_signed,\n  SUM(amount) FILTER (WHERE type='collect') AS collect\nFROM deals WHERE week = current_week GROUP BY 1" },
+      { id: 'n2', who: '销售', q: '各阶段漏斗,哪一段在掉单?', steps: 7, elapsed: '1.0s',
+        title: '销售漏斗 · 本季', tag: '漏斗 · 5 阶段', chart: 'funnel',
+        thinking: ['识别意图 → 阶段流失分析', '取 5 个标准阶段', '统计各阶段进入数', '渲染漏斗', '..3 步'],
+        sql: "SELECT stage, COUNT(DISTINCT deal_id) AS deals\nFROM deal_stage_log\nWHERE quarter = '2026-Q1' GROUP BY stage" },
+      { id: 'n3', who: '销售', q: '华东和华南漏斗放一起对比', steps: 10, elapsed: '1.5s',
+        title: '区域漏斗对比', tag: '漏斗 × 2', chart: 'funnel',
+        thinking: ['锁定区域 → east, south', '并行算两段漏斗', '计算阶段差值', '..7 步'],
+        sql: "SELECT region, stage, COUNT(*) FROM deals\nWHERE region IN ('east','south') GROUP BY 1,2",
+        branches: [
+          { id: 'n3a', label: '分支 A · 华东', title: '华东漏斗', tag: '已分支', chart: 'funnel', q: '只看华东' },
+          { id: 'n3b', label: '分支 B · 华南', title: '华南漏斗', tag: '已分支 · 对比', chart: 'funnel2', q: '只看华南' },
+        ] },
+    ],
+  },
+  pm: {
+    title: 'D7 留存下滑排查',
+    who: '产品',
+    avatar: '产',
+    chips: ['▸ 下滑发生在哪一天', '▸ 新老用户分别看', '▸ 关联 EXP-014 实验'],
+    placeholder: "问点什么? 试试 '看下激活后 7 天的核心动作完成率'...",
+    nodes: [
+      { id: 'n1', who: '产品', q: 'D7 留存最近怎么样?', steps: 5, elapsed: '0.6s',
+        title: 'D7 留存 · 28 天', tag: '折线 · 4 周', chart: 'area',
+        thinking: ['识别意图 → 留存曲线', '取 28 天窗口', '计算 D7', '渲染折线', '..1 步'],
+        sql: "SELECT cohort_day, AVG(d7_retained) FROM cohorts\nWHERE cohort_day BETWEEN current_date-28 AND current_date GROUP BY 1" },
+      { id: 'n2', who: '产品', q: '新用户激活漏斗,看断点', steps: 7, elapsed: '1.1s',
+        title: '新用户激活漏斗', tag: '漏斗 · 4 阶段', chart: 'funnel',
+        thinking: ['锁定新用户群体', '拆 4 个激活步骤', '算转化率', '..4 步'],
+        sql: "SELECT step, COUNT(DISTINCT user_id) FROM activation_log\nWHERE registered_at >= current_date - 28 GROUP BY step" },
+      { id: 'n3', who: '产品', q: '新用户 vs 老用户的核心动作完成率', steps: 9, elapsed: '1.4s',
+        title: '核心动作完成率 · 新 vs 老', tag: '对比折线', chart: 'compare',
+        thinking: ['区分群体 → cohort flag', '统计每日完成率', '并行画两条线', '..6 步'],
+        sql: "SELECT day, cohort, AVG(completed) FROM action_log\nWHERE day >= current_date - 28 GROUP BY 1,2",
+        branches: [
+          { id: 'n3a', label: '分支 A · 新用户', title: '新用户完成率', tag: '已分支', chart: 'area', q: '只看新用户' },
+          { id: 'n3b', label: '分支 B · 老用户', title: '老用户完成率', tag: '已分支 · 对比', chart: 'area', q: '只看老用户' },
+        ] },
+    ],
+  },
+  ops: {
+    title: 'Q3 渠道效果复盘',
+    who: '运营',
+    avatar: '运',
+    chips: ['▸ 加一条同期对比线', '▸ 按城市拆分', '▸ 预测下季度'],
+    placeholder: "问点什么? 试试 '把抖音和私域的漏斗放一起对比'...",
+    nodes: [
+      { id: 'n1', who: '运营', q: 'Q3 各渠道带来的新用户数', steps: 5, elapsed: '0.8s',
+        title: '各渠道新用户', tag: '柱状图 · 7 项', chart: 'bar',
+        thinking: ['识别意图 → 渠道对比', '锁定时间窗口 → 2026-Q3', '选择维度 → channel', '生成 GROUP BY SQL', '渲染柱状图'],
+        sql: "SELECT channel, COUNT(DISTINCT user_id) AS new_users\nFROM users\nWHERE registered_at BETWEEN '2026-07-01' AND '2026-09-30'\nGROUP BY channel ORDER BY new_users DESC" },
+      { id: 'n2', who: '运营', q: '把它按月拆开,看 7-9 月的趋势', steps: 8, elapsed: '1.2s',
+        title: '月度新用户走势', tag: '面积图 · 12 周', chart: 'area',
+        thinking: ['解析"按月拆开" → 时间维度', '保留 channel 分组', '改用 DATE_TRUNC 月聚合', '增加同比对照', '检测异常波动', '渲染面积图', '..2 步'],
+        sql: "SELECT DATE_TRUNC('week', registered_at) AS w,\n  COUNT(DISTINCT user_id) AS new_users\nFROM users\nWHERE registered_at BETWEEN '2026-07-01' AND '2026-09-30'\nGROUP BY 1 ORDER BY 1" },
+      { id: 'n3', who: '运营', q: '主力渠道是抖音和私域,看下这两个渠道的转化漏斗', steps: 11, elapsed: '1.6s',
+        title: '渠道 · 转化漏斗(主)', tag: '漏斗图 · 4 阶段', chart: 'funnel',
+        thinking: ['识别意图 → 漏斗分析', '锁定渠道 → tiktok, private', '选择阶段 → visit/signup/active/paid', '拼接两段 SQL', '检查阶段顺序', '..6 步'],
+        sql: "SELECT stage, COUNT(DISTINCT user_id) AS users\nFROM events\nWHERE channel IN ('tiktok','private')\n  AND ts BETWEEN '2026-07-01' AND '2026-09-30'\nGROUP BY stage ORDER BY stage",
+        branches: [
+          { id: 'n3a', label: '分支 A · 抖音', title: '抖音漏斗', tag: '已分支', chart: 'funnel', q: '只看抖音' },
+          { id: 'n3b', label: '分支 B · 私域', title: '私域漏斗', tag: '已分支 · 对比', chart: 'funnel2', q: '只看私域' },
+        ] },
+    ],
+  },
+}
+
+const ROLES: { id: RoleId; label: string }[] = [
+  { id: 'exec', label: '高管' },
+  { id: 'sales', label: '销售' },
+  { id: 'pm', label: '产品' },
+  { id: 'ops', label: '运营' },
+]
+
+function RoleSwitcher({ value, onChange }: { value: RoleId; onChange: (r: RoleId) => void }) {
+  return (
+    <div className="role-switcher" role="tablist" aria-label="角色">
+      <span className="rs-label">视角</span>
+      {ROLES.map(r => (
+        <button
+          key={r.id}
+          role="tab"
+          aria-selected={value === r.id}
+          className={value === r.id ? 'on' : ''}
+          onClick={() => onChange(r.id)}
+        >{r.label}</button>
+      ))}
+    </div>
+  )
+}
+
+/* ---------- Page ---------- */
+export function CanvasA() {
+  const [mode, setMode] = useState<Mode>('business')
+  const [role, setRole] = useState<RoleId>('ops')
+  const scenario = ROLE_SCENARIOS[role]
+  const [nodes, setNodes] = useState<Node[]>(scenario.nodes)
+  const [currentId, setCurrentId] = useState<string>('n3')
+  useEffect(() => {
+    const sc = ROLE_SCENARIOS[role]
+    setNodes(sc.nodes)
+    setCurrentId(sc.nodes[sc.nodes.length - 1].id)
+  }, [role])
+  const [focused, setFocused] = useState<(Node | Branch) | null>(null)
+  const [pinned, setPinned] = useState<string[]>([])
+  const [pinToast, setPinToast] = useState<string | null>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const stepRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  const handleAsk = (id: string) => {
+    const idx = nodes.findIndex(n => n.id === id)
+    const newNode: Node = {
+      id: 'n' + (Date.now() % 100000),
+      who: '运营', q: '加上小红书一起对比', steps: 7, elapsed: '1.0s',
+      title: '抖音 vs 私域 vs 小红书', tag: '折线对比 · 12 周', chart: 'compare',
+      thinking: ['解析新增渠道 → xiaohongshu', '复用上一节点 SQL', '加入第三条线', '..4 步'],
+      sql: "SELECT channel, DATE_TRUNC('week', ts) AS w,\n  COUNT(DISTINCT user_id) AS users\nFROM events\nWHERE channel IN ('tiktok','private','xiaohongshu')\nGROUP BY 1, 2",
+    }
+    const next = [...nodes]
+    next.splice(idx + 1, 0, newNode)
+    setNodes(next)
+    setCurrentId(newNode.id)
+    setTimeout(() => stepRefs.current[newNode.id]?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'center' }), 50)
+  }
+
+  const handleBranch = (id: string) => {
+    setNodes(nodes.map(n => n.id === id ? {
+      ...n,
+      branches: [
+        ...(n.branches ?? []),
+        { id: 'br-' + (Date.now() % 100000), label: `分支 ${String.fromCharCode(65 + (n.branches?.length ?? 0))} · 新探索`, title: '新分支', tag: '已分支', chart: 'area' as ChartKind, q: '从此处分支' },
+      ],
+    } : n))
+  }
+
+  const handlePin = (n: Node | Branch) => {
+    setPinned([...pinned, n.id])
+    setPinToast(n.title)
+    setTimeout(() => setPinToast(null), 2200)
+  }
+
+  const jumpTo = (id: string) => {
+    setCurrentId(id)
+    const el = stepRefs.current[id]
+    if (el && canvasRef.current) {
+      canvasRef.current.scrollTo({ left: el.offsetLeft - 100, behavior: 'smooth' })
+    }
+  }
+
+  return (
+    <div className="v2-root" style={{ position: 'fixed', inset: 0 }}>
+      <div className="app-shell fullscreen">
+        <div className="topbar">
+          <div className="brand"><span className="dot"></span>DataPulse</div>
+          <div className="crumbs">
+            <span>个人空间</span><span className="sep">/</span>
+            <span className="now">{scenario.title}</span>
+            <span className="sep">·</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>main</span>
+          </div>
+          <RoleSwitcher value={role} onChange={setRole} />
+          <div className="right">
+            <span className="pill"><span className="led"></span>已连接 · 3 个数据源</span>
+            <span className="pill">⌘ K</span>
+            {pinned.length > 0 && (
+              <span className="pill" style={{ borderColor: 'var(--amber-deep)', color: 'var(--amber-deep)' }}>★ 看板 · {pinned.length}</span>
+            )}
+            <span className="pill">分享</span>
+            <div className="avatar">{scenario.avatar}</div>
+          </div>
+        </div>
+
+        <div className="canvas" ref={canvasRef}>
+          <div className="minimap">
+            {nodes.map(n => (
+              <div
+                key={n.id}
+                className={`seg ${n.id === currentId ? 'cur' : ''} ${n.branches?.length ? 'br' : ''}`}
+                title={n.title}
+                onClick={() => jumpTo(n.id)}
+              />
+            ))}
+            <div className="seg" style={{ opacity: 0.25 }} />
+            <div className="mini-label">概览</div>
+          </div>
+
+          <div className="timeline">
+            <div className="timeline-rail" />
+            <div className="steps">
+              {nodes.map(n => (
+                <div
+                  key={n.id}
+                  ref={el => { stepRefs.current[n.id] = el }}
+                  className={`step ${n.id === currentId ? 'current' : ''} ${n.branches?.length ? 'branched' : ''}`}
+                >
+                  <div className="node" onClick={() => setCurrentId(n.id)} />
+                  <div className="stamp">
+                    <div className="num">{String(nodes.indexOf(n) + 1).padStart(2, '0')}</div>
+                    <div className="when">{n.id === currentId ? '现在' : `14:0${nodes.indexOf(n) + 2}`} · {n.branches?.length ? '已分支' : '主线'}</div>
+                  </div>
+                  <NodeCard
+                    n={n}
+                    isCurrent={n.id === currentId}
+                    mode={mode}
+                    onBranch={() => handleBranch(n.id)}
+                    onAsk={() => handleAsk(n.id)}
+                    onFocus={() => setFocused(n)}
+                    onPin={() => handlePin(n)}
+                  />
+
+                  {n.branches && n.branches.length > 0 && (
+                    <div className="branch-row">
+                      {n.branches.map(b => (
+                        <div key={b.id} className="card branch-card">
+                          <div className="branch-label">{b.label}</div>
+                          <div className="chart">
+                            <div className="chart-meta">
+                              <span className="title" style={{ fontSize: 18 }}>{b.title}</span>
+                              <span className="tag">{b.tag}</span>
+                            </div>
+                            <ChartFor chart={b.chart} label={b.id} />
+                          </div>
+                          <div className="actions">
+                            <button onClick={() => handleBranch(n.id)}>再分支</button>
+                            <button onClick={() => setFocused(b)}>放大</button>
+                            <button className="primary" onClick={() => handlePin(b)}>钉到看板 →</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <div className="step ghost">
+                <div className="ghost-card">
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 28, color: 'var(--ink-4)', marginBottom: 8 }}>+</div>
+                    <div>继续提问 · 或拖任意节点出来分支</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="dock">
+          <div className="suggest">
+            {scenario.chips.map((c, i) => (
+              <span key={i} className="chip" onClick={() => handleAsk(currentId)}>{c}</span>
+            ))}
+          </div>
+          <div className="dock-input">
+            <span className="lead">›</span>
+            <input
+              placeholder={scenario.placeholder}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && (e.currentTarget as HTMLInputElement).value.trim()) {
+                  handleAsk(currentId)
+                  ;(e.currentTarget as HTMLInputElement).value = ''
+                }
+              }}
+            />
+          </div>
+          <div className="dock-mode">
+            <button className={mode === 'business' ? 'on' : ''} onClick={() => setMode('business')}>业务</button>
+            <button className={mode === 'analyst' ? 'on' : ''} onClick={() => setMode('analyst')}>分析师</button>
+          </div>
+          <button className="dock-send" onClick={() => handleAsk(currentId)}>发送 <span style={{ opacity: 0.6 }}>⏎</span></button>
+        </div>
+
+        {focused && (
+          <div className="focus-overlay" onClick={() => setFocused(null)}>
+            <div className="focus-card" onClick={e => e.stopPropagation()}>
+              <div className="focus-head">
+                <div>
+                  <div className="eyebrow">放大节点 · {('label' in focused && focused.label) || focused.title}</div>
+                  <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 400, margin: '8px 0 0', color: 'var(--ink-1)' }}>
+                    {('q' in focused && focused.q) || focused.title}
+                  </h3>
+                </div>
+                <button className="focus-close" onClick={() => setFocused(null)}>✕</button>
+              </div>
+              <div style={{ padding: '24px 32px' }}>
+                <div style={{ transform: 'scale(2.4)', transformOrigin: 'top left', width: '320px', height: '140px', marginBottom: 240 }}>
+                  <ChartFor chart={focused.chart} label={focused.id} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {pinToast && (
+          <div className="pin-toast">
+            ★ 已钉到看板 · <strong>{pinToast}</strong>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,557 @@
+/* =====================================================================
+   Trust Flow Prototype — orchestration layout
+   ===================================================================== */
+
+.tf-root {
+  position: fixed; inset: 0;
+  display: grid; grid-template-rows: 56px 1fr;
+  background: var(--paper-2);
+  font-family: var(--font-sans);
+  color: var(--ink-1);
+  overflow: hidden;
+}
+
+/* Top bar */
+.tf-bar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line-1);
+  background: var(--paper);
+  font-size: 13px;
+  position: relative; z-index: 20;
+}
+.tf-bar .brand {
+  font-family: var(--font-serif); font-size: 20px;
+  display: flex; align-items: center; gap: 8px;
+}
+.tf-bar .brand .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--amber-deep); }
+.tf-bar .crumb { color: var(--ink-3); }
+.tf-bar .crumb b { color: var(--ink-1); font-weight: 500; }
+.tf-bar .clk { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-left: auto; }
+.tf-bar .av {
+  width: 28px; height: 28px; border-radius: 999px;
+  background: linear-gradient(135deg, var(--amber), var(--terracotta));
+  color: white; display: grid; place-items: center;
+  font-size: 12px; font-weight: 600;
+}
+.tf-bar .reset {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--line-1); color: var(--ink-3);
+  background: var(--paper-2); cursor: pointer;
+}
+.tf-bar .reset:hover { color: var(--ink-1); border-color: var(--ink-2); }
+
+/* Step progress */
+.tf-steps {
+  display: flex; gap: 14px; align-items: center;
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.14em; color: var(--ink-4);
+}
+.tf-steps .step {
+  display: flex; align-items: center; gap: 6px;
+}
+.tf-steps .step .n {
+  width: 18px; height: 18px; border-radius: 999px;
+  display: grid; place-items: center;
+  font-family: var(--font-serif); font-size: 10px; font-style: italic;
+  border: 1px solid var(--line-1); color: var(--ink-4);
+  background: var(--paper);
+}
+.tf-steps .step.done .n { background: var(--ink-1); color: var(--paper); border-color: var(--ink-1); }
+.tf-steps .step.cur .n {
+  background: var(--amber); border-color: var(--amber-deep); color: var(--ink-1);
+  box-shadow: 0 0 0 4px oklch(0.78 0.16 65 / 0.2);
+}
+.tf-steps .step.cur span { color: var(--ink-1); }
+.tf-steps .sep { width: 22px; height: 1px; background: var(--line-1); }
+
+/* Stage */
+.tf-stage {
+  position: relative; overflow: hidden;
+  display: grid;
+  background:
+    radial-gradient(900px 600px at 30% 0%, oklch(0.78 0.16 65 / 0.05), transparent 60%),
+    var(--paper);
+  transition: grid-template-columns 360ms var(--ease);
+}
+.tf-stage::before {
+  content: ''; position: absolute; inset: 0;
+  background-image:
+    linear-gradient(to right, oklch(0.5 0.05 50 / 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.5 0.05 50 / 0.04) 1px, transparent 1px);
+  background-size: 32px 32px; pointer-events: none;
+}
+
+/* Canvas (left/main) */
+.tf-canvas {
+  position: relative;
+  overflow: auto;
+  padding: 40px 56px 140px;
+  display: flex; flex-direction: column; gap: 22px;
+  align-items: stretch;
+}
+
+/* Empty home prompt */
+.tf-prompt {
+  margin: 60px auto 0; max-width: 720px; text-align: left;
+  animation: tfFadeIn 600ms var(--ease);
+}
+.tf-prompt .eyebrow {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3);
+}
+.tf-prompt h1 {
+  font-family: var(--font-serif); font-weight: 400; font-size: 48px;
+  line-height: 1.1; margin: 12px 0 14px; letter-spacing: -0.01em;
+}
+.tf-prompt h1 em { font-style: italic; color: var(--amber-deep); }
+.tf-prompt p { font-size: 16px; color: var(--ink-3); line-height: 1.6; max-width: 540px; margin: 0; }
+.tf-suggestions {
+  margin-top: 28px;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: 620px;
+}
+.tf-sugg {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px;
+  background: var(--paper); border: 1px solid var(--line-1);
+  border-radius: var(--r-xl); cursor: pointer;
+  transition: all var(--dur);
+}
+.tf-sugg:hover { border-color: var(--amber-deep); box-shadow: var(--shadow-2); transform: translateY(-1px); }
+.tf-sugg .ix {
+  font-family: var(--font-serif); font-style: italic; font-size: 18px;
+  color: var(--ink-3); width: 22px; flex-shrink: 0;
+}
+.tf-sugg .text { flex: 1; font-size: 14px; color: var(--ink-1); }
+.tf-sugg .kb { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0.1em; }
+
+/* Node strip on canvas */
+.tf-node {
+  background: var(--paper);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-xl);
+  padding: 18px 22px;
+  display: flex; flex-direction: column; gap: 10px;
+  max-width: 760px; align-self: flex-start;
+  transition: border-color var(--dur);
+  animation: tfFadeIn 460ms var(--ease);
+  cursor: default;
+}
+.tf-node.clickable { cursor: pointer; }
+.tf-node.clickable:hover {
+  border-color: var(--amber-deep);
+  box-shadow: 0 0 0 4px oklch(0.78 0.16 65 / 0.12), var(--shadow-2);
+}
+.tf-node.selected {
+  border-color: var(--amber-deep);
+  box-shadow: 0 0 0 4px oklch(0.78 0.16 65 / 0.18);
+}
+.tf-node .head {
+  display: flex; align-items: center; gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--line-2);
+}
+.tf-node .who {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 3px 8px; border: 1px solid var(--line-1);
+  border-radius: 999px; color: var(--ink-3);
+}
+.tf-node .who.ai {
+  color: var(--amber-deep); border-color: var(--amber-deep);
+  background: oklch(0.78 0.16 65 / 0.06);
+}
+.tf-node .label {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.06em; color: var(--ink-4); margin-left: auto;
+}
+.tf-node .q { font-size: 15px; color: var(--ink-1); line-height: 1.55; }
+.tf-node .ttl { font-family: var(--font-serif); font-size: 22px; line-height: 1.2; }
+.tf-node .ttl em { color: var(--amber-deep); font-style: italic; }
+.tf-node .sub { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); letter-spacing: 0.06em; }
+.tf-node .chart-wrap {
+  background: var(--paper-2); border-radius: var(--r-md);
+  padding: 12px 14px; min-height: 220px;
+  display: flex; align-items: center; justify-content: center;
+}
+.tf-node .chart-wrap svg { width: 100%; height: 220px; }
+.tf-node .meta-row {
+  display: flex; gap: 18px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--ink-3); letter-spacing: 0.06em;
+}
+.tf-node .meta-row b { color: var(--ink-1); font-family: var(--font-sans); font-weight: 500; }
+.tf-node .meta-row .dn { color: var(--terracotta); }
+.tf-node .meta-row .up { color: var(--success); }
+
+/* Thinking-only node */
+.tf-thinking {
+  background: var(--paper);
+  border: 1px solid oklch(0.78 0.16 65 / 0.3);
+  border-radius: var(--r-xl);
+  padding: 16px 20px;
+  max-width: 580px; align-self: flex-start;
+  display: flex; align-items: center; gap: 14px;
+  animation: tfFadeIn 360ms var(--ease);
+}
+.tf-thinking .spin {
+  width: 18px; height: 18px; border-radius: 999px;
+  border: 2.5px solid var(--ink-5); border-top-color: var(--amber-deep);
+  animation: tfSpin 0.9s linear infinite; flex-shrink: 0;
+}
+.tf-thinking .body { flex: 1; font-size: 13px; color: var(--ink-2); }
+.tf-thinking .body b { color: var(--ink-1); font-weight: 500; }
+.tf-thinking .body em { font-style: normal; color: var(--amber-deep); font-family: var(--font-serif); font-size: 16px; }
+.tf-thinking .body .sub { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); letter-spacing: 0.06em; margin-top: 4px; }
+
+/* Bottom input bar */
+.tf-input-wrap {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 18px 32px 28px;
+  display: flex; justify-content: center;
+  background: linear-gradient(to bottom, transparent, var(--paper) 40%);
+  z-index: 5;
+}
+.tf-input {
+  width: 100%; max-width: 720px;
+  background: var(--paper);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2xl);
+  padding: 14px 18px;
+  display: flex; gap: 12px; align-items: center;
+  box-shadow: var(--shadow-2);
+  transition: border-color var(--dur), box-shadow var(--dur);
+}
+.tf-input:focus-within {
+  border-color: var(--amber-deep);
+  box-shadow: 0 0 0 4px oklch(0.78 0.16 65 / 0.12), var(--shadow-2);
+}
+.tf-input .lead { font-family: var(--font-serif); font-style: italic; font-size: 20px; color: var(--ink-3); }
+.tf-input input {
+  flex: 1; border: 0; background: transparent; outline: none;
+  font-size: 16px; color: var(--ink-1); font-family: var(--font-sans);
+}
+.tf-input input::placeholder { color: var(--ink-4); }
+.tf-input .kbd {
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 3px 8px; border: 1px solid var(--line-1);
+  border-radius: 4px; color: var(--ink-3); letter-spacing: 0.06em;
+}
+.tf-input button.send {
+  border: 0; background: var(--ink-1); color: var(--paper);
+  padding: 10px 18px; border-radius: var(--r-xl);
+  font-size: 14px; cursor: pointer; font-family: var(--font-sans);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.tf-input button.send:hover { background: var(--amber-deep); }
+.tf-input button.send[disabled] { background: var(--ink-5); cursor: not-allowed; }
+
+/* Clarify overlay */
+.tf-clarify-bg {
+  position: absolute; inset: 56px 0 0 0;
+  background: oklch(0.20 0.025 50 / 0.18);
+  backdrop-filter: blur(2px);
+  z-index: 10;
+  display: grid; place-items: center;
+  animation: tfFadeIn 280ms var(--ease);
+}
+.tf-clarify {
+  width: 640px;
+  background: var(--paper);
+  border: 1px solid oklch(0.78 0.16 65 / 0.4);
+  border-radius: var(--r-2xl);
+  box-shadow:
+    0 30px 80px oklch(0.30 0.05 50 / 0.20),
+    0 0 0 6px oklch(0.78 0.16 65 / 0.10);
+  padding: 28px 30px;
+  animation: tfPopIn 360ms var(--ease);
+}
+@keyframes tfPopIn {
+  from { transform: translateY(12px) scale(0.96); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);    opacity: 1; }
+}
+.tf-clarify .badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--amber-deep);
+  padding: 4px 10px;
+  background: oklch(0.78 0.16 65 / 0.10);
+  border: 1px solid oklch(0.78 0.16 65 / 0.3);
+  border-radius: 999px; margin-bottom: 14px;
+}
+.tf-clarify .badge::before {
+  content: ''; width: 6px; height: 6px; border-radius: 999px;
+  background: var(--amber-deep);
+}
+.tf-clarify h3 {
+  font-family: var(--font-serif); font-weight: 400; font-size: 26px;
+  margin: 0 0 6px; line-height: 1.2;
+}
+.tf-clarify h3 em { color: var(--amber-deep); font-style: italic; }
+.tf-clarify p {
+  font-size: 13px; color: var(--ink-3); margin: 0 0 22px; line-height: 1.55;
+}
+.tf-copts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; }
+.tf-copt {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-1); border-radius: var(--r-xl);
+  background: var(--paper); cursor: pointer; transition: all var(--dur);
+}
+.tf-copt:hover { border-color: var(--amber-deep); background: oklch(0.78 0.16 65 / 0.04); }
+.tf-copt.on {
+  border-color: var(--amber-deep);
+  background: oklch(0.78 0.16 65 / 0.07);
+  box-shadow: 0 0 0 3px oklch(0.78 0.16 65 / 0.12);
+}
+.tf-copt .radio {
+  width: 16px; height: 16px; border-radius: 999px;
+  border: 2px solid var(--line-1); flex-shrink: 0; position: relative;
+}
+.tf-copt.on .radio { border-color: var(--amber-deep); }
+.tf-copt.on .radio::before {
+  content: ''; position: absolute; inset: 3px; border-radius: 999px;
+  background: var(--amber-deep);
+}
+.tf-copt .main { flex: 1; display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-1); }
+.tf-copt .main code {
+  font-family: var(--font-mono); font-size: 11px;
+  background: var(--paper-2); padding: 2px 6px; border-radius: 3px;
+  color: var(--ink-2);
+}
+.tf-copt .meta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; }
+.tf-cfoot { display: flex; align-items: center; gap: 14px; }
+.tf-cfoot .free {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line-1); border-radius: var(--r-xl);
+  padding: 10px 14px; font-size: 13px; color: var(--ink-4);
+  background: var(--paper-2);
+}
+.tf-cfoot .free .ld { font-family: var(--font-serif); font-style: italic; color: var(--ink-3); }
+.tf-cfoot button {
+  background: var(--ink-1); color: var(--paper); border: 0;
+  padding: 13px 24px; border-radius: var(--r-xl);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+  font-family: var(--font-sans);
+}
+.tf-cfoot button:hover { background: var(--amber-deep); }
+
+/* HITL panel (right side) */
+.tf-hitl {
+  border-left: 1px solid var(--line-1);
+  background: var(--paper-2);
+  padding: 24px 24px 24px;
+  display: flex; flex-direction: column;
+  overflow: auto;
+  animation: tfSlideIn 420ms var(--ease);
+}
+@keyframes tfSlideIn {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.tf-hitl .head {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3);
+  margin-bottom: 4px;
+}
+.tf-hitl h3 {
+  font-family: var(--font-serif); font-weight: 400; font-size: 22px;
+  margin: 0 0 4px;
+}
+.tf-hitl h3 em { font-style: italic; color: var(--amber-deep); }
+.tf-hitl .lead {
+  font-size: 13px; color: var(--ink-3); line-height: 1.55; margin: 0 0 18px;
+}
+.tf-chain { position: relative; padding-left: 8px; flex: 1; }
+.tf-chain::before {
+  content: ''; position: absolute;
+  left: 14px; top: 6px; bottom: 6px;
+  width: 2px; background: var(--ink-5);
+}
+.tf-chstep {
+  position: relative; padding-left: 36px; margin-bottom: 12px;
+  opacity: 0.55; transition: opacity var(--dur);
+}
+.tf-chstep.done { opacity: 1; }
+.tf-chstep.cur  { opacity: 1; }
+.tf-chstep .marker {
+  position: absolute; left: 6px; top: 0;
+  width: 18px; height: 18px; border-radius: 999px;
+  background: var(--paper); border: 2px solid var(--ink-4);
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 9px; color: var(--ink-3);
+}
+.tf-chstep.done .marker {
+  background: var(--success); border-color: var(--success); color: white;
+}
+.tf-chstep.cur .marker {
+  background: var(--amber); border-color: var(--amber-deep); color: var(--ink-1);
+  box-shadow: 0 0 0 5px oklch(0.78 0.16 65 / 0.20);
+  animation: tfGate 1.4s ease-in-out infinite;
+}
+@keyframes tfGate {
+  0%,100% { box-shadow: 0 0 0 5px oklch(0.78 0.16 65 / 0.20); }
+  50%     { box-shadow: 0 0 0 8px oklch(0.78 0.16 65 / 0.10); }
+}
+.tf-chstep .ttl {
+  font-family: var(--font-serif); font-size: 15px; color: var(--ink-1); margin-bottom: 2px;
+}
+.tf-chstep .ttl em {
+  font-family: var(--font-mono); font-style: normal; font-size: 10px;
+  margin-left: 8px; color: var(--ink-4); letter-spacing: 0.1em;
+}
+.tf-chstep .body { font-size: 12px; color: var(--ink-3); line-height: 1.55; }
+.tf-chstep.cur .body {
+  background: oklch(0.78 0.16 65 / 0.08);
+  border: 1px solid oklch(0.78 0.16 65 / 0.3);
+  border-radius: var(--r-md); padding: 10px 12px;
+  color: var(--ink-1); margin-top: 4px;
+}
+.tf-hitl-actions {
+  display: flex; gap: 10px; margin-top: 14px;
+}
+.tf-hitl-actions button {
+  padding: 12px 14px; border-radius: var(--r-xl);
+  font-size: 13px; cursor: pointer; font-family: var(--font-sans);
+}
+.tf-hitl-actions .run {
+  flex: 1; background: var(--ink-1); color: var(--paper); border: 0;
+  font-weight: 500;
+}
+.tf-hitl-actions .run:hover { background: var(--amber-deep); }
+.tf-hitl-actions .alt {
+  border: 1px solid var(--line-1); background: transparent; color: var(--ink-2);
+}
+
+/* Detail drawer (right) */
+.tf-drawer {
+  border-left: 1px solid var(--line-1);
+  background: var(--paper);
+  display: flex; flex-direction: column;
+  overflow: auto;
+  box-shadow: -16px 0 40px oklch(0.30 0.05 50 / 0.08);
+  animation: tfSlideIn 380ms var(--ease);
+}
+.tf-drawer .head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--line-1);
+}
+.tf-drawer .head .lbl {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.18em; color: var(--ink-3); margin-bottom: 4px;
+}
+.tf-drawer .head h3 {
+  font-family: var(--font-serif); font-weight: 400; font-size: 22px;
+  margin: 0;
+}
+.tf-drawer .head .close {
+  border: 1px solid var(--line-1); background: transparent;
+  width: 32px; height: 32px; border-radius: 999px;
+  cursor: pointer; color: var(--ink-3);
+  display: grid; place-items: center;
+}
+.tf-drawer .head .close:hover { color: var(--ink-1); border-color: var(--ink-2); }
+.tf-drawer .body { padding: 22px 24px; flex: 1; overflow: auto; }
+.tf-drawer .section { margin-bottom: 24px; }
+.tf-drawer .section .lbl {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-3);
+  margin-bottom: 8px;
+}
+.tf-drawer .meta {
+  display: grid; grid-template-columns: 110px 1fr; gap: 8px 16px; font-size: 13px;
+}
+.tf-drawer .meta .k { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.06em; padding-top: 2px; }
+.tf-drawer .meta .v { color: var(--ink-1); }
+.tf-drawer .meta .v.suc { color: var(--success); }
+.tf-drawer .reasons { display: flex; flex-direction: column; gap: 8px; }
+.tf-drawer .reasons .r {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 14px; background: var(--paper-2);
+  border-radius: var(--r-lg); font-size: 13px; color: var(--ink-2); line-height: 1.5;
+}
+.tf-drawer .reasons .r .ix {
+  font-family: var(--font-serif); font-style: italic; font-size: 16px;
+  color: var(--amber-deep); flex-shrink: 0;
+}
+.tf-drawer .reasons .r b { color: var(--ink-1); font-weight: 600; }
+.tf-drawer .foot {
+  padding: 16px 24px; border-top: 1px solid var(--line-1);
+  background: var(--paper-2);
+  display: flex; gap: 10px; align-items: center;
+}
+.tf-drawer .foot .left {
+  font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+}
+.tf-drawer .foot .spacer { flex: 1; }
+.tf-drawer .foot .pin {
+  background: var(--ink-1); color: var(--paper); border: 0;
+  padding: 9px 16px; border-radius: var(--r-md);
+  font-size: 12px; font-weight: 500; cursor: pointer; font-family: var(--font-sans);
+}
+.tf-drawer .foot .alt {
+  border: 1px solid var(--line-1); background: transparent;
+  padding: 9px 14px; border-radius: var(--r-md);
+  font-size: 12px; color: var(--ink-2); cursor: pointer; font-family: var(--font-sans);
+}
+
+/* Toast — pinned to board */
+.tf-toast {
+  position: absolute; left: 50%; bottom: 110px;
+  transform: translateX(-50%);
+  background: var(--ink-1); color: var(--paper);
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
+  padding: 10px 18px; border-radius: 999px;
+  display: flex; align-items: center; gap: 10px;
+  box-shadow: var(--shadow-3);
+  animation: tfToastIn 320ms var(--ease);
+  z-index: 11;
+}
+.tf-toast .check {
+  width: 16px; height: 16px; border-radius: 999px;
+  background: var(--success);
+  display: grid; place-items: center;
+  font-size: 10px; color: white;
+}
+@keyframes tfToastIn {
+  from { transform: translate(-50%, 16px); opacity: 0; }
+  to   { transform: translate(-50%, 0);    opacity: 1; }
+}
+
+@keyframes tfFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes tfSpin { to { transform: rotate(360deg); } }
+
+/* Hint chip */
+.tf-hint {
+  position: absolute; top: 80px; right: 24px;
+  background: var(--ink-1); color: var(--paper);
+  border-radius: var(--r-xl);
+  padding: 14px 18px;
+  max-width: 280px;
+  box-shadow: var(--shadow-3);
+  font-size: 12px; line-height: 1.55;
+  z-index: 12;
+  animation: tfPopIn 380ms var(--ease);
+}
+.tf-hint .lbl {
+  font-family: var(--font-mono); font-size: 9px;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--amber); margin-bottom: 6px;
+}
+.tf-hint b { color: var(--amber); font-weight: 500; }
+.tf-hint::after {
+  content: ''; position: absolute;
+  top: -8px; left: 24px;
+  width: 14px; height: 14px;
+  background: var(--ink-1);
+  transform: rotate(45deg);
+  z-index: -1;
+}

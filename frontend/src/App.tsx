@@ -274,7 +274,7 @@ export default function App() {
         <Route path="/features" element={<Features />} />
         <Route path="/changelog" element={<Changelog />} />
         {import.meta.env.VITE_ENABLE_V2_PREVIEW === 'true' && (
-          <Route path="/v2-preview" element={<V2Preview />} />
+          <Route path="/v2-preview/*" element={<V2Preview />} />
         )}
 
         <Route element={<ProtectedRoute />}>
