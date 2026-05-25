@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { v2Api, type V2Workspace, type V2Session, type V2CanvasNode, type V2Board } from '../../../api'
+import { v2Api, type V2Workspace, type V2Session, type V2CanvasNode, type V2Board, type V2Profile } from '../../../api'
 import { useV2Ask } from './useV2Ask'
 
 type ChartKind = 'bar' | 'area' | 'funnel' | 'funnel2' | 'compare'
@@ -37,7 +37,7 @@ type Scenario = {
   nodes: Node[]
 }
 
-type RoleId = 'exec' | 'sales' | 'pm' | 'ops'
+type RoleId = 'exec' | 'sales' | 'pm' | 'ops' | 'analyst' | 'admin'
 
 /* ---------- Tiny SVG charts ---------- */
 function AreaChart({ label, data, stroke = 'var(--amber-deep)' }: { label: string; data?: number[]; stroke?: string }) {
@@ -400,6 +400,22 @@ export const ROLE_SCENARIOS: Record<RoleId, Scenario> = {
         ] },
     ],
   },
+  analyst: {
+    title: '自由探索',
+    who: '分析师',
+    avatar: '析',
+    chips: ['▸ 写一段 SQL 看 7 日活跃', '▸ 自定义查询: 上月 GMV TOP10', '▸ 跑一个 cohort'],
+    placeholder: "你是分析师，写 SQL / 跑查询 / 看血缘 都行...",
+    nodes: [],
+  },
+  admin: {
+    title: '管理 · 数据治理',
+    who: '管理员',
+    avatar: '管',
+    chips: ['▸ 谁本周改过看板', '▸ API Key 用量 TOP', '▸ 模型路由统计'],
+    placeholder: "你是管理员，看审计 / 调路由 / 管账单 都行...",
+    nodes: [],
+  },
 }
 
 const ROLES: { id: RoleId; label: string }[] = [
@@ -407,6 +423,8 @@ const ROLES: { id: RoleId; label: string }[] = [
   { id: 'sales', label: '销售' },
   { id: 'pm', label: '产品' },
   { id: 'ops', label: '运营' },
+  { id: 'analyst', label: '分析师' },
+  { id: 'admin', label: '管理员' },
 ]
 
 export function RoleSwitcher({ value, onChange }: { value: RoleId; onChange: (r: RoleId) => void }) {
@@ -521,12 +539,23 @@ function CanvasEmpty({
   )
 }
 
+function roleIdFrom(profile: V2Profile | null): RoleId {
+  const r = profile?.role
+  if (r === 'exec' || r === 'sales' || r === 'pm' || r === 'ops' || r === 'analyst' || r === 'admin') return r
+  return 'ops' // 默认运营（最常见场景）
+}
+
 export function CanvasA() {
+  const [profile, setProfile] = useState<V2Profile | null>(null)
   const [workspace, setWorkspace] = useState<V2Workspace | null>(null)
   const [sessions, setSessions] = useState<V2Session[]>([])
   const [currentSession, setCurrentSession] = useState<V2Session | null>(null)
   const [canvasNodes, setCanvasNodes] = useState<V2CanvasNode[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
+
+  const roleId = roleIdFrom(profile)
+  const roleScenario = ROLE_SCENARIOS[roleId]
+  const roleLabel = ROLES.find(r => r.id === roleId)?.label ?? ''
 
   const realNodes = useMemo(() => canvasNodesToNodes(canvasNodes), [canvasNodes])
   const hasSession = !!currentSession
@@ -544,7 +573,15 @@ export function CanvasA() {
     setCurrentId(realNodes[realNodes.length - 1]?.id ?? '')
   }, [realNodes])
 
-  // 1. 进入时初始化工作区（无则后端自动建"我的工作区"）
+  // 1a. 进入时拉 profile（拿 role），没角色就用 ops 兜底
+  useEffect(() => {
+    if (profile) return
+    v2Api.getMyProfile()
+      .then(setProfile)
+      .catch(err => console.warn('[CanvasA] 拉 profile 失败:', err?.message || err))
+  }, [profile])
+
+  // 1b. 进入时初始化工作区（无则后端自动建"我的工作区"）
   useEffect(() => {
     if (workspace) return
     v2Api.getCurrentWorkspace()
@@ -683,6 +720,14 @@ export function CanvasA() {
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>main</span>
           </div>
           <div style={{ flex: 1 }} />
+          <RoleSwitcher
+            value={roleId}
+            onChange={async (r) => {
+              const optimistic: V2Profile = { ...(profile ?? { user_id: 0, display_name: null, role: null, team_id: null, avatar_url: null, lang: 'zh-CN', theme: 'light', density: 'cozy', shortcuts_json: null }), role: r }
+              setProfile(optimistic)
+              try { await v2Api.updateMyProfile({ role: r }) } catch (err) { console.warn('[CanvasA] 切换角色失败:', err) }
+            }}
+          />
           <div className="right">
             <span className="pill"><span className="led"></span>{nodes.length} 个节点</span>
             <span className="pill">⌘ K</span>
@@ -690,7 +735,7 @@ export function CanvasA() {
               <span className="pill" style={{ borderColor: 'var(--amber-deep)', color: 'var(--amber-deep)' }}>★ 看板 · {pinned.length}</span>
             )}
             <span className="pill">分享</span>
-            <div className="avatar">我</div>
+            <div className="avatar" title={`${roleLabel} · ${profile?.display_name ?? ''}`}>{roleScenario.avatar}</div>
           </div>
         </div>
 
@@ -769,12 +814,24 @@ export function CanvasA() {
         </div>
 
         <div className="dock">
+          {nodes.length === 0 && (
+            <div className="suggest">
+              {roleScenario.chips.map((c, i) => (
+                <span
+                  key={i}
+                  className="chip"
+                  onClick={() => setAskInput(c.replace(/^▸\s*/, ''))}
+                  title="点击填入输入框"
+                >{c}</span>
+              ))}
+            </div>
+          )}
           <div className="dock-input">
             <span className="lead">›</span>
             <input
               value={askInput}
               onChange={e => setAskInput(e.target.value)}
-              placeholder={isLoading ? '正在生成回答…' : '继续追问…（Enter 发送）'}
+              placeholder={isLoading ? '正在生成回答…' : roleScenario.placeholder}
               disabled={isLoading}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) {

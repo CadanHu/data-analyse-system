@@ -451,7 +451,24 @@ export interface V2BoardTemplate {
   is_builtin: boolean
 }
 
+export interface V2Profile {
+  user_id: number
+  display_name: string | null
+  role: string | null
+  team_id: string | null
+  avatar_url: string | null
+  lang: string
+  theme: string
+  density: string
+  shortcuts_json: any
+}
+
 export const v2Api = {
+  getMyProfile: () =>
+    api.get<V2Profile>('/v2/me/profile').then(r => r.data),
+  updateMyProfile: (updates: Partial<V2Profile>) =>
+    api.put<V2Profile>('/v2/me/profile', updates).then(r => r.data),
+
   getCurrentWorkspace: () =>
     api.get<V2Workspace>('/v2/workspaces/current').then(r => r.data),
   listWorkspaces: () =>
