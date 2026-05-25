@@ -1,6 +1,7 @@
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import './tokens.css'
 import './app.css'
+import './p0.css'
 import './p1.css'
 import './p2.css'
 import './proto.css'
@@ -137,22 +138,27 @@ function BackBar() {
   if (loc.pathname === '/v2-preview' || loc.pathname === '/v2-preview/') return null
   return (
     <div style={{
-      position: 'fixed', top: 12, left: 12, zIndex: 9999,
+      position: 'fixed', top: 64, left: 12, zIndex: 9999,
       display: 'flex', gap: 8,
     }}>
       <Link
         to="/v2-preview"
+        title="返回 v2 设计索引"
         style={{
-          padding: '6px 12px',
-          background: 'var(--ink-1)',
-          color: 'var(--paper)',
+          width: 24, height: 24,
+          display: 'grid', placeItems: 'center',
+          background: 'transparent',
+          color: 'var(--ink-3)',
           borderRadius: 999,
-          fontSize: 12,
+          fontSize: 14,
           fontFamily: 'var(--font-sans)',
           textDecoration: 'none',
-          boxShadow: '0 2px 8px oklch(0.18 0.02 40 / 0.3)',
+          opacity: 0.5,
+          transition: 'opacity 200ms, color 200ms',
         }}
-      >← 返回索引</Link>
+        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = 'var(--ink-1)' }}
+        onMouseLeave={e => { e.currentTarget.style.opacity = '0.5'; e.currentTarget.style.color = 'var(--ink-3)' }}
+      >←</Link>
     </div>
   )
 }
@@ -164,7 +170,15 @@ export default function V2Preview() {
       <Routes>
         <Route index element={<Index />} />
         {GROUPS.flatMap(g => g.items).map(it => (
-          <Route key={it.slug} path={it.slug} element={it.el} />
+          <Route
+            key={it.slug}
+            path={it.slug}
+            element={
+              <div style={{ width: '100%', minHeight: '100vh', height: '100vh' }}>
+                {it.el}
+              </div>
+            }
+          />
         ))}
       </Routes>
     </div>

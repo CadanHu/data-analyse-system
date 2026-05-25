@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useSessionStore } from '../../../stores/sessionStore'
+import { useChatStore } from '../../../stores/chatStore'
+import { useSSE } from '../../../hooks/useSSE'
+import { sessionApi } from '../../../api'
+import type { Message } from '../../../types/message'
+import type { Session } from '../../../types'
 
 type ChartKind = 'bar' | 'area' | 'funnel' | 'funnel2' | 'compare'
 
@@ -216,8 +223,67 @@ function NodeCard({
   )
 }
 
-/* ---------- Role-specific seed canvases ---------- */
-const ROLE_SCENARIOS: Record<RoleId, Scenario> = {
+/* ---------- Real-data adapters: message[] -> Node[] ---------- */
+function parseCfg(cfg: unknown): any {
+  if (!cfg) return null
+  if (typeof cfg === 'string') {
+    try { return JSON.parse(cfg) } catch { return null }
+  }
+  return cfg
+}
+function chartKindFromCfg(cfg: unknown): ChartKind {
+  const p = parseCfg(cfg)
+  const t = p?.series?.[0]?.type
+  if (t === 'bar') return 'bar'
+  if (t === 'line') return 'area'
+  if (t === 'funnel') return 'funnel'
+  return 'bar'
+}
+function titleFromCfg(cfg: unknown, fallback: string): string {
+  const p = parseCfg(cfg)
+  return p?.title?.text || (typeof p?.title === 'string' ? p.title : '') || fallback
+}
+const TAG_BY_KIND: Record<ChartKind, string> = {
+  bar: '柱状图', area: '面积图', funnel: '漏斗图', funnel2: '漏斗图', compare: '对比折线',
+}
+function messagesToNodes(messages: Message[]): Node[] {
+  const nodes: Node[] = []
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (m.role !== 'user') continue
+    const next = messages[i + 1]
+    if (!next || next.role !== 'assistant') {
+      nodes.push({
+        id: m.id, who: '你', q: m.content,
+        steps: 0, elapsed: '—',
+        title: '等待回答', tag: '', chart: 'bar',
+        thinking: [],
+      })
+      continue
+    }
+    const chart = chartKindFromCfg(next.chart_cfg)
+    const elapsedMs = new Date(next.created_at).getTime() - new Date(m.created_at).getTime()
+    const elapsed = elapsedMs > 0 && elapsedMs < 3_600_000 ? `${(elapsedMs / 1000).toFixed(1)}s` : '—'
+    const thinkingLines = (next.thinking || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+    nodes.push({
+      id: next.id,
+      who: '你',
+      q: m.content,
+      steps: thinkingLines.length,
+      elapsed,
+      title: titleFromCfg(next.chart_cfg, '分析结果'),
+      tag: TAG_BY_KIND[chart] || '',
+      chart,
+      thinking: thinkingLines,
+      sql: next.sql || undefined,
+    })
+    i += 1
+  }
+  return nodes
+}
+
+/* ---------- Role-specific seed canvases (kept for empty-demo fallback) ---------- */
+export const ROLE_SCENARIOS: Record<RoleId, Scenario> = {
   exec: {
     title: 'Q3 营收复盘',
     who: '高管',
@@ -327,7 +393,7 @@ const ROLES: { id: RoleId; label: string }[] = [
   { id: 'ops', label: '运营' },
 ]
 
-function RoleSwitcher({ value, onChange }: { value: RoleId; onChange: (r: RoleId) => void }) {
+export function RoleSwitcher({ value, onChange }: { value: RoleId; onChange: (r: RoleId) => void }) {
   return (
     <div className="role-switcher" role="tablist" aria-label="角色">
       <span className="rs-label">视角</span>
@@ -345,37 +411,148 @@ function RoleSwitcher({ value, onChange }: { value: RoleId; onChange: (r: RoleId
 }
 
 /* ---------- Page ---------- */
+function CanvasEmpty({
+  hasSession,
+  sessions,
+  loading,
+  onPick,
+}: {
+  hasSession: boolean
+  sessions: Session[]
+  loading: boolean
+  onPick: (id: string) => void
+}) {
+  return (
+    <div className="v2-root" style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center', background: 'var(--paper)' }}>
+      <div style={{ textAlign: 'center', maxWidth: 520, padding: 32 }}>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>DataPulse · 画布</div>
+        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 400, margin: '0 0 12px', color: 'var(--ink-1)' }}>
+          {hasSession ? '这个会话还没有消息' : '挑一个会话开始'}
+        </h1>
+        <p style={{ color: 'var(--ink-3)', fontSize: 14, lineHeight: 1.7, marginBottom: 24 }}>
+          {hasSession
+            ? '在 /app 里向它提一个问题，回来就能看到时间线。'
+            : '从下面选一个已有会话，或者回 /app 新建。'}
+        </p>
+
+        {!hasSession && (
+          <div style={{ marginBottom: 20 }}>
+            {loading ? (
+              <div style={{ color: 'var(--ink-4)', fontSize: 13 }}>正在加载会话列表…</div>
+            ) : sessions.length === 0 ? (
+              <div style={{ color: 'var(--ink-4)', fontSize: 13 }}>没找到会话（未登录或后端不可达）</div>
+            ) : (
+              <select
+                defaultValue=""
+                onChange={e => e.target.value && onPick(e.target.value)}
+                style={{
+                  padding: '10px 14px',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: 14,
+                  background: 'var(--paper)',
+                  color: 'var(--ink-1)',
+                  border: '1px solid var(--line-1)',
+                  borderRadius: 'var(--r-lg)',
+                  minWidth: 320,
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="" disabled>选会话…（共 {sessions.length} 个）</option>
+                {sessions.map(s => (
+                  <option key={s.id} value={s.id}>{s.title || '未命名'} · {s.id.slice(0, 8)}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        <Link
+          to="/app"
+          style={{
+            display: 'inline-block',
+            padding: '10px 20px',
+            background: 'transparent',
+            color: 'var(--ink-2)',
+            borderRadius: 999,
+            fontSize: 13,
+            border: '1px solid var(--line-1)',
+            textDecoration: 'none',
+          }}
+        >去 /app →</Link>
+      </div>
+    </div>
+  )
+}
+
 export function CanvasA() {
+  const currentSession = useSessionStore(s => s.currentSession)
+  const sessions = useSessionStore(s => s.sessions)
+  const sessionMessages = useSessionStore(s => s.messages)
+  const setSessions = useSessionStore(s => s.setSessions)
+  const setCurrentSession = useSessionStore(s => s.setCurrentSession)
+  const setMessages = useSessionStore(s => s.setMessages)
+
+  const realNodes = useMemo(() => messagesToNodes(sessionMessages), [sessionMessages])
+  const hasRealData = !!currentSession && realNodes.length > 0
+
   const [mode, setMode] = useState<Mode>('business')
-  const [role, setRole] = useState<RoleId>('ops')
-  const scenario = ROLE_SCENARIOS[role]
-  const [nodes, setNodes] = useState<Node[]>(scenario.nodes)
-  const [currentId, setCurrentId] = useState<string>('n3')
+  const [nodes, setNodes] = useState<Node[]>(realNodes)
+  const [currentId, setCurrentId] = useState<string>(realNodes[realNodes.length - 1]?.id ?? '')
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [askInput, setAskInput] = useState('')
+
+  const { connect } = useSSE()
+  const isLoading = useChatStore(s => s.isLoading)
+
   useEffect(() => {
-    const sc = ROLE_SCENARIOS[role]
-    setNodes(sc.nodes)
-    setCurrentId(sc.nodes[sc.nodes.length - 1].id)
-  }, [role])
+    if (hasRealData) {
+      setNodes(realNodes)
+      setCurrentId(realNodes[realNodes.length - 1].id)
+    }
+  }, [hasRealData, realNodes])
+
+  // 整页刷新进来时，store 是空的 — 主动拉一次会话列表（用 authStore 已持久化的 token）
+  useEffect(() => {
+    if (!currentSession && sessions.length === 0 && !sessionsLoading) {
+      setSessionsLoading(true)
+      sessionApi.getSessions()
+        .then(list => setSessions(list || []))
+        .catch(err => console.warn('[CanvasA] 拉会话列表失败:', err?.message || err))
+        .finally(() => setSessionsLoading(false))
+    }
+  }, [currentSession, sessions.length, sessionsLoading, setSessions])
+
+  const pickSession = (id: string) => {
+    const target = sessions.find(s => s.id === id)
+    if (!target) return
+    setCurrentSession(target)
+    sessionApi.getMessages(id)
+      .then(msgs => {
+        const processed = (msgs || []).map(m => {
+          if (typeof (m as any).data === 'string' && (m as any).data) {
+            try { return { ...m, data: JSON.parse((m as any).data) } } catch { return m }
+          }
+          return m
+        })
+        setMessages(processed)
+      })
+      .catch(err => console.warn('[CanvasA] 拉消息失败:', err?.message || err))
+  }
   const [focused, setFocused] = useState<(Node | Branch) | null>(null)
   const [pinned, setPinned] = useState<string[]>([])
   const [pinToast, setPinToast] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const stepRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
-  const handleAsk = (id: string) => {
-    const idx = nodes.findIndex(n => n.id === id)
-    const newNode: Node = {
-      id: 'n' + (Date.now() % 100000),
-      who: '运营', q: '加上小红书一起对比', steps: 7, elapsed: '1.0s',
-      title: '抖音 vs 私域 vs 小红书', tag: '折线对比 · 12 周', chart: 'compare',
-      thinking: ['解析新增渠道 → xiaohongshu', '复用上一节点 SQL', '加入第三条线', '..4 步'],
-      sql: "SELECT channel, DATE_TRUNC('week', ts) AS w,\n  COUNT(DISTINCT user_id) AS users\nFROM events\nWHERE channel IN ('tiktok','private','xiaohongshu')\nGROUP BY 1, 2",
-    }
-    const next = [...nodes]
-    next.splice(idx + 1, 0, newNode)
-    setNodes(next)
-    setCurrentId(newNode.id)
-    setTimeout(() => stepRefs.current[newNode.id]?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest', inline: 'center' }), 50)
+  const handleAsk = (_id: string) => {
+    // 节点卡上的"追问"按钮 — 现在通过 dock 输入框统一发，这里留空
+  }
+
+  const handleSend = () => {
+    const q = askInput.trim()
+    if (!q || !currentSession?.id || isLoading) return
+    setAskInput('')
+    connect(currentSession.id, q).catch(err => console.warn('[CanvasA] SSE 失败:', err?.message || err))
   }
 
   const handleBranch = (id: string) => {
@@ -402,6 +579,17 @@ export function CanvasA() {
     }
   }
 
+  if (!hasRealData) {
+    return (
+      <CanvasEmpty
+        hasSession={!!currentSession}
+        sessions={sessions}
+        loading={sessionsLoading}
+        onPick={pickSession}
+      />
+    )
+  }
+
   return (
     <div className="v2-root" style={{ position: 'fixed', inset: 0 }}>
       <div className="app-shell fullscreen">
@@ -409,19 +597,19 @@ export function CanvasA() {
           <div className="brand"><span className="dot"></span>DataPulse</div>
           <div className="crumbs">
             <span>个人空间</span><span className="sep">/</span>
-            <span className="now">{scenario.title}</span>
+            <span className="now">{currentSession?.title || '未命名会话'}</span>
             <span className="sep">·</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>main</span>
           </div>
-          <RoleSwitcher value={role} onChange={setRole} />
+          <div style={{ flex: 1 }} />
           <div className="right">
-            <span className="pill"><span className="led"></span>已连接 · 3 个数据源</span>
+            <span className="pill"><span className="led"></span>{nodes.length} 个节点</span>
             <span className="pill">⌘ K</span>
             {pinned.length > 0 && (
               <span className="pill" style={{ borderColor: 'var(--amber-deep)', color: 'var(--amber-deep)' }}>★ 看板 · {pinned.length}</span>
             )}
             <span className="pill">分享</span>
-            <div className="avatar">{scenario.avatar}</div>
+            <div className="avatar">我</div>
           </div>
         </div>
 
@@ -500,19 +688,17 @@ export function CanvasA() {
         </div>
 
         <div className="dock">
-          <div className="suggest">
-            {scenario.chips.map((c, i) => (
-              <span key={i} className="chip" onClick={() => handleAsk(currentId)}>{c}</span>
-            ))}
-          </div>
           <div className="dock-input">
             <span className="lead">›</span>
             <input
-              placeholder={scenario.placeholder}
+              value={askInput}
+              onChange={e => setAskInput(e.target.value)}
+              placeholder={isLoading ? '正在生成回答…' : '继续追问…（Enter 发送）'}
+              disabled={isLoading}
               onKeyDown={e => {
-                if (e.key === 'Enter' && (e.currentTarget as HTMLInputElement).value.trim()) {
-                  handleAsk(currentId)
-                  ;(e.currentTarget as HTMLInputElement).value = ''
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
                 }
               }}
             />
@@ -521,7 +707,12 @@ export function CanvasA() {
             <button className={mode === 'business' ? 'on' : ''} onClick={() => setMode('business')}>业务</button>
             <button className={mode === 'analyst' ? 'on' : ''} onClick={() => setMode('analyst')}>分析师</button>
           </div>
-          <button className="dock-send" onClick={() => handleAsk(currentId)}>发送 <span style={{ opacity: 0.6 }}>⏎</span></button>
+          <button
+            className="dock-send"
+            onClick={handleSend}
+            disabled={isLoading || !askInput.trim()}
+            style={isLoading || !askInput.trim() ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+          >{isLoading ? '生成中…' : '发送'} <span style={{ opacity: 0.6 }}>⏎</span></button>
         </div>
 
         {focused && (
