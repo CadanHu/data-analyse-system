@@ -824,7 +824,7 @@ async def create_alert_rule(data: AlertRuleCreate, current_user: dict = Depends(
     role = await v2_svc.get_member_role(data.workspace_id, current_user['id'])
     if role not in ('owner', 'admin', 'editor'):
         raise HTTPException(status_code=403, detail="只有 owner/admin/editor 能创建告警规则")
-    return await v2_alert.create_rule(
+    rule = await v2_alert.create_rule(
         workspace_id=data.workspace_id,
         owner_user_id=current_user['id'],
         name=data.name, description=data.description,
@@ -833,6 +833,13 @@ async def create_alert_rule(data: AlertRuleCreate, current_user: dict = Depends(
         schedule_cron=data.schedule_cron,
         channels=data.channels, enabled=data.enabled,
     )
+    # 同步告警 worker scheduler
+    try:
+        from services.alert_worker import sync_job
+        sync_job(rule)
+    except Exception as e:
+        print(f'[alert] sync_job 失败: {e}')
+    return rule
 
 
 @router.get("/alert-rules/{rule_id}")
@@ -843,14 +850,34 @@ async def get_alert_rule(rule_id: str, current_user: dict = Depends(get_current_
 @router.patch("/alert-rules/{rule_id}")
 async def update_alert_rule(rule_id: str, data: AlertRuleUpdate, current_user: dict = Depends(get_current_user)):
     await _require_rule_writable(rule_id, current_user['id'])
-    return await v2_alert.update_rule(rule_id, data.model_dump(exclude_unset=True))
+    rule = await v2_alert.update_rule(rule_id, data.model_dump(exclude_unset=True))
+    try:
+        from services.alert_worker import sync_job
+        if rule:
+            sync_job(rule)
+    except Exception as e:
+        print(f'[alert] sync_job 失败: {e}')
+    return rule
 
 
 @router.delete("/alert-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_alert_rule(rule_id: str, current_user: dict = Depends(get_current_user)):
     await _require_rule_writable(rule_id, current_user['id'])
     await v2_alert.delete_rule(rule_id)
+    try:
+        from services.alert_worker import remove_job
+        remove_job(rule_id)
+    except Exception as e:
+        print(f'[alert] remove_job 失败: {e}')
     return None
+
+
+@router.post("/alert-rules/{rule_id}/_eval_now")
+async def eval_alert_now(rule_id: str, current_user: dict = Depends(get_current_user)):
+    """立刻评估一次规则，绕过 cron。命中阈值会真触发 trigger_event + 通知。"""
+    await _require_rule_writable(rule_id, current_user['id'])
+    from services.alert_worker import evaluate_rule
+    return await evaluate_rule(rule_id)
 
 
 # --- events ---

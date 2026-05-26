@@ -89,7 +89,12 @@ function AlertWizardLiveBar() {
                 </span>
               </span>
               <span style={{ fontSize: 10, color: r.enabled ? 'var(--success)' : 'var(--ink-4)' }}>{r.enabled ? '●启用' : '○停用'}</span>
-              <button onClick={() => trigger(r.id)} style={btnGhostAL}>▶ 触发</button>
+              <button onClick={() => trigger(r.id)} style={btnGhostAL}>▶ 强触发</button>
+              <button onClick={async () => {
+                const out = await v2Api.evalAlertNow(r.id)
+                setMsg(out.evaluated ? `评估: ${out.fired ? '✅ fired' : '✓ 未命中'} (value=${out.value})` : `跳过: ${out.reason}`)
+                setTimeout(() => setMsg(null), 4000)
+              }} style={btnGhostAL}>⚡ 评估</button>
               <button onClick={() => del(r.id)} style={{ ...btnGhostAL, color: 'var(--ink-4)' }}>✕</button>
             </div>
           ))}

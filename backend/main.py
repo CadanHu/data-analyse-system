@@ -52,9 +52,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ [v2 警告] 灌入内置看板模板失败: {e}")
     print("✅ 数据库初始化完成")
+    # 阶段 9 横向：启动告警 cron worker
+    try:
+        from services.alert_worker import start_worker as _start_alert
+        await _start_alert()
+    except Exception as e:
+        print(f"⚠️ [alert-worker] 启动失败: {e}")
     try:
         yield
     finally:
+        # 关闭告警 worker
+        try:
+            from services.alert_worker import stop_worker as _stop_alert
+            _stop_alert()
+        except Exception:
+            pass
         # 🚀 关键修复: 在关闭时静默取消所有协程任务，防止 SSE 导致的 CancelledError 刷屏
         import asyncio
         print("📥 正在退出系统...")
