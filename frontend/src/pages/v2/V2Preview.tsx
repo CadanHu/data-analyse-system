@@ -10,6 +10,8 @@ import './proto.css'
 
 import { CanvasA } from './sections/CanvasA'
 import { ExecView, SalesView, PMView } from './sections/RoleViews'
+import { DataSources, SchemaSemantic, MetricCenter } from './sections/DataLayer'
+import { NodeDetail, VersionDiff, ConfirmDelete } from './sections/NodeDetail'
 import { ShareDialog, NotificationCenter, TeamWorkspace } from './sections/Collab'
 import { BoardEditor, BoardTemplates, BoardSchedule } from './sections/BoardEditor'
 import { AlertWizard, AlertDetail } from './sections/Alerts'
@@ -37,6 +39,22 @@ const GROUPS: Group[] = [
       { slug: 'roles/exec', label: '高管 · 本周一图、不需要 SQL', el: <ExecView /> },
       { slug: 'roles/sales', label: '销售 · 管线 + 漏斗 + 区域', el: <SalesView /> },
       { slug: 'roles/pm', label: '产品 · 健康度 + A/B 实验', el: <PMView /> },
+    ],
+  },
+  {
+    id: 'data', title: '④ P0-2 · 数据源 + 语义层 + 指标中心',
+    items: [
+      { slug: 'data/sources', label: '数据源管理 · 设置中心', el: <DataSources /> },
+      { slug: 'data/schema', label: '表结构浏览 + 字段语义打标', el: <SchemaSemantic /> },
+      { slug: 'data/metrics', label: '指标中心 · 业务口径 + AI 同义词', el: <MetricCenter /> },
+    ],
+  },
+  {
+    id: 'node', title: '⑥ P0-4 · 节点细节',
+    items: [
+      { slug: 'node/detail', label: '节点详情抽屉 · 概览 / 评论 / 版本 / HITL', el: <NodeDetail /> },
+      { slug: 'node/diff', label: '版本对照 · LLM 候选树', el: <VersionDiff /> },
+      { slug: 'node/confirm-delete', label: '删除确认 · 级联影响告知', el: <ConfirmDelete /> },
     ],
   },
   {

@@ -632,6 +632,64 @@ export const v2Api = {
     api.post('/v2/me/security/oauth-apps/_seed', data).then(r => r.data),
   revokeOAuthApp: (appId: string) =>
     api.delete(`/v2/me/security/oauth-apps/${appId}`).then(r => r.data),
+
+  // 节点详情 (阶段 8 配套)
+  getNodeDetail: (nodeId: string) =>
+    api.get(`/v2/nodes/${nodeId}`).then(r => r.data),
+  listNodeComments: (nodeId: string) =>
+    api.get(`/v2/nodes/${nodeId}/comments`).then(r => r.data),
+  addNodeComment: (nodeId: string, body: string, mentions?: number[], parent_comment_id?: string) =>
+    api.post(`/v2/nodes/${nodeId}/comments`, { body, mentions, parent_comment_id }).then(r => r.data),
+  resolveNodeComment: (nodeId: string, commentId: string) =>
+    api.post(`/v2/nodes/${nodeId}/comments/${commentId}/resolve`).then(r => r.data),
+  deleteNodeComment: (nodeId: string, commentId: string) =>
+    api.delete(`/v2/nodes/${nodeId}/comments/${commentId}`).then(r => r.data),
+  listNodeVersions: (nodeId: string) =>
+    api.get(`/v2/nodes/${nodeId}/versions`).then(r => r.data),
+  patchNodeStatus: (nodeId: string, updates: { clarify_status?: string; hitl_status?: string }) =>
+    api.patch(`/v2/nodes/${nodeId}/status`, updates).then(r => r.data),
+  getNodeDeleteImpact: (nodeId: string) =>
+    api.get(`/v2/nodes/${nodeId}/_delete_impact`).then(r => r.data),
+  deleteNode: (nodeId: string, cascade = false) =>
+    api.delete(`/v2/nodes/${nodeId}`, { params: { cascade } }).then(r => r.data),
+
+  // 语义层 + 指标中心 (阶段 8)
+  listSemanticTables: (dsId: string, schemaName?: string) =>
+    api.get('/v2/semantic/tables', { params: { ds_id: dsId, schema_name: schemaName } }).then(r => r.data),
+  upsertSemanticTable: (data: any) =>
+    api.post('/v2/semantic/tables', data).then(r => r.data),
+  listSemanticColumns: (dsId: string, schemaName: string, tableName: string) =>
+    api.get('/v2/semantic/columns', { params: { ds_id: dsId, schema_name: schemaName, table_name: tableName } }).then(r => r.data),
+  upsertSemanticColumn: (data: any) =>
+    api.post('/v2/semantic/columns', data).then(r => r.data),
+  listColumnTags: (columnId: string) =>
+    api.get(`/v2/semantic/columns/${columnId}/tags`).then(r => r.data),
+  addColumnTag: (columnId: string, data: { tag_name: string; confidence?: number; source?: string }) =>
+    api.post(`/v2/semantic/columns/${columnId}/tags`, data).then(r => r.data),
+  deleteColumnTag: (columnId: string, tagName: string) =>
+    api.delete(`/v2/semantic/columns/${columnId}/tags/${encodeURIComponent(tagName)}`).then(r => r.data),
+  listMetrics: (workspaceId: string) =>
+    api.get('/v2/semantic/metrics', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createMetric: (data: any) =>
+    api.post('/v2/semantic/metrics', data).then(r => r.data),
+  updateMetric: (metricId: string, updates: any) =>
+    api.patch(`/v2/semantic/metrics/${metricId}`, updates).then(r => r.data),
+  deleteMetric: (metricId: string) =>
+    api.delete(`/v2/semantic/metrics/${metricId}`).then(r => r.data),
+  searchMetrics: (workspaceId: string, q: string, limit = 10) =>
+    api.get('/v2/semantic/search-metrics', { params: { workspace_id: workspaceId, q, limit } }).then(r => r.data),
+  listMetricSynonyms: (metricId: string) =>
+    api.get(`/v2/semantic/metrics/${metricId}/synonyms`).then(r => r.data),
+  addMetricSynonym: (metricId: string, data: { synonym_text: string; weight?: number; source?: string }) =>
+    api.post(`/v2/semantic/metrics/${metricId}/synonyms`, data).then(r => r.data),
+  deleteMetricSynonym: (metricId: string, synonymText: string) =>
+    api.delete(`/v2/semantic/metrics/${metricId}/synonyms/${encodeURIComponent(synonymText)}`).then(r => r.data),
+  listMetricLineage: (metricId: string) =>
+    api.get(`/v2/semantic/metrics/${metricId}/lineage`).then(r => r.data),
+  addMetricLineage: (metricId: string, data: any) =>
+    api.post(`/v2/semantic/metrics/${metricId}/lineage`, data).then(r => r.data),
+  deleteMetricLineage: (metricId: string, toType: string, toId: string) =>
+    api.delete(`/v2/semantic/metrics/${metricId}/lineage/${toType}/${encodeURIComponent(toId)}`).then(r => r.data),
 }
 
 export default api
