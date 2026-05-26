@@ -603,6 +603,35 @@ export const v2Api = {
     api.post(`/v2/admin/api-keys/${keyId}/rotate`).then(r => r.data),
   revokeApiKey: (keyId: string) =>
     api.post(`/v2/admin/api-keys/${keyId}/revoke`).then(r => r.data),
+
+  // 阶段 7 · 安全设置 (me)
+  // 2FA
+  get2FAStatus: () =>
+    api.get('/v2/me/security/2fa').then(r => r.data),
+  setup2FA: () =>
+    api.post('/v2/me/security/2fa/setup').then(r => r.data),
+  verify2FA: (code: string) =>
+    api.post('/v2/me/security/2fa/verify', { code }).then(r => r.data),
+  disable2FA: () =>
+    api.delete('/v2/me/security/2fa').then(r => r.data),
+  regenerateBackupCodes: () =>
+    api.post('/v2/me/security/2fa/regenerate-backup-codes').then(r => r.data),
+  // login sessions
+  listLoginSessions: (onlyActive = true) =>
+    api.get('/v2/me/security/sessions', { params: { only_active: onlyActive } }).then(r => r.data),
+  seedLoginSession: (data: any) =>
+    api.post('/v2/me/security/sessions/_seed', data).then(r => r.data),
+  revokeLoginSession: (sessionId: string) =>
+    api.delete(`/v2/me/security/sessions/${sessionId}`).then(r => r.data),
+  revokeOtherSessions: () =>
+    api.post('/v2/me/security/sessions/_revoke_others').then(r => r.data),
+  // oauth apps
+  listOAuthApps: (onlyActive = true) =>
+    api.get('/v2/me/security/oauth-apps', { params: { only_active: onlyActive } }).then(r => r.data),
+  seedOAuthApp: (data: any) =>
+    api.post('/v2/me/security/oauth-apps/_seed', data).then(r => r.data),
+  revokeOAuthApp: (appId: string) =>
+    api.delete(`/v2/me/security/oauth-apps/${appId}`).then(r => r.data),
 }
 
 export default api

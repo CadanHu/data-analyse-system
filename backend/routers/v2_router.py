@@ -1183,3 +1183,113 @@ async def rotate_api_key(key_id: str, current_user: dict = Depends(require_role(
 async def revoke_api_key(key_id: str, current_user: dict = Depends(require_role('admin'))):
     await v2_mr.revoke_key(key_id)
     return {"ok": True}
+
+
+# ============================================================
+# 阶段 7 · 设置中心 · 安全 (user_2fa / login_sessions / oauth_apps)
+# 全部针对当前用户 (current_user['id'])，不需要 admin 角色
+# ============================================================
+
+from database.v2 import security_services as v2_sec
+
+
+class _2FAVerify(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6)
+
+
+# ---------- 2FA ----------
+
+@router.get("/me/security/2fa")
+async def get_2fa_status(current_user: dict = Depends(get_current_user)):
+    return await v2_sec.get_2fa_status(current_user['id'])
+
+
+@router.post("/me/security/2fa/setup")
+async def setup_my_2fa(current_user: dict = Depends(get_current_user)):
+    """开始设置 2FA。返回 secret + otpauth_url + 备份码 (明文，只此一次)。"""
+    return await v2_sec.setup_2fa(current_user['id'])
+
+
+@router.post("/me/security/2fa/verify")
+async def verify_my_2fa(data: _2FAVerify, current_user: dict = Depends(get_current_user)):
+    """验证一次性 TOTP 码并启用 2FA。"""
+    ok = await v2_sec.verify_and_enable_2fa(current_user['id'], data.code)
+    if not ok:
+        raise HTTPException(status_code=400, detail="验证码错误 (本阶段 mock：必须是 6 位数字)")
+    return {"enabled": True}
+
+
+@router.delete("/me/security/2fa", status_code=status.HTTP_204_NO_CONTENT)
+async def disable_my_2fa(current_user: dict = Depends(get_current_user)):
+    await v2_sec.disable_2fa(current_user['id'])
+    return None
+
+
+@router.post("/me/security/2fa/regenerate-backup-codes")
+async def regenerate_backup_codes(current_user: dict = Depends(get_current_user)):
+    codes = await v2_sec.regenerate_backup_codes(current_user['id'])
+    if not codes:
+        raise HTTPException(status_code=404, detail="尚未启用 2FA")
+    return {"backup_codes": codes}
+
+
+# ---------- login sessions ----------
+
+@router.get("/me/security/sessions")
+async def list_my_login_sessions(only_active: bool = True, current_user: dict = Depends(get_current_user)):
+    return await v2_sec.list_login_sessions(current_user['id'], only_active)
+
+
+class _SessionSeed(BaseModel):
+    ip: Optional[str] = None
+    ua: Optional[str] = None
+    device_label: Optional[str] = None
+
+
+@router.post("/me/security/sessions/_seed", status_code=status.HTTP_201_CREATED)
+async def seed_login_session(data: _SessionSeed, current_user: dict = Depends(get_current_user)):
+    """联调用：手动写一条登录会话。真实登录链路应该自动调。"""
+    return await v2_sec.create_login_session(current_user['id'], data.ip, data.ua, data.device_label)
+
+
+@router.delete("/me/security/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_my_login_session(session_id: str, current_user: dict = Depends(get_current_user)):
+    ok = await v2_sec.revoke_login_session(session_id, current_user['id'])
+    if not ok:
+        raise HTTPException(status_code=404, detail="会话不存在或非你所有")
+    return None
+
+
+@router.post("/me/security/sessions/_revoke_others")
+async def revoke_other_sessions(current_user: dict = Depends(get_current_user)):
+    n = await v2_sec.revoke_all_other_sessions(current_user['id'])
+    return {"revoked": n}
+
+
+# ---------- oauth authorized apps ----------
+
+@router.get("/me/security/oauth-apps")
+async def list_my_oauth_apps(only_active: bool = True, current_user: dict = Depends(get_current_user)):
+    return await v2_sec.list_authorized_apps(current_user['id'], only_active)
+
+
+class _AppSeed(BaseModel):
+    client_id: str
+    client_name: str
+    scope: Optional[List[str]] = None
+
+
+@router.post("/me/security/oauth-apps/_seed", status_code=status.HTTP_201_CREATED)
+async def seed_oauth_app(data: _AppSeed, current_user: dict = Depends(get_current_user)):
+    """联调用：手动 grant 一条授权。真实 OAuth 流程应自动调。"""
+    return await v2_sec.grant_app_authorization(
+        current_user['id'], data.client_id, data.client_name, data.scope,
+    )
+
+
+@router.delete("/me/security/oauth-apps/{app_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_my_oauth_app(app_id: str, current_user: dict = Depends(get_current_user)):
+    ok = await v2_sec.revoke_authorized_app(app_id, current_user['id'])
+    if not ok:
+        raise HTTPException(status_code=404, detail="授权不存在或非你所有")
+    return None

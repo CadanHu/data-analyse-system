@@ -155,6 +155,171 @@ function Field({ label, children }) {
   )
 }
 
+/* ---------- 阶段 7 · SecurityLiveBar (2FA + 登录会话 + OAuth 授权) ---------- */
+
+function SecurityLiveBar() {
+  const [tfa, setTfa] = useState(null)
+  const [sessionsList, setSessionsList] = useState([])
+  const [apps, setApps] = useState([])
+  const [setupResult, setSetupResult] = useState(null)   // {secret, otpauth_url, backup_codes}
+  const [verifyCode, setVerifyCode] = useState('')
+  const [msg, setMsg] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const reload = async () => {
+    try {
+      const [t, ss, aa] = await Promise.all([
+        v2Api.get2FAStatus(), v2Api.listLoginSessions(true), v2Api.listOAuthApps(true),
+      ])
+      setTfa(t); setSessionsList(ss); setApps(aa)
+    } catch {}
+  }
+  useEffect(() => { reload() }, [])
+
+  const setup = async () => {
+    setBusy(true)
+    try { setSetupResult(await v2Api.setup2FA()); setMsg(null) }
+    catch (e) { setMsg(`失败: ${e?.message || e}`) }
+    finally { setBusy(false) }
+  }
+  const verify = async () => {
+    if (verifyCode.length !== 6) { setMsg('需要 6 位数字'); return }
+    setBusy(true)
+    try {
+      await v2Api.verify2FA(verifyCode)
+      setSetupResult(null); setVerifyCode(''); setMsg('2FA 已启用 ✓'); reload()
+    } catch (e) { setMsg(`验证失败: ${e?.response?.data?.detail || e?.message}`) }
+    finally { setBusy(false); setTimeout(() => setMsg(null), 3500) }
+  }
+  const disable = async () => {
+    if (!confirm('关闭 2FA？账户安全性会降低。')) return
+    setBusy(true)
+    try { await v2Api.disable2FA(); setMsg('2FA 已关闭'); reload() }
+    finally { setBusy(false); setTimeout(() => setMsg(null), 3000) }
+  }
+  const regen = async () => {
+    setBusy(true)
+    try {
+      const r = await v2Api.regenerateBackupCodes()
+      setSetupResult({ secret: '(unchanged)', otpauth_url: null, backup_codes: r.backup_codes })
+    } catch {}
+    finally { setBusy(false) }
+  }
+  const seedSession = async () => {
+    await v2Api.seedLoginSession({ ip: '192.168.1.' + Math.floor(Math.random() * 254), device_label: ['iPhone · Safari','MacBook · Chrome','Win · Edge'][Math.floor(Math.random()*3)] })
+    reload()
+  }
+  const revokeSession = async (sid) => { await v2Api.revokeLoginSession(sid); reload() }
+  const revokeOthers = async () => { await v2Api.revokeOtherSessions(); reload() }
+  const seedApp = async () => {
+    const samples = [
+      { client_id: 'figma-plugin', client_name: 'Figma 插件', scope: ['read:boards'] },
+      { client_id: 'slack-bot', client_name: 'Slack 机器人', scope: ['read:notifications', 'write:notifications'] },
+      { client_id: 'github-action', client_name: 'GitHub Action', scope: ['read:audit'] },
+    ]
+    const pick = samples[Math.floor(Math.random() * samples.length)]
+    await v2Api.seedOAuthApp(pick)
+    reload()
+  }
+  const revokeApp = async (aid) => { await v2Api.revokeOAuthApp(aid); reload() }
+
+  return (
+    <LiveBar title="安全 · 真实数据" footer={msg}>
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* 2FA */}
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.15em', color: 'var(--ink-3)', textTransform: 'uppercase', marginBottom: 6 }}>
+            双因素认证 (2FA)
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, flexWrap: 'wrap' }}>
+            状态: <b style={{ color: tfa?.enabled ? 'var(--success)' : 'var(--ink-4)' }}>
+              {tfa?.enabled ? '已启用' : '未启用'}
+            </b>
+            {tfa?.enabled && <span style={{ color: 'var(--ink-3)' }}>· 剩余备份码 {tfa.backup_codes_remaining}</span>}
+            {!tfa?.enabled && !setupResult && <button onClick={setup} disabled={busy} style={btnPriS}>开始启用</button>}
+            {tfa?.enabled && <button onClick={regen} disabled={busy} style={btnGhostS}>重新生成备份码</button>}
+            {tfa?.enabled && <button onClick={disable} disabled={busy} style={{ ...btnGhostS, color: 'var(--danger)' }}>关闭 2FA</button>}
+          </div>
+          {setupResult && (
+            <div style={{ marginTop: 8, padding: 12, background: 'var(--paper-2)', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 12 }}>
+              <div>secret: <code style={{ fontFamily: 'var(--font-mono)' }}>{setupResult.secret}</code></div>
+              {setupResult.otpauth_url && <div style={{ marginTop: 4 }}>扫码: <code style={{ fontFamily: 'var(--font-mono)', fontSize: 10 }}>{setupResult.otpauth_url}</code></div>}
+              <div style={{ marginTop: 6 }}>
+                备份码 (只此一次保存):{' '}
+                {setupResult.backup_codes.map((c, i) => (
+                  <code key={i} style={{ fontFamily: 'var(--font-mono)', marginRight: 8, color: 'var(--amber-deep)' }}>{c}</code>
+                ))}
+              </div>
+              {setupResult.otpauth_url && (
+                <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input value={verifyCode} onChange={e => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="6 位数字" maxLength={6}
+                    style={{ width: 100, padding: '4px 8px', fontFamily: 'var(--font-mono)' }} />
+                  <button onClick={verify} disabled={busy || verifyCode.length !== 6} style={btnPriS}>验证并启用</button>
+                  <button onClick={() => setSetupResult(null)} style={btnGhostS}>取消</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Login sessions */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.15em', color: 'var(--ink-3)', textTransform: 'uppercase' }}>
+              已登录设备 ({sessionsList.length})
+            </span>
+            <button onClick={seedSession} style={btnGhostS}>＋ 造一条</button>
+            {sessionsList.length > 1 && <button onClick={revokeOthers} style={btnGhostS}>注销其它全部</button>}
+          </div>
+          {sessionsList.length === 0
+            ? <div style={{ color: 'var(--ink-4)', fontSize: 12 }}>暂无活跃登录会话</div>
+            : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {sessionsList.map(s => (
+                  <div key={s.id} style={liveRowS}>
+                    <span style={{ flex: 1, fontSize: 12 }}>{s.device_label || '(未知设备)'} <span style={{ color: 'var(--ink-3)' }}>· {s.ip || '—'}</span></span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>{(s.last_active_at || '').slice(0, 16)}</span>
+                    <button onClick={() => revokeSession(s.id)} style={{ ...btnGhostS, color: 'var(--ink-4)' }}>注销</button>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+        </div>
+
+        {/* OAuth apps */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.15em', color: 'var(--ink-3)', textTransform: 'uppercase' }}>
+              授权的第三方应用 ({apps.length})
+            </span>
+            <button onClick={seedApp} style={btnGhostS}>＋ 造一个</button>
+          </div>
+          {apps.length === 0
+            ? <div style={{ color: 'var(--ink-4)', fontSize: 12 }}>暂无授权应用</div>
+            : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {apps.map(a => (
+                  <div key={a.id} style={liveRowS}>
+                    <span style={{ flex: 1, fontSize: 12 }}><b>{a.client_name}</b> <span style={{ color: 'var(--ink-3)' }}>({a.client_id})</span></span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>{(a.scope || []).join(', ')}</span>
+                    <button onClick={() => revokeApp(a.id)} style={{ ...btnGhostS, color: 'var(--danger)' }}>撤销</button>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+        </div>
+      </div>
+    </LiveBar>
+  )
+}
+
+const liveRowS = { padding: '6px 10px', background: 'var(--paper)', border: '1px solid var(--line-1)', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 10 }
+const btnPriS = { padding: '5px 10px', background: 'var(--amber-deep)', color: 'var(--paper)', border: 0, borderRadius: 6, fontSize: 11, cursor: 'pointer' }
+const btnGhostS = { padding: '4px 10px', background: 'transparent', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 11, cursor: 'pointer' }
+
 /* =========================================================
    Settings · Profile / Notify / Security
    ========================================================= */
@@ -487,6 +652,7 @@ export function SettingsNotify() {
 export function SettingsSecurity() {
   return (
     <div className="p0-frame">
+      <SecurityLiveBar />
       <div className="set-shell">
         <SetSide on="security"/>
         <div className="set-main">
