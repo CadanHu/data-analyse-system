@@ -553,6 +553,56 @@ export const v2Api = {
     api.get(`/v2/alert-rules/${ruleId}/subscribers`).then(r => r.data),
   myAlertSubscriptions: () =>
     api.get('/v2/me/alert-subscriptions').then(r => r.data),
+
+  // 阶段 6 · 管理后台
+  // audit
+  listAuditLogs: (params: { workspace_id?: string; actor_user_id?: number; target_type?: string; target_id?: string; since_days?: number; limit?: number; offset?: number }) =>
+    api.get('/v2/admin/audit', { params }).then(r => r.data),
+  auditStats: (workspaceId: string, sinceDays = 30) =>
+    api.get('/v2/admin/audit/_stats', { params: { workspace_id: workspaceId, since_days: sinceDays } }).then(r => r.data),
+  seedAuditLog: (data: any) =>
+    api.post('/v2/admin/audit/_seed', data).then(r => r.data),
+  // billing
+  getSubscription: (workspaceId: string) =>
+    api.get('/v2/admin/billing/subscription', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  upgradePlan: (data: any) =>
+    api.post('/v2/admin/billing/subscription', data).then(r => r.data),
+  getSeats: (workspaceId: string) =>
+    api.get('/v2/admin/billing/seats', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  updateSeats: (data: any) =>
+    api.patch('/v2/admin/billing/seats', data).then(r => r.data),
+  getUsage: (workspaceId: string, period?: string) =>
+    api.get('/v2/admin/billing/usage', { params: { workspace_id: workspaceId, period } }).then(r => r.data),
+  listInvoices: (workspaceId: string) =>
+    api.get('/v2/admin/billing/invoices', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createInvoice: (data: any) =>
+    api.post('/v2/admin/billing/invoices', data).then(r => r.data),
+  updateInvoiceStatus: (invoiceId: string, status: string) =>
+    api.patch(`/v2/admin/billing/invoices/${invoiceId}`, { status }).then(r => r.data),
+  // model routes & budgets
+  listModelRoutes: (workspaceId: string) =>
+    api.get('/v2/admin/model-routes', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createModelRoute: (data: any) =>
+    api.post('/v2/admin/model-routes', data).then(r => r.data),
+  updateModelRoute: (routeId: string, updates: any) =>
+    api.patch(`/v2/admin/model-routes/${routeId}`, updates).then(r => r.data),
+  deleteModelRoute: (routeId: string) =>
+    api.delete(`/v2/admin/model-routes/${routeId}`).then(r => r.data),
+  evaluateModelRoute: (workspaceId: string, intent: string) =>
+    api.post('/v2/admin/model-routes/_evaluate', { workspace_id: workspaceId, intent }).then(r => r.data),
+  listModelBudgets: (workspaceId: string, period?: string) =>
+    api.get('/v2/admin/model-budgets', { params: { workspace_id: workspaceId, period } }).then(r => r.data),
+  setModelBudget: (data: any) =>
+    api.post('/v2/admin/model-budgets', data).then(r => r.data),
+  // api keys
+  listApiKeys: (workspaceId: string, includeRevoked = false) =>
+    api.get('/v2/admin/api-keys', { params: { workspace_id: workspaceId, include_revoked: includeRevoked } }).then(r => r.data),
+  createApiKey: (data: any) =>
+    api.post('/v2/admin/api-keys', data).then(r => r.data),
+  rotateApiKey: (keyId: string) =>
+    api.post(`/v2/admin/api-keys/${keyId}/rotate`).then(r => r.data),
+  revokeApiKey: (keyId: string) =>
+    api.post(`/v2/admin/api-keys/${keyId}/revoke`).then(r => r.data),
 }
 
 export default api

@@ -928,3 +928,258 @@ async def list_alert_subscribers(rule_id: str, current_user: dict = Depends(get_
 @router.get("/me/alert-subscriptions")
 async def list_my_alert_subscriptions(current_user: dict = Depends(get_current_user)):
     return await v2_alert.list_user_subscriptions(current_user['id'])
+
+
+# ============================================================
+# 阶段 6 · 管理后台 (audit / billing / model routes)
+# ============================================================
+
+from database.v2 import audit_services as v2_audit
+from database.v2 import billing_services as v2_bill
+from database.v2 import model_route_services as v2_mr
+
+
+# ---------- audit ----------
+
+@router.get("/admin/audit")
+async def list_audit_logs(
+    workspace_id: Optional[str] = None,
+    actor_user_id: Optional[int] = None,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    since_days: Optional[int] = 30,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(require_role('admin')),
+):
+    return await v2_audit.list_logs(
+        workspace_id=workspace_id, actor_user_id=actor_user_id,
+        target_type=target_type, target_id=target_id,
+        since_days=since_days, limit=limit, offset=offset,
+    )
+
+
+@router.get("/admin/audit/_stats")
+async def audit_stats(
+    workspace_id: str,
+    since_days: int = 30,
+    current_user: dict = Depends(require_role('admin')),
+):
+    return await v2_audit.stats_by_action(workspace_id, since_days)
+
+
+class _AuditSeed(BaseModel):
+    action: str
+    workspace_id: Optional[str] = None
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    diff: Optional[Dict[str, Any]] = None
+
+
+@router.post("/admin/audit/_seed")
+async def seed_audit(data: _AuditSeed, current_user: dict = Depends(require_role('admin'))):
+    """联调用：手动写一条审计。生产环境请改为自动 middleware。"""
+    lid = await v2_audit.write(
+        actor_user_id=current_user['id'], action=data.action,
+        workspace_id=data.workspace_id, target_type=data.target_type,
+        target_id=data.target_id, diff=data.diff,
+    )
+    return {"id": lid}
+
+
+# ---------- billing ----------
+
+@router.get("/admin/billing/subscription")
+async def get_subscription(workspace_id: str, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.get_current_subscription(workspace_id) or {
+        'workspace_id': workspace_id, 'plan': 'free', 'billing_cycle': 'monthly',
+    }
+
+
+class _PlanUpgrade(BaseModel):
+    workspace_id: str
+    plan: str
+    billing_cycle: str = 'monthly'
+    auto_renew: bool = True
+
+
+@router.post("/admin/billing/subscription", status_code=status.HTTP_201_CREATED)
+async def upgrade_subscription(data: _PlanUpgrade, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.upgrade_plan(data.workspace_id, data.plan, data.billing_cycle, data.auto_renew)
+
+
+@router.get("/admin/billing/subscription/history")
+async def subscription_history(workspace_id: str, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.list_subscription_history(workspace_id)
+
+
+@router.get("/admin/billing/seats")
+async def get_org_seats(workspace_id: str, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.get_seats(workspace_id)
+
+
+class _SeatsUpdate(BaseModel):
+    workspace_id: str
+    used_count: Optional[int] = None
+    limit_count: Optional[int] = None
+
+
+@router.patch("/admin/billing/seats")
+async def update_org_seats(data: _SeatsUpdate, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.update_seats(data.workspace_id, data.used_count, data.limit_count)
+
+
+@router.get("/admin/billing/usage")
+async def get_usage(workspace_id: str, period: Optional[str] = None, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.get_usage(workspace_id, period)
+
+
+@router.get("/admin/billing/usage/history")
+async def usage_history(workspace_id: str, limit: int = 12, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.list_usage_history(workspace_id, limit)
+
+
+@router.get("/admin/billing/invoices")
+async def list_invoices(workspace_id: str, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.list_invoices(workspace_id)
+
+
+class _InvoiceCreate(BaseModel):
+    workspace_id: str
+    period_yyyymm: str
+    amount_cents: int
+    currency: str = 'CNY'
+
+
+@router.post("/admin/billing/invoices", status_code=status.HTTP_201_CREATED)
+async def create_invoice(data: _InvoiceCreate, current_user: dict = Depends(require_role('admin'))):
+    return await v2_bill.create_invoice(
+        workspace_id=data.workspace_id, period_yyyymm=data.period_yyyymm,
+        amount_cents=data.amount_cents, currency=data.currency,
+    )
+
+
+class _InvoiceStatus(BaseModel):
+    status: str  # draft / issued / paid / void
+
+
+@router.patch("/admin/billing/invoices/{invoice_id}")
+async def patch_invoice_status(invoice_id: str, data: _InvoiceStatus, current_user: dict = Depends(require_role('admin'))):
+    inv = await v2_bill.update_invoice_status(invoice_id, data.status)
+    if not inv:
+        raise HTTPException(status_code=404, detail="invoice 不存在或 status 非法")
+    return inv
+
+
+# ---------- model routes ----------
+
+class _ModelRouteCreate(BaseModel):
+    workspace_id: str
+    intent_pattern: str
+    target_model: str
+    priority: int = 100
+    enabled: bool = True
+
+
+class _ModelRouteUpdate(BaseModel):
+    intent_pattern: Optional[str] = None
+    target_model: Optional[str] = None
+    priority: Optional[int] = None
+    enabled: Optional[bool] = None
+
+
+@router.get("/admin/model-routes")
+async def list_model_routes(workspace_id: str, current_user: dict = Depends(require_role('admin'))):
+    return await v2_mr.list_routes(workspace_id)
+
+
+@router.post("/admin/model-routes", status_code=status.HTTP_201_CREATED)
+async def create_model_route(data: _ModelRouteCreate, current_user: dict = Depends(require_role('admin'))):
+    return await v2_mr.create_route(
+        workspace_id=data.workspace_id, intent_pattern=data.intent_pattern,
+        target_model=data.target_model, priority=data.priority, enabled=data.enabled,
+    )
+
+
+@router.patch("/admin/model-routes/{route_id}")
+async def update_model_route(route_id: str, data: _ModelRouteUpdate, current_user: dict = Depends(require_role('admin'))):
+    res = await v2_mr.update_route(route_id, data.model_dump(exclude_unset=True))
+    if not res:
+        raise HTTPException(status_code=404, detail="route 不存在")
+    return res
+
+
+@router.delete("/admin/model-routes/{route_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_model_route(route_id: str, current_user: dict = Depends(require_role('admin'))):
+    await v2_mr.delete_route(route_id)
+    return None
+
+
+class _ModelRouteEvaluate(BaseModel):
+    workspace_id: str
+    intent: str
+
+
+@router.post("/admin/model-routes/_evaluate")
+async def evaluate_model_route(data: _ModelRouteEvaluate, current_user: dict = Depends(require_role('admin'))):
+    target = await v2_mr.evaluate(data.workspace_id, data.intent)
+    return {"matched_model": target}
+
+
+# ---------- model budgets ----------
+
+@router.get("/admin/model-budgets")
+async def list_budgets(workspace_id: str, period: Optional[str] = None, current_user: dict = Depends(require_role('admin'))):
+    return await v2_mr.list_budgets(workspace_id, period)
+
+
+class _BudgetSet(BaseModel):
+    workspace_id: str
+    model_name: str
+    monthly_cap_usd_cents: int
+    alert_threshold_pct: int = 80
+    period: Optional[str] = None
+
+
+@router.post("/admin/model-budgets")
+async def set_budget(data: _BudgetSet, current_user: dict = Depends(require_role('admin'))):
+    return await v2_mr.set_budget(
+        data.workspace_id, data.model_name,
+        data.monthly_cap_usd_cents, data.alert_threshold_pct, data.period,
+    )
+
+
+# ---------- api keys v2 ----------
+
+class _ApiKeyCreate(BaseModel):
+    workspace_id: str
+    name: str = Field(..., min_length=1, max_length=128)
+    scopes: Optional[List[str]] = None
+
+
+@router.get("/admin/api-keys")
+async def list_api_keys(workspace_id: str, include_revoked: bool = False, current_user: dict = Depends(require_role('admin'))):
+    return await v2_mr.list_keys(workspace_id, include_revoked)
+
+
+@router.post("/admin/api-keys", status_code=status.HTTP_201_CREATED)
+async def create_api_key(data: _ApiKeyCreate, current_user: dict = Depends(require_role('admin'))):
+    """创建新 Key。raw_key 只在响应里返回一次，之后只能看 prefix。"""
+    return await v2_mr.create_key(
+        workspace_id=data.workspace_id, created_by_user_id=current_user['id'],
+        name=data.name, scopes=data.scopes,
+    )
+
+
+@router.post("/admin/api-keys/{key_id}/rotate", status_code=status.HTTP_201_CREATED)
+async def rotate_api_key(key_id: str, current_user: dict = Depends(require_role('admin'))):
+    res = await v2_mr.rotate_key(key_id, current_user['id'])
+    if not res:
+        raise HTTPException(status_code=404, detail="key 不存在")
+    return res
+
+
+@router.post("/admin/api-keys/{key_id}/revoke")
+async def revoke_api_key(key_id: str, current_user: dict = Depends(require_role('admin'))):
+    await v2_mr.revoke_key(key_id)
+    return {"ok": True}

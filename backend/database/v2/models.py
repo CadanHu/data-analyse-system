@@ -432,3 +432,151 @@ class AlertSubscriptionModel(V2Base):
     subscribed_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (Index('idx_asub_user', 'user_id'),)
+
+
+# ============================================================
+# 模块 8 · 审计 (1 表)
+# ============================================================
+
+class AuditLogModel(V2Base):
+    """统一审计日志 — 所有 v2 写操作都该往这里写一条。"""
+    __tablename__ = 'audit_logs'
+
+    id = Column(String(36), primary_key=True)
+    actor_user_id = Column(Integer, nullable=False)
+    workspace_id = Column(String(36), nullable=True)        # 平台级动作可为 null
+    action = Column(String(64), nullable=False)             # create/update/delete/share/revoke/...
+    target_type = Column(String(64), nullable=True)
+    target_id = Column(String(64), nullable=True)
+    diff_json = Column(JSON, nullable=True)                 # {before, after} 或自定义结构
+    ip = Column(String(64), nullable=True)
+    ua = Column(Text, nullable=True)
+    request_id = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_audit_actor', 'actor_user_id', 'created_at'),
+        Index('idx_audit_ws', 'workspace_id', 'created_at'),
+        Index('idx_audit_target', 'target_type', 'target_id'),
+    )
+
+
+# ============================================================
+# 模块 9 · 计费 (4 表)
+# ============================================================
+
+class SubscriptionModel(V2Base):
+    """工作区订阅套餐。"""
+    __tablename__ = 'subscriptions'
+
+    id = Column(String(36), primary_key=True)
+    workspace_id = Column(String(36), nullable=False)
+    plan = Column(String(16), nullable=False, default='free')     # free/team/business/enterprise
+    billing_cycle = Column(String(16), default='monthly')         # monthly/yearly
+    valid_from = Column(DateTime, default=datetime.utcnow)
+    valid_until = Column(DateTime, nullable=True)
+    auto_renew = Column(Boolean, default=True)
+    external_subscription_id = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index('idx_sub_ws', 'workspace_id'),)
+
+
+class OrgSeatsModel(V2Base):
+    """工作区席位用量（每个 workspace 一条）。"""
+    __tablename__ = 'org_seats'
+
+    workspace_id = Column(String(36), primary_key=True)
+    used_count = Column(Integer, default=0)
+    limit_count = Column(Integer, default=5)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UsageCounterModel(V2Base):
+    """月度用量计数器（组合主键）。"""
+    __tablename__ = 'usage_counters'
+
+    workspace_id = Column(String(36), primary_key=True)
+    period_yyyymm = Column(String(7), primary_key=True)            # "2026-05"
+    asks_count = Column(Integer, default=0)
+    tokens_total = Column(Integer, default=0)
+    compute_seconds_total = Column(Integer, default=0)
+    storage_bytes_avg = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class InvoiceModel(V2Base):
+    """发票。金额用 cents 整数避免浮点累计误差。"""
+    __tablename__ = 'invoices'
+
+    id = Column(String(36), primary_key=True)
+    workspace_id = Column(String(36), nullable=False)
+    period_yyyymm = Column(String(7), nullable=False)
+    amount_cents = Column(Integer, nullable=False)
+    currency = Column(String(8), default='CNY')
+    status = Column(String(16), default='draft')                   # draft/issued/paid/void
+    pdf_url = Column(String(512), nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_inv_ws', 'workspace_id', 'period_yyyymm'),
+    )
+
+
+# ============================================================
+# 模块 10 · 模型与算力 (3 表)
+# ============================================================
+
+class ModelRouteModel(V2Base):
+    """模型路由：哪种意图走哪个模型 (priority 高的先匹配)。"""
+    __tablename__ = 'model_routes'
+
+    id = Column(String(36), primary_key=True)
+    workspace_id = Column(String(36), nullable=False)
+    intent_pattern = Column(String(255), nullable=False)            # 简单关键词或正则
+    target_model = Column(String(128), nullable=False)              # 如 deepseek-r1 / claude-4
+    priority = Column(Integer, default=100)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_mr_ws', 'workspace_id', 'priority'),
+    )
+
+
+class ModelBudgetModel(V2Base):
+    """模型预算 (workspace × model × 月)。"""
+    __tablename__ = 'model_budgets'
+
+    workspace_id = Column(String(36), primary_key=True)
+    model_name = Column(String(128), primary_key=True)
+    period_yyyymm = Column(String(7), primary_key=True)
+    monthly_cap_usd_cents = Column(Integer, default=0)              # 月度上限
+    used_cents = Column(Integer, default=0)
+    alert_threshold_pct = Column(Integer, default=80)               # 80% 时报警
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ApiKeyV2Model(V2Base):
+    """组织级 API Key — 与旧 user_api_keys 语义完全不同。"""
+    __tablename__ = 'api_keys_v2'
+
+    id = Column(String(36), primary_key=True)
+    workspace_id = Column(String(36), nullable=False)
+    name = Column(String(128), nullable=False)
+    key_prefix = Column(String(16), nullable=False)                 # 显示用：dpv2_ab...
+    key_hash = Column(String(128), nullable=False)                  # 完整 key 的哈希
+    scopes_json = Column(JSON, nullable=True)
+    created_by_user_id = Column(Integer, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+    rotated_from_id = Column(String(36), nullable=True)             # 轮换链
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_apk_ws', 'workspace_id'),
+        Index('idx_apk_hash', 'key_hash'),
+    )

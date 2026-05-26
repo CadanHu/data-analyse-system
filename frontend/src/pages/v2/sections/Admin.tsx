@@ -1,8 +1,254 @@
 // @ts-nocheck
 // Ported verbatim from datapulse-ai-design-system/project/v2/Admin.jsx
+// 阶段 6 真实数据接入：4 个 Admin 子页都用 Live 浮动条
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { v2Api } from '../../../api'
 
 const { useState: useS_AD } = React;
+
+/* ---------- Live data bars (阶段 6, 仅 admin role) ---------- */
+
+function AuditLiveBar() {
+  const [workspace, setWorkspace] = useState(null)
+  const [logs, setLogs] = useState([])
+  const [stats, setStats] = useState([])
+  const [err, setErr] = useState(null)
+
+  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
+  useEffect(() => {
+    if (!workspace) return
+    Promise.all([
+      v2Api.listAuditLogs({ workspace_id: workspace.id, since_days: 30, limit: 50 }),
+      v2Api.auditStats(workspace.id, 30),
+    ]).then(([l, s]) => { setLogs(l); setStats(s); setErr(null) }).catch(e => setErr(e?.response?.data?.detail || e?.message))
+  }, [workspace])
+
+  return (
+    <LiveBarAD title="审计日志 · 真实数据 (admin only)" footer={err ? `⚠ ${err}` : `${logs.length} 条 · 30 天`}>
+      <button onClick={async () => {
+        if (!workspace) return
+        await v2Api.seedAuditLog({ action: 'create', workspace_id: workspace.id, target_type: 'manual_test', target_id: 't-' + Date.now() })
+        const l = await v2Api.listAuditLogs({ workspace_id: workspace.id, limit: 50 })
+        setLogs(l)
+      }} style={btnGhostAD}>＋ 造一条</button>
+      {stats.length > 0 && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+        按动作: {stats.slice(0, 4).map(s => `${s.action}(${s.count})`).join(' / ')}
+      </span>}
+      <div style={{ width: '100%', marginTop: 8, maxHeight: 200, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {logs.length === 0 ? <div style={{ color: 'var(--ink-4)', fontSize: 12 }}>暂无日志</div>
+          : logs.map(l => (
+            <div key={l.id} style={liveRowAD}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-deep)', textTransform: 'uppercase', padding: '1px 5px', background: 'oklch(0.78 0.16 65 / 0.12)', borderRadius: 4 }}>{l.action}</span>
+              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>actor #{l.actor_user_id}</span>
+              <span style={{ flex: 1, fontSize: 11, color: 'var(--ink-2)' }}>
+                {l.target_type ? `${l.target_type}/${(l.target_id || '').slice(0, 12)}` : '—'}
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-4)' }}>{(l.created_at || '').slice(11, 19)}</span>
+            </div>
+          ))
+        }
+      </div>
+    </LiveBarAD>
+  )
+}
+
+function BillingLiveBar() {
+  const [workspace, setWorkspace] = useState(null)
+  const [sub, setSub] = useState(null)
+  const [seats, setSeats] = useState(null)
+  const [usage, setUsage] = useState(null)
+  const [invs, setInvs] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
+  const reload = async () => {
+    if (!workspace) return
+    try {
+      const [s, st, u, iv] = await Promise.all([
+        v2Api.getSubscription(workspace.id),
+        v2Api.getSeats(workspace.id),
+        v2Api.getUsage(workspace.id),
+        v2Api.listInvoices(workspace.id),
+      ])
+      setSub(s); setSeats(st); setUsage(u); setInvs(iv); setErr(null)
+    } catch (e) { setErr(e?.response?.data?.detail || e?.message) }
+  }
+  useEffect(() => { reload() }, [workspace])
+
+  const upgrade = async (plan) => {
+    setBusy(true)
+    try { await v2Api.upgradePlan({ workspace_id: workspace.id, plan, billing_cycle: 'yearly' }); await reload() }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <LiveBarAD title="账单 · 真实数据 (admin only)" footer={err ? `⚠ ${err}` : null}>
+      {sub && <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>当前: <b>{sub.plan}</b> · {sub.billing_cycle || '—'}</span>}
+      {seats && <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>席位: {seats.used_count}/{seats.limit_count}</span>}
+      {usage && <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>本月: {usage.asks_count} 提问 · {usage.tokens_total} tokens</span>}
+      <div style={{ display: 'flex', gap: 6 }}>
+        {['free','team','business','enterprise'].map(p => (
+          <button key={p} disabled={busy || sub?.plan === p} onClick={() => upgrade(p)}
+            style={{ ...btnGhostAD, opacity: sub?.plan === p ? 0.4 : 1 }}>{p}</button>
+        ))}
+      </div>
+      {invs.length > 0 && (
+        <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {invs.slice(0, 5).map(inv => (
+            <div key={inv.id} style={liveRowAD}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{inv.period_yyyymm}</span>
+              <span style={{ flex: 1, fontSize: 12 }}>{(inv.amount_cents / 100).toFixed(2)} {inv.currency}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: inv.status === 'paid' ? 'var(--success)' : 'var(--ink-3)' }}>{inv.status}</span>
+              {inv.status === 'draft' && (
+                <button onClick={async () => { await v2Api.updateInvoiceStatus(inv.id, 'paid'); reload() }} style={btnGhostAD}>标为已支付</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </LiveBarAD>
+  )
+}
+
+function ModelsLiveBar() {
+  const [workspace, setWorkspace] = useState(null)
+  const [routes, setRoutes] = useState([])
+  const [budgets, setBudgets] = useState([])
+  const [pattern, setPattern] = useState('')
+  const [model, setModel] = useState('deepseek-r1')
+  const [busy, setBusy] = useState(false)
+  const [evalResult, setEvalResult] = useState(null)
+
+  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
+  const reload = async () => {
+    if (!workspace) return
+    try {
+      const [r, b] = await Promise.all([
+        v2Api.listModelRoutes(workspace.id),
+        v2Api.listModelBudgets(workspace.id),
+      ])
+      setRoutes(r); setBudgets(b)
+    } catch {}
+  }
+  useEffect(() => { reload() }, [workspace])
+
+  const create = async () => {
+    if (!pattern.trim() || !workspace) return
+    setBusy(true)
+    try {
+      await v2Api.createModelRoute({ workspace_id: workspace.id, intent_pattern: pattern.trim(), target_model: model, priority: 100 })
+      setPattern(''); reload()
+    } finally { setBusy(false) }
+  }
+  const evaluate = async () => {
+    if (!workspace) return
+    const intent = window.prompt('输入意图字符串', 'SQL 查询') || ''
+    if (!intent) return
+    const r = await v2Api.evaluateModelRoute(workspace.id, intent)
+    setEvalResult(`「${intent}」→ ${r.matched_model || '(未命中)'}`)
+    setTimeout(() => setEvalResult(null), 4000)
+  }
+
+  return (
+    <LiveBarAD title="模型路由 · 真实数据 (admin only)" footer={evalResult}>
+      <input value={pattern} onChange={e => setPattern(e.target.value)} placeholder="intent 子串 (如 SQL)" style={{ minWidth: 160, padding: '4px 8px' }} />
+      <select value={model} onChange={e => setModel(e.target.value)}>
+        {['deepseek-r1', 'deepseek-v3', 'openai-gpt-4', 'claude-opus', 'gemini-flash'].map(m => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <button disabled={busy || !pattern.trim()} onClick={create} style={btnPriAD}>＋ 加路由</button>
+      <button onClick={evaluate} style={btnGhostAD}>evaluate</button>
+      <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{routes.length} 条路由 · {budgets.length} 个预算</span>
+      <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {routes.map(r => (
+          <div key={r.id} style={liveRowAD}>
+            <span style={{ fontSize: 12 }}><b>{r.intent_pattern}</b> → {r.target_model}</span>
+            <span style={{ flex: 1, fontSize: 10, color: 'var(--ink-4)' }}>priority {r.priority}</span>
+            <button onClick={async () => { await v2Api.deleteModelRoute(r.id); reload() }} style={{ ...btnGhostAD, color: 'var(--ink-4)' }}>✕</button>
+          </div>
+        ))}
+      </div>
+    </LiveBarAD>
+  )
+}
+
+function ApiKeysLiveBar() {
+  const [workspace, setWorkspace] = useState(null)
+  const [keys, setKeys] = useState([])
+  const [includeRevoked, setIncludeRevoked] = useState(false)
+  const [name, setName] = useState('')
+  const [revealedKey, setRevealedKey] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
+  const reload = async () => {
+    if (!workspace) return
+    try { setKeys(await v2Api.listApiKeys(workspace.id, includeRevoked)) } catch {}
+  }
+  useEffect(() => { reload() }, [workspace, includeRevoked])
+
+  const create = async () => {
+    if (!name.trim() || !workspace) return
+    setBusy(true)
+    try {
+      const k = await v2Api.createApiKey({ workspace_id: workspace.id, name: name.trim() })
+      setRevealedKey(k.key_plaintext); setName(''); reload()
+    } finally { setBusy(false) }
+  }
+  const rotate = async (kid) => {
+    setBusy(true)
+    try {
+      const nk = await v2Api.rotateApiKey(kid)
+      setRevealedKey(nk.key_plaintext); reload()
+    } finally { setBusy(false) }
+  }
+  const revoke = async (kid) => {
+    if (!confirm('撤销后该 Key 立即失效。')) return
+    await v2Api.revokeApiKey(kid); reload()
+  }
+
+  return (
+    <LiveBarAD title="API Keys · 真实数据 (admin only)" footer={revealedKey ? `⚠ 仅此一次：${revealedKey.slice(0, 24)}...` : null}>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Key 名称（如 CI 集成）" style={{ minWidth: 180, padding: '4px 8px' }} />
+      <button disabled={busy || !name.trim()} onClick={create} style={btnPriAD}>＋ 新建</button>
+      <label style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+        <input type="checkbox" checked={includeRevoked} onChange={e => setIncludeRevoked(e.target.checked)} /> 显示已撤销
+      </label>
+      <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {keys.map(k => (
+          <div key={k.id} style={{ ...liveRowAD, opacity: k.revoked_at ? 0.5 : 1 }}>
+            <span style={{ fontSize: 12 }}><b>{k.name}</b></span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>{k.key_prefix}...</span>
+            <span style={{ flex: 1, fontSize: 10, color: 'var(--ink-4)' }}>
+              {k.revoked_at ? `撤销于 ${k.revoked_at.slice(0,16)}` : (k.last_used_at ? `最后使用 ${k.last_used_at.slice(0,16)}` : '从未使用')}
+              {k.rotated_from_id && <span> · 由旧 Key 轮换</span>}
+            </span>
+            {!k.revoked_at && <>
+              <button onClick={() => rotate(k.id)} style={btnGhostAD}>轮换</button>
+              <button onClick={() => revoke(k.id)} style={{ ...btnGhostAD, color: 'var(--ink-4)' }}>撤销</button>
+            </>}
+          </div>
+        ))}
+      </div>
+    </LiveBarAD>
+  )
+}
+
+const liveRowAD = { padding: '6px 10px', background: 'var(--paper)', border: '1px solid var(--line-1)', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 10 }
+const btnPriAD = { padding: '6px 12px', background: 'var(--amber-deep)', color: 'var(--paper)', border: 0, borderRadius: 6, fontSize: 12, cursor: 'pointer' }
+const btnGhostAD = { padding: '4px 10px', background: 'transparent', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 11, cursor: 'pointer' }
+
+function LiveBarAD({ title, footer, children }) {
+  return (
+    <div style={{ padding: '12px 18px', background: 'oklch(0.78 0.16 65 / 0.10)', borderBottom: '1px solid var(--amber-deep)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--amber-deep)' }}>● {title}</span>
+        {children}
+        {footer && <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-3)' }}>{footer}</span>}
+      </div>
+    </div>
+  )
+}
 
 /* =========================================================
    Admin · Audit / API keys / Models / Billing
@@ -51,6 +297,7 @@ const AUDIT = [
 export function AdminAudit() {
   return (
     <div className="p0-frame">
+      <AuditLiveBar />
       <div className="adm-shell">
         <AdmSide on="audit"/>
         <div className="adm-main">
@@ -146,6 +393,7 @@ export function AdminAudit() {
 export function AdminApiKeys() {
   return (
     <div className="p0-frame">
+      <ApiKeysLiveBar />
       <div className="adm-shell">
         <AdmSide on="keys"/>
         <div className="adm-main">
@@ -264,6 +512,7 @@ function Ring({ pct }) {
 export function AdminModels() {
   return (
     <div className="p0-frame">
+      <ModelsLiveBar />
       <div className="adm-shell">
         <AdmSide on="models"/>
         <div className="adm-main">
@@ -399,6 +648,7 @@ export function AdminModels() {
 export function AdminBilling() {
   return (
     <div className="p0-frame">
+      <BillingLiveBar />
       <div className="adm-shell">
         <AdmSide on="billing"/>
         <div className="adm-main">
