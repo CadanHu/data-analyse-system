@@ -1293,3 +1293,341 @@ async def revoke_my_oauth_app(app_id: str, current_user: dict = Depends(get_curr
     if not ok:
         raise HTTPException(status_code=404, detail="授权不存在或非你所有")
     return None
+
+
+# ============================================================
+# 节点详情 · /nodes/{id}/* (依赖阶段 2 已建的 node_comments / node_mentions 表)
+# ============================================================
+
+from database.v2 import node_services as v2_node
+
+
+async def _require_node_readable(node_id: str, user_id: int) -> Dict[str, Any]:
+    """node 可读 = 所在 session 的 owner 或 workspace 成员。"""
+    detail = await v2_node.get_node_detail(node_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    sid = detail['session_id']
+    ses = await v2_canvas.get_session(sid)
+    if not ses:
+        raise HTTPException(status_code=404, detail="所属会话不存在")
+    if ses['owner_user_id'] == user_id:
+        return detail
+    role = await v2_svc.get_member_role(ses['workspace_id'], user_id)
+    if not role:
+        raise HTTPException(status_code=403, detail="无权访问此节点")
+    return detail
+
+
+class _CommentAdd(BaseModel):
+    body: str = Field(..., min_length=1)
+    parent_comment_id: Optional[str] = None
+    mentions: Optional[List[int]] = None
+
+
+class _NodeStatusUpdate(BaseModel):
+    clarify_status: Optional[str] = None
+    hitl_status: Optional[str] = None
+
+
+@router.get("/nodes/{node_id}")
+async def get_node(node_id: str, current_user: dict = Depends(get_current_user)):
+    return await _require_node_readable(node_id, current_user['id'])
+
+
+@router.get("/nodes/{node_id}/comments")
+async def list_node_comments(node_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_node_readable(node_id, current_user['id'])
+    return await v2_node.list_comments(node_id)
+
+
+@router.post("/nodes/{node_id}/comments", status_code=status.HTTP_201_CREATED)
+async def add_node_comment(node_id: str, data: _CommentAdd, current_user: dict = Depends(get_current_user)):
+    await _require_node_readable(node_id, current_user['id'])
+    return await v2_node.add_comment(
+        node_id, current_user['id'], data.body,
+        parent_comment_id=data.parent_comment_id, mentions=data.mentions,
+    )
+
+
+@router.post("/nodes/{node_id}/comments/{comment_id}/resolve")
+async def resolve_node_comment(node_id: str, comment_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_node_readable(node_id, current_user['id'])
+    c = await v2_node.resolve_comment(comment_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="评论不存在")
+    return c
+
+
+@router.delete("/nodes/{node_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_node_comment(node_id: str, comment_id: str, current_user: dict = Depends(get_current_user)):
+    ok = await v2_node.delete_comment(comment_id, current_user['id'])
+    if not ok:
+        raise HTTPException(status_code=403, detail="无权删除此评论或评论不存在")
+    return None
+
+
+@router.get("/nodes/{node_id}/versions")
+async def list_node_versions(node_id: str, current_user: dict = Depends(get_current_user)):
+    detail = await _require_node_readable(node_id, current_user['id'])
+    return await v2_node.list_message_versions(detail['message_id'])
+
+
+@router.patch("/nodes/{node_id}/status")
+async def update_node_status(node_id: str, data: _NodeStatusUpdate, current_user: dict = Depends(get_current_user)):
+    await _require_node_readable(node_id, current_user['id'])
+    out = None
+    if data.clarify_status is not None:
+        out = await v2_node.set_clarify_status(node_id, data.clarify_status)
+        if out is None:
+            raise HTTPException(status_code=400, detail="非法 clarify_status")
+    if data.hitl_status is not None:
+        out = await v2_node.set_hitl_status(node_id, data.hitl_status)
+        if out is None:
+            raise HTTPException(status_code=400, detail="非法 hitl_status")
+    return out or {"ok": True}
+
+
+@router.get("/nodes/{node_id}/_delete_impact")
+async def get_node_delete_impact(node_id: str, current_user: dict = Depends(get_current_user)):
+    await _require_node_readable(node_id, current_user['id'])
+    return await v2_node.get_delete_impact(node_id)
+
+
+@router.delete("/nodes/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_node_endpoint(
+    node_id: str, cascade: bool = False,
+    current_user: dict = Depends(get_current_user),
+):
+    detail = await _require_node_readable(node_id, current_user['id'])
+    # 写权限：session owner 才能删
+    ses = await v2_canvas.get_session(detail['session_id'])
+    if ses and ses['owner_user_id'] != current_user['id']:
+        raise HTTPException(status_code=403, detail="只有会话拥有者能删节点")
+    ok = await v2_node.delete_node(node_id, cascade=cascade)
+    if not ok:
+        raise HTTPException(status_code=404, detail="节点不存在")
+    return None
+
+
+# ============================================================
+# 阶段 8 MVP · 语义层/指标中心 (datasource_tables / column_meta / column_semantic_tags / metrics / synonyms / lineage)
+# 注：DSL 解析、AI 同义词、向量匹配留待后续
+# ============================================================
+
+from database.v2 import semantic_services as v2_sem
+
+
+class _TableUpsert(BaseModel):
+    ds_id: str
+    schema_name: str
+    table_name: str
+    row_count_estimate: int = 0
+    comment: Optional[str] = None
+
+
+class _ColumnUpsert(BaseModel):
+    ds_id: str
+    schema_name: str
+    table_name: str
+    column_name: str
+    dtype: Optional[str] = None
+    null_ratio: int = 0
+    distinct_count: int = 0
+    sample_values: Optional[List[Any]] = None
+    comment: Optional[str] = None
+
+
+class _TagUpsert(BaseModel):
+    tag_name: str
+    confidence: int = 100
+    source: str = 'manual'
+
+
+class _MetricCreate(BaseModel):
+    workspace_id: str
+    name: str = Field(..., min_length=1)
+    expression: str = Field(..., min_length=1)
+    biz_definition: Optional[str] = None
+    unit: Optional[str] = None
+
+
+class _MetricUpdate(BaseModel):
+    name: Optional[str] = None
+    expression: Optional[str] = None
+    biz_definition: Optional[str] = None
+    unit: Optional[str] = None
+
+
+class _SynonymAdd(BaseModel):
+    synonym_text: str
+    weight: int = 100
+    source: str = 'user'
+
+
+class _LineageAdd(BaseModel):
+    to_type: str   # metric / table_column
+    to_id: str
+    relation: str = 'uses'
+
+
+# ---------- datasource tables ----------
+
+@router.get("/semantic/tables")
+async def list_ds_tables(
+    ds_id: str, schema_name: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    return await v2_sem.list_tables(ds_id, schema_name)
+
+
+@router.post("/semantic/tables", status_code=status.HTTP_201_CREATED)
+async def upsert_ds_table(data: _TableUpsert, current_user: dict = Depends(get_current_user)):
+    return await v2_sem.upsert_table_meta(
+        data.ds_id, data.schema_name, data.table_name,
+        row_count_estimate=data.row_count_estimate, comment=data.comment,
+    )
+
+
+# ---------- columns ----------
+
+@router.get("/semantic/columns")
+async def list_ds_columns(
+    ds_id: str, schema_name: str, table_name: str,
+    current_user: dict = Depends(get_current_user),
+):
+    return await v2_sem.list_columns(ds_id, schema_name, table_name)
+
+
+@router.post("/semantic/columns", status_code=status.HTTP_201_CREATED)
+async def upsert_ds_column(data: _ColumnUpsert, current_user: dict = Depends(get_current_user)):
+    return await v2_sem.upsert_column(
+        data.ds_id, data.schema_name, data.table_name, data.column_name,
+        dtype=data.dtype, null_ratio=data.null_ratio,
+        distinct_count=data.distinct_count,
+        sample_values=data.sample_values, comment=data.comment,
+    )
+
+
+# ---------- column tags ----------
+
+@router.get("/semantic/columns/{column_id}/tags")
+async def list_column_tags(column_id: str, current_user: dict = Depends(get_current_user)):
+    return await v2_sem.list_tags(column_id)
+
+
+@router.post("/semantic/columns/{column_id}/tags", status_code=status.HTTP_201_CREATED)
+async def add_column_tag(column_id: str, data: _TagUpsert, current_user: dict = Depends(get_current_user)):
+    return await v2_sem.upsert_tag(
+        column_id, data.tag_name,
+        confidence=data.confidence, source=data.source, tagged_by=current_user['id'],
+    )
+
+
+@router.delete("/semantic/columns/{column_id}/tags/{tag_name}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_column_tag(column_id: str, tag_name: str, current_user: dict = Depends(get_current_user)):
+    await v2_sem.remove_tag(column_id, tag_name)
+    return None
+
+
+# ---------- metrics ----------
+
+@router.get("/semantic/metrics")
+async def list_metrics(workspace_id: str, current_user: dict = Depends(get_current_user)):
+    role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    return await v2_sem.list_metrics(workspace_id)
+
+
+@router.post("/semantic/metrics", status_code=status.HTTP_201_CREATED)
+async def create_metric(data: _MetricCreate, current_user: dict = Depends(get_current_user)):
+    role = await v2_svc.get_member_role(data.workspace_id, current_user['id'])
+    if role not in ('owner', 'admin', 'editor'):
+        raise HTTPException(status_code=403, detail="只有 owner/admin/editor 能创建指标")
+    return await v2_sem.create_metric(
+        workspace_id=data.workspace_id, owner_user_id=current_user['id'],
+        name=data.name, expression=data.expression,
+        biz_definition=data.biz_definition, unit=data.unit,
+    )
+
+
+@router.get("/semantic/metrics/{metric_id}")
+async def get_metric(metric_id: str, current_user: dict = Depends(get_current_user)):
+    m = await v2_sem.get_metric(metric_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="metric 不存在")
+    return m
+
+
+@router.patch("/semantic/metrics/{metric_id}")
+async def update_metric(metric_id: str, data: _MetricUpdate, current_user: dict = Depends(get_current_user)):
+    m = await v2_sem.get_metric(metric_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="metric 不存在")
+    if m['owner_user_id'] != current_user['id']:
+        role = await v2_svc.get_member_role(m['workspace_id'], current_user['id'])
+        if role not in ('owner', 'admin'):
+            raise HTTPException(status_code=403, detail="无权修改此指标")
+    return await v2_sem.update_metric(metric_id, data.model_dump(exclude_unset=True))
+
+
+@router.delete("/semantic/metrics/{metric_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_metric(metric_id: str, current_user: dict = Depends(get_current_user)):
+    m = await v2_sem.get_metric(metric_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="metric 不存在")
+    if m['owner_user_id'] != current_user['id']:
+        role = await v2_svc.get_member_role(m['workspace_id'], current_user['id'])
+        if role not in ('owner', 'admin'):
+            raise HTTPException(status_code=403, detail="无权删除")
+    await v2_sem.delete_metric(metric_id)
+    return None
+
+
+@router.get("/semantic/search-metrics")
+async def search_metric(workspace_id: str, q: str, limit: int = 10, current_user: dict = Depends(get_current_user)):
+    """注意：路径用 search-metrics 而非 metrics/_search，避免被 /metrics/{metric_id} 吃掉。"""
+    role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    return await v2_sem.search_metrics(workspace_id, q, limit)
+
+
+# ---------- synonyms ----------
+
+@router.get("/semantic/metrics/{metric_id}/synonyms")
+async def list_metric_synonyms(metric_id: str, current_user: dict = Depends(get_current_user)):
+    return await v2_sem.list_synonyms(metric_id)
+
+
+@router.post("/semantic/metrics/{metric_id}/synonyms", status_code=status.HTTP_201_CREATED)
+async def add_metric_synonym(metric_id: str, data: _SynonymAdd, current_user: dict = Depends(get_current_user)):
+    return await v2_sem.add_synonym(metric_id, data.synonym_text, data.weight, data.source)
+
+
+@router.delete("/semantic/metrics/{metric_id}/synonyms/{synonym_text}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_metric_synonym(metric_id: str, synonym_text: str, current_user: dict = Depends(get_current_user)):
+    await v2_sem.remove_synonym(metric_id, synonym_text)
+    return None
+
+
+# ---------- lineage ----------
+
+@router.get("/semantic/metrics/{metric_id}/lineage")
+async def list_metric_lineage(metric_id: str, current_user: dict = Depends(get_current_user)):
+    return await v2_sem.list_lineage(metric_id)
+
+
+@router.post("/semantic/metrics/{metric_id}/lineage", status_code=status.HTTP_201_CREATED)
+async def add_metric_lineage(metric_id: str, data: _LineageAdd, current_user: dict = Depends(get_current_user)):
+    try:
+        return await v2_sem.add_lineage(metric_id, data.to_type, data.to_id, data.relation)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/semantic/metrics/{metric_id}/lineage/{to_type}/{to_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_metric_lineage(metric_id: str, to_type: str, to_id: str, current_user: dict = Depends(get_current_user)):
+    await v2_sem.remove_lineage(metric_id, to_type, to_id)
+    return None

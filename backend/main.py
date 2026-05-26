@@ -19,6 +19,7 @@ from database.datasource_db import datasource_db
 from database.v2 import v2_db
 
 from middleware import setup_exception_handlers, rate_limit_middleware
+from middleware.v2_audit import V2AuditMiddleware
 from utils.logger import setup_logging
 
 from contextlib import asynccontextmanager
@@ -90,6 +91,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+# 阶段 8 横向：v2 自动审计 middleware (POST/PATCH/DELETE 到 /api/v2/* 自动入 audit_logs)
+app.add_middleware(V2AuditMiddleware)
 
 
 # 2. 速率限制中间件

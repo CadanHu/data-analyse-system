@@ -580,3 +580,97 @@ class ApiKeyV2Model(V2Base):
         Index('idx_apk_ws', 'workspace_id'),
         Index('idx_apk_hash', 'key_hash'),
     )
+
+
+# ============================================================
+# 模块 11 · 语义层 / 指标中心 (6 表) — 阶段 8 MVP
+# ============================================================
+# 注：本阶段只建表 + 基础 CRUD，metric.expression 暂用普通字符串，DSL 解析留待后续
+# AI 同义词、向量匹配也留待后续
+
+class DatasourceTableMetaModel(V2Base):
+    """数据源下的表 (从 user_datasources 关联) — SchemaSemantic 树用。"""
+    __tablename__ = 'datasource_tables_meta'
+
+    ds_id = Column(String(36), primary_key=True)            # 来源 user_datasources.id (旧 schema)
+    schema_name = Column(String(128), primary_key=True)
+    table_name = Column(String(128), primary_key=True)
+    row_count_estimate = Column(Integer, default=0)
+    last_synced_at = Column(DateTime, nullable=True)
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ColumnMetaModel(V2Base):
+    """字段元数据 — 字段语义打标依赖这张表。"""
+    __tablename__ = 'column_meta'
+
+    id = Column(String(36), primary_key=True)
+    ds_id = Column(String(36), nullable=False)
+    schema_name = Column(String(128), nullable=False)
+    table_name = Column(String(128), nullable=False)
+    column_name = Column(String(128), nullable=False)
+    dtype = Column(String(64), nullable=True)
+    null_ratio = Column(Integer, default=0)                 # 百分比 *100 整数
+    distinct_count = Column(Integer, default=0)
+    sample_values_json = Column(JSON, nullable=True)
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('ds_id', 'schema_name', 'table_name', 'column_name', name='uq_col_meta'),
+        Index('idx_col_table', 'ds_id', 'schema_name', 'table_name'),
+    )
+
+
+class ColumnSemanticTagModel(V2Base):
+    """字段语义标签 (组合主键)。"""
+    __tablename__ = 'column_semantic_tags'
+
+    column_id = Column(String(36), primary_key=True)
+    tag_name = Column(String(64), primary_key=True)
+    confidence = Column(Integer, default=100)                # 0-100 整数
+    source = Column(String(16), default='manual')            # ai / user / manual
+    tagged_by = Column(Integer, nullable=True)               # user_id
+    tagged_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MetricModel(V2Base):
+    """业务指标定义 — 指标中心。"""
+    __tablename__ = 'metrics'
+
+    id = Column(String(36), primary_key=True)
+    workspace_id = Column(String(36), nullable=False)
+    name = Column(String(128), nullable=False)               # 唯一性由代码层保证（workspace 内）
+    expression = Column(Text, nullable=False)                # 暂用普通字符串，未来加 DSL 解析
+    biz_definition = Column(Text, nullable=True)
+    unit = Column(String(32), nullable=True)
+    owner_user_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_metric_ws', 'workspace_id'),
+    )
+
+
+class MetricSynonymModel(V2Base):
+    """指标同义词 — AI 用 (组合主键)。"""
+    __tablename__ = 'metric_synonyms'
+
+    metric_id = Column(String(36), primary_key=True)
+    synonym_text = Column(String(128), primary_key=True)
+    weight = Column(Integer, default=100)                    # 匹配权重，越大越优先
+    source = Column(String(16), default='user')              # ai / user
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MetricLineageModel(V2Base):
+    """指标血缘 — 一条指标依赖于哪些其它指标 / 表字段。"""
+    __tablename__ = 'metric_lineage'
+
+    from_metric_id = Column(String(36), primary_key=True)
+    to_type = Column(String(16), primary_key=True)           # metric / table_column
+    to_id = Column(String(128), primary_key=True)
+    relation = Column(String(16), default='uses')            # uses / derives
+    created_at = Column(DateTime, default=datetime.utcnow)

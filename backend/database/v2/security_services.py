@@ -13,6 +13,8 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.future import select
 from sqlalchemy import delete as sa_delete
 
+import pyotp
+
 from .base import v2_db
 from .models import User2FAModel, UserLoginSessionModel, OAuthAuthorizedAppModel
 
@@ -26,8 +28,8 @@ def _to_dict(obj) -> Dict[str, Any]:
 # ============================================================
 
 def _generate_totp_secret() -> str:
-    """生成 base32 风格的 TOTP secret (32 字符)。"""
-    return _secrets.token_urlsafe(20)[:32]
+    """生成 base32 TOTP secret (兼容标准 Authenticator app)。"""
+    return pyotp.random_base32()
 
 
 def _hash_code(code: str) -> str:
@@ -86,7 +88,8 @@ async def setup_2fa(user_id: int) -> Dict[str, Any]:
 async def verify_and_enable_2fa(user_id: int, code: str) -> bool:
     """验证用户提供的 TOTP 码并启用 2FA。
 
-    本阶段最小实现：接受任意 6 位数字 (mock)。生产换 pyotp.TOTP(secret).verify(code)。
+    用 pyotp.TOTP 真实校验 (RFC 6238)。
+    valid_window=1 容忍 ±30s 时钟漂移。
     """
     if not code or not (code.isdigit() and len(code) == 6):
         return False
@@ -95,10 +98,50 @@ async def verify_and_enable_2fa(user_id: int, code: str) -> bool:
         r = res.scalar_one_or_none()
         if not r:
             return False
-        r.enabled_at = datetime.utcnow()
+        # 真实校验
+        if not pyotp.TOTP(r.secret).verify(code, valid_window=1):
+            # 失败可能也是用户用了备份码：尝试备份码消费
+            return await _consume_backup_code(user_id, code)
+        r.enabled_at = r.enabled_at or datetime.utcnow()
         r.last_used_at = datetime.utcnow()
         await s.commit()
         return True
+
+
+async def _consume_backup_code(user_id: int, code: str) -> bool:
+    """尝试消费一个备份码（用 hash 比对）。成功返回 True。"""
+    code_hash = _hash_code(code)
+    async with v2_db.async_session() as s:
+        res = await s.execute(select(User2FAModel).where(User2FAModel.user_id == user_id))
+        r = res.scalar_one_or_none()
+        if not r or not r.backup_codes_hash:
+            return False
+        codes = list(r.backup_codes_hash)
+        if code_hash not in codes:
+            return False
+        codes.remove(code_hash)
+        r.backup_codes_hash = codes
+        r.enabled_at = r.enabled_at or datetime.utcnow()
+        r.last_used_at = datetime.utcnow()
+        await s.commit()
+        return True
+
+
+async def verify_totp_only(user_id: int, code: str) -> bool:
+    """登录链路用：只验证不改 enabled_at（已启用的用户每次登录都调）。"""
+    if not code or not (code.isdigit() and len(code) == 6):
+        return False
+    async with v2_db.async_session() as s:
+        res = await s.execute(select(User2FAModel).where(User2FAModel.user_id == user_id))
+        r = res.scalar_one_or_none()
+        if not r or not r.enabled_at:
+            return False
+        ok = pyotp.TOTP(r.secret).verify(code, valid_window=1)
+        if ok:
+            r.last_used_at = datetime.utcnow()
+            await s.commit()
+            return True
+        return await _consume_backup_code(user_id, code)
 
 
 async def disable_2fa(user_id: int) -> None:
