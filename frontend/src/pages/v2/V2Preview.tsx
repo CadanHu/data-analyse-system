@@ -278,7 +278,7 @@ export default function V2Preview() {
                 blocked ? (
                   <ForbiddenPage groupTitle={group.title} />
                 ) : (
-                  <div style={{ width: '100%', minHeight: '100vh', height: '100vh' }}>
+                  <div style={{ width: '100%', minHeight: '100vh', height: item.slug === 'board-editor' ? 'auto' : '100vh' }}>
                     {item.el}
                   </div>
                 )

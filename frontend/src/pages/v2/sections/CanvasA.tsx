@@ -28,6 +28,8 @@ type Node = {
   chartOption?: any | null    // 真实 ECharts option (优先于 chart kind)
   thinking: string[]
   sql?: string
+  pinnedToBoardId?: string | null   // 已钉的看板 id（real-data 节点才有）
+  userNodeId?: string               // 配对的 user 节点 id (删此回合用)
   branches?: Branch[]
 }
 
@@ -161,7 +163,7 @@ function highlightSql(s: string) {
 type Mode = 'business' | 'analyst'
 
 function NodeCard({
-  n, isCurrent, mode, onBranch, onAsk, onFocus, onPin,
+  n, isCurrent, mode, onBranch, onAsk, onFocus, onPin, onUnpin, onDeleteTurn,
 }: {
   n: Node
   isCurrent: boolean
@@ -170,6 +172,8 @@ function NodeCard({
   onAsk: () => void
   onFocus: () => void
   onPin: () => void
+  onUnpin: () => void
+  onDeleteTurn: () => void
 }) {
   const [thinkOpen, setThinkOpen] = useState(false)
   const [sqlOpen, setSqlOpen] = useState(false)
@@ -234,7 +238,16 @@ function NodeCard({
         <button onClick={onAsk}>追问</button>
         <button onClick={onFocus}>放大</button>
         <Link to={v2Urls.nodeDetail(n.id)} style={{ padding: '4px 10px', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 12, color: 'var(--ink-1)', textDecoration: 'none', background: 'transparent' }}>查看详情 →</Link>
-        <button className="primary" onClick={onPin}>钉到看板 →</button>
+        {n.pinnedToBoardId ? (
+          <button onClick={onUnpin} title="从看板取消钉" style={{ background: 'var(--paper-2)', color: 'var(--ink-2)', border: '1px solid var(--line-1)' }}>★ 已钉 · 取消</button>
+        ) : (
+          <button className="primary" onClick={onPin}>钉到看板 →</button>
+        )}
+        <button
+          onClick={onDeleteTurn}
+          title="删除此回合 (问 + 答 + 子分支 + 评论 + 看板组件)"
+          style={{ marginLeft: 'auto', color: 'var(--terracotta)', border: '1px solid var(--line-1)', background: 'transparent' }}
+        >✕ 删此回合</button>
       </div>
       {mode === 'business' && sqlOpen && n.sql && (
         <div className="sql">
@@ -289,6 +302,7 @@ function canvasNodesToNodes(cn: V2CanvasNode[]): Node[] {
         steps: 0, elapsed: '—',
         title: '等待回答', tag: '', chart: 'bar',
         thinking: [],
+        userNodeId: u.node_id,   // 同一个 id（删一个就删整条等待中的回合）
       })
       continue
     }
@@ -310,6 +324,8 @@ function canvasNodesToNodes(cn: V2CanvasNode[]): Node[] {
       chartOption: parseCfg(a.chart_cfg_json),
       thinking: thinkingLines,
       sql: a.sql || undefined,
+      pinnedToBoardId: a.pinned_to_board_id,
+      userNodeId: u.node_id,
     })
     lastAssistantNodeId = a.node_id
     i += 1
@@ -581,6 +597,15 @@ export function CanvasA() {
   const hasSession = !!currentSession
 
   const [mode, setMode] = useState<Mode>('business')
+  const [modeManuallySet, setModeManuallySet] = useState(false)
+  // 角色 → 默认 mode (analyst/admin 默认 analyst, 其余 business)
+  // 仅未手动切过时跟随角色;手动切过保留用户选择
+  useEffect(() => {
+    if (modeManuallySet) return
+    const want: Mode = (roleId === 'analyst' || roleId === 'admin') ? 'analyst' : 'business'
+    if (want !== mode) setMode(want)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleId])
   const [nodes, setNodes] = useState<Node[]>(realNodes)
   const [currentId, setCurrentId] = useState<string>(realNodes[realNodes.length - 1]?.id ?? '')
   const [askInput, setAskInput] = useState('')
@@ -682,6 +707,20 @@ export function CanvasA() {
       console.warn('[CanvasA] 新建会话失败:', err?.message || err)
     }
   }
+
+  const deleteSession = async (sid: string, title?: string | null) => {
+    if (!confirm(`确认删除会话「${title || sid.slice(0, 8)}」?\n所有节点 / 消息一并删除,不可恢复。`)) return
+    try {
+      await v2Api.deleteV2Session(sid)
+      setSessions(sessions.filter(s => s.id !== sid))
+      if (currentSession?.id === sid) {
+        setCurrentSession(null)
+        setCanvasNodes([])
+      }
+    } catch (err: any) {
+      alert(`删除失败: ${err?.response?.data?.detail || err?.message || err}`)
+    }
+  }
   const [focused, setFocused] = useState<(Node | Branch) | null>(null)
   const [pinned, setPinned] = useState<string[]>([])
   const [pinToast, setPinToast] = useState<{ msg: string; boardId?: string } | null>(null)
@@ -747,6 +786,45 @@ export function CanvasA() {
     }
   }
 
+  const handleDeleteTurn = async (n: Node) => {
+    if (!confirm(`确认删除这一回合「${n.q?.slice(0, 30)}...」?\n问题 + 回答 + 子分支 + 评论 + 已钉看板组件一并删除,不可恢复。`)) return
+    try {
+      // 先删 assistant 节点(cascade 把子分支 / 评论 / widgets 清掉)
+      await v2Api.deleteNode(n.id, true)
+      // 再删配对的 user 节点(可能等于 n.id,等待中的占位)
+      if (n.userNodeId && n.userNodeId !== n.id) {
+        try { await v2Api.deleteNode(n.userNodeId, false) } catch { /* user 节点可能已被 cascade 带走 */ }
+      }
+      setPinned(pinned.filter(id => id !== n.id))
+      if (currentSession) reloadNodes(currentSession.id)
+    } catch (err: any) {
+      alert(`删除失败: ${err?.response?.data?.detail || err?.message || err}`)
+    }
+  }
+
+  const handleUnpin = async (n: Node | Branch) => {
+    if (!('pinnedToBoardId' in n) || !n.pinnedToBoardId) return
+    const boardId = n.pinnedToBoardId
+    try {
+      const board = await v2Api.getBoard(boardId)
+      const widget = (board?.widgets || []).find((w: any) => w.source_node_id === n.id)
+      if (!widget) {
+        setPinToast({ msg: '未找到对应的看板组件,可能已被删除' })
+        setTimeout(() => setPinToast(null), 2500)
+        if (currentSession) reloadNodes(currentSession.id)
+        return
+      }
+      await v2Api.deleteWidget(boardId, widget.widget_id)
+      setPinned(pinned.filter(id => id !== n.id))
+      setPinToast({ msg: `已从「${board.title}」取消钉` })
+      setTimeout(() => setPinToast(null), 2500)
+      if (currentSession) reloadNodes(currentSession.id)
+    } catch (err: any) {
+      setPinToast({ msg: `取消失败: ${err?.message || err}` })
+      setTimeout(() => setPinToast(null), 3000)
+    }
+  }
+
   const jumpTo = (id: string) => {
     setCurrentId(id)
     const el = stepRefs.current[id]
@@ -776,6 +854,20 @@ export function CanvasA() {
           <div className="crumbs">
             <span>个人空间</span><span className="sep">/</span>
             <span className="now">{currentSession?.title || '未命名会话'}</span>
+            {currentSession && (
+              <button
+                onClick={() => deleteSession(currentSession.id, currentSession.title)}
+                title="删除当前会话"
+                style={{
+                  marginLeft: 8, padding: '2px 6px',
+                  background: 'transparent', border: '1px solid var(--line-1)',
+                  borderRadius: 4, fontSize: 11, color: 'var(--ink-4)',
+                  cursor: 'pointer', lineHeight: 1,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--terracotta)'; e.currentTarget.style.borderColor = 'var(--terracotta)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--ink-4)'; e.currentTarget.style.borderColor = 'var(--line-1)' }}
+              >✕ 删除</button>
+            )}
             <span className="sep">·</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>main</span>
           </div>
@@ -835,6 +927,8 @@ export function CanvasA() {
                     onAsk={() => handleAsk(n.id)}
                     onFocus={() => setFocused(n)}
                     onPin={() => handlePin(n)}
+                    onUnpin={() => handleUnpin(n)}
+                    onDeleteTurn={() => handleDeleteTurn(n)}
                   />
 
                   {n.branches && n.branches.length > 0 && (
@@ -902,8 +996,8 @@ export function CanvasA() {
             />
           </div>
           <div className="dock-mode">
-            <button className={mode === 'business' ? 'on' : ''} onClick={() => setMode('business')}>业务</button>
-            <button className={mode === 'analyst' ? 'on' : ''} onClick={() => setMode('analyst')}>分析师</button>
+            <button className={mode === 'business' ? 'on' : ''} onClick={() => { setMode('business'); setModeManuallySet(true) }}>业务</button>
+            <button className={mode === 'analyst' ? 'on' : ''} onClick={() => { setMode('analyst'); setModeManuallySet(true) }}>分析师</button>
           </div>
           <button
             className="dock-send"

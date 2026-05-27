@@ -136,7 +136,10 @@ function RealBoardConnector() {
       )}
 
       {expanded && board && (
-        <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{
+          width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6,
+          maxHeight: '60vh', overflowY: 'auto', paddingRight: 4,
+        }}>
           {widgets.length === 0 ? (
             <div style={{ color: 'var(--ink-4)', fontSize: 12, padding: '8px 0' }}>
               这个看板还没有真实 widget。回 canvas 点节点的"钉到看板"加一个。
@@ -169,12 +172,14 @@ function RealBoardConnector() {
 
 export function BoardEditor() {
   const [tab, setTab] = useS_BE('nodes');
+  // DAT-25 修复：p0-frame 默认 overflow:hidden，bar 展开 / widget 多时下方 .be 区被裁
+  // 这里 override 成 overflow:auto + height:auto，让外层 v2-root 自然滚
   return (
-    <div className="p0-frame">
-      <div className="ai-scene">
+    <div className="p0-frame" style={{ height: 'auto', minHeight: '100%', overflow: 'visible' }}>
+      <div className="ai-scene" style={{ height: 'auto', minHeight: '100%' }}>
         <RealBoardConnector />
         <P1Top_BE crumbs={['工作区','看板','Q3 渠道复盘 · 编辑']} badge="编辑中"/>
-        <div className="be">
+        <div className="be" style={{ height: 'auto', minHeight: 600 }}>
           {/* LHS — node library */}
           <div className="be-side">
             <div className="head">
