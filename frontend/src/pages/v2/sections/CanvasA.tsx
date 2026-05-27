@@ -45,7 +45,7 @@ type Scenario = {
 type RoleId = 'exec' | 'sales' | 'pm' | 'ops' | 'analyst' | 'admin'
 
 /* ---------- Tiny SVG charts ---------- */
-function AreaChart({ label, data, stroke = 'var(--amber-deep)' }: { label: string; data?: number[]; stroke?: string }) {
+export function AreaChart({ label, data, stroke = 'var(--amber-deep)' }: { label: string; data?: number[]; stroke?: string }) {
   const points = data ?? [22, 28, 26, 35, 41, 38, 48, 55, 52, 64, 70, 78]
   const max = Math.max(...points), min = Math.min(...points)
   const W = 320, H = 140, P = 8
@@ -72,7 +72,7 @@ function AreaChart({ label, data, stroke = 'var(--amber-deep)' }: { label: strin
   )
 }
 
-function BarChart({ stroke = 'var(--terracotta)' }: { stroke?: string }) {
+export function BarChart({ stroke = 'var(--terracotta)' }: { stroke?: string }) {
   const data = [42, 56, 38, 71, 64, 88, 52]
   const labels = ['抖音', '小红书', '微信', '微博', '快手', '私域', '搜索']
   const max = Math.max(...data)
@@ -94,7 +94,7 @@ function BarChart({ stroke = 'var(--terracotta)' }: { stroke?: string }) {
   )
 }
 
-function FunnelChart({ ratios }: { ratios?: number[] }) {
+export function FunnelChart({ ratios }: { ratios?: number[] }) {
   const r = ratios ?? [100, 62, 38, 14]
   const labels = ['访问', '注册', '激活', '付费']
   const colors = ['oklch(0.78 0.16 65)', 'oklch(0.70 0.16 55)', 'oklch(0.62 0.18 45)', 'oklch(0.55 0.16 35)']
@@ -120,7 +120,7 @@ function FunnelChart({ ratios }: { ratios?: number[] }) {
   )
 }
 
-function LineCompareChart() {
+export function LineCompareChart() {
   const a = [22, 28, 26, 35, 41, 38, 48, 55, 52, 64, 70, 78]
   const b = [30, 32, 34, 33, 38, 41, 44, 46, 48, 51, 53, 55]
   const W = 320, H = 140, P = 10, max = 80, min = 20

@@ -1,6 +1,7 @@
 // @ts-nocheck
 // Ported verbatim from datapulse-ai-design-system/project/v2/RoleViews.jsx
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { AreaChart, BarChart, FunnelChart, LineCompareChart } from './CanvasA'
 
 const { useState: useStateR } = React;
 
