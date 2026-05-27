@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { v2Api, type V2Workspace, type V2Session, type V2CanvasNode, type V2Board, type V2Profile } from '../../../api'
+import { v2Api, databaseApi, type V2Workspace, type V2Session, type V2CanvasNode, type V2Board, type V2Profile } from '../../../api'
 import EChartsRenderer from '../../../components/EChartsRenderer'
 import { useV2Ask } from './useV2Ask'
 import { v2Urls } from './urlProtocol'
@@ -598,6 +598,30 @@ export function CanvasA() {
 
   const [mode, setMode] = useState<Mode>('business')
   const [modeManuallySet, setModeManuallySet] = useState(false)
+  // 数据源桥(临时,阶段 8 语义层落地后改走 v2 自己的)
+  type DbItem = { key: string; name: string; type: string; is_current: boolean; source: string }
+  const [databases, setDatabases] = useState<DbItem[]>([])
+  const [currentDbKey, setCurrentDbKey] = useState<string>('')
+  const [dbSwitching, setDbSwitching] = useState(false)
+  const reloadDatabases = async () => {
+    try {
+      const r = await databaseApi.getDatabases()
+      const list: DbItem[] = r.databases || []
+      setDatabases(list)
+      const cur = list.find(d => d.is_current)
+      setCurrentDbKey(cur?.key || '')
+    } catch (err: any) { console.warn('[CanvasA] 拉数据库列表失败:', err?.message || err) }
+  }
+  useEffect(() => { reloadDatabases() }, [])
+  const switchDb = async (key: string) => {
+    setDbSwitching(true)
+    try {
+      await databaseApi.switchDatabase(key)
+      await reloadDatabases()
+    } catch (err: any) { alert(`切换失败: ${err?.message || err}`) }
+    finally { setDbSwitching(false) }
+  }
+  const useRealDb = !!currentDbKey   // 有 active datasource 就让后端真查;否则纯 LLM 闲聊
   // 角色 → 默认 mode (analyst/admin 默认 analyst, 其余 business)
   // 仅未手动切过时跟随角色;手动切过保留用户选择
   useEffect(() => {
@@ -737,7 +761,7 @@ export function CanvasA() {
     setAskInput('')
     const sid = currentSession.id
     ask(sid, q, {
-      noDatabase: true,        // 阶段 2 暂不接 v2 自己的数据源；下个阶段做语义层时再开
+      noDatabase: !useRealDb,  // 桥:有 active datasource 就接,无则纯 LLM(阶段 8 会换成 v2 自有语义层)
       onUserSaved: () => { reloadNodes(sid) },
       onDone: () => { reloadNodes(sid) },
       onError: (msg) => console.warn('[CanvasA] v2 ask error:', msg),
@@ -751,7 +775,7 @@ export function CanvasA() {
     const sid = currentSession.id
     ask(sid, q.trim(), {
       parentNodeId: id,
-      noDatabase: true,
+      noDatabase: !useRealDb,  // 桥:同 handleSend
       onUserSaved: () => reloadNodes(sid),
       onDone: () => reloadNodes(sid),
       onError: (msg) => console.warn('[CanvasA] branch ask error:', msg),
@@ -849,6 +873,41 @@ export function CanvasA() {
   return (
     <div className="v2-root" style={{ position: 'fixed', inset: 0 }}>
       <div className="app-shell fullscreen">
+        {/* DATA-SOURCE BRIDGE (临时,阶段 8 语义层落地后撤掉) */}
+        <div style={{
+          padding: '8px 16px',
+          background: useRealDb ? 'oklch(0.78 0.16 65 / 0.10)' : 'oklch(0.92 0.015 70)',
+          borderBottom: '1px solid var(--amber-deep)',
+          display: 'flex', alignItems: 'center', gap: 12, fontSize: 12,
+          fontFamily: 'var(--font-mono)',
+        }}>
+          <span style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--amber-deep)' }}>
+            ● 数据源(桥)
+          </span>
+          <select
+            value={currentDbKey}
+            disabled={dbSwitching}
+            onChange={e => switchDb(e.target.value)}
+            style={{ padding: '3px 8px', fontSize: 11, background: 'var(--paper)', border: '1px solid var(--line-1)', borderRadius: 4, fontFamily: 'var(--font-sans)' }}
+          >
+            <option value="">(不接库 · 纯 LLM 闲聊)</option>
+            {databases.map(d => (
+              <option key={d.key} value={d.key}>
+                {d.name} · {d.type}{d.source === 'user' ? ' · 我的' : ''}
+              </option>
+            ))}
+          </select>
+          {useRealDb ? (
+            <span style={{ color: 'var(--success)', fontFamily: 'var(--font-sans)', fontSize: 11 }}>
+              ✓ 提问会真查 SQL
+            </span>
+          ) : (
+            <span style={{ color: 'var(--ink-4)', fontFamily: 'var(--font-sans)', fontSize: 11 }}>
+              当前不接库,问任何问题都是 LLM 闲聊
+            </span>
+          )}
+          {dbSwitching && <span style={{ color: 'var(--ink-3)', fontSize: 11 }}>切换中…</span>}
+        </div>
         <div className="topbar">
           <div className="brand"><span className="dot"></span>DataPulse</div>
           <div className="crumbs">
