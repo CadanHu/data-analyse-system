@@ -875,20 +875,21 @@ export function CanvasA() {
       <div className="app-shell fullscreen">
         {/* DATA-SOURCE BRIDGE (临时,阶段 8 语义层落地后撤掉) */}
         <div style={{
-          padding: '8px 16px',
-          background: useRealDb ? 'oklch(0.78 0.16 65 / 0.10)' : 'oklch(0.92 0.015 70)',
-          borderBottom: '1px solid var(--amber-deep)',
-          display: 'flex', alignItems: 'center', gap: 12, fontSize: 12,
-          fontFamily: 'var(--font-mono)',
+          padding: '4px 12px', minHeight: 0, lineHeight: 1.2,
+          background: useRealDb ? 'oklch(0.78 0.16 65 / 0.08)' : 'oklch(0.92 0.015 70)',
+          borderBottom: '1px solid var(--line-1)',
+          display: 'flex', alignItems: 'center', gap: 8, fontSize: 11,
+          color: 'var(--ink-3)',
         }}>
-          <span style={{ fontSize: 10, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--amber-deep)' }}>
-            ● 数据源(桥)
-          </span>
+          <span title="数据源桥 (阶段 8 语义层前的临时通道)" style={{
+            fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.15em',
+            textTransform: 'uppercase', color: 'var(--amber-deep)',
+          }}>● DS</span>
           <select
             value={currentDbKey}
             disabled={dbSwitching}
             onChange={e => switchDb(e.target.value)}
-            style={{ padding: '3px 8px', fontSize: 11, background: 'var(--paper)', border: '1px solid var(--line-1)', borderRadius: 4, fontFamily: 'var(--font-sans)' }}
+            style={{ padding: '1px 6px', fontSize: 11, background: 'var(--paper)', border: '1px solid var(--line-1)', borderRadius: 3, maxWidth: 260 }}
           >
             <option value="">(不接库 · 纯 LLM 闲聊)</option>
             {databases.map(d => (
@@ -897,16 +898,10 @@ export function CanvasA() {
               </option>
             ))}
           </select>
-          {useRealDb ? (
-            <span style={{ color: 'var(--success)', fontFamily: 'var(--font-sans)', fontSize: 11 }}>
-              ✓ 提问会真查 SQL
-            </span>
-          ) : (
-            <span style={{ color: 'var(--ink-4)', fontFamily: 'var(--font-sans)', fontSize: 11 }}>
-              当前不接库,问任何问题都是 LLM 闲聊
-            </span>
-          )}
-          {dbSwitching && <span style={{ color: 'var(--ink-3)', fontSize: 11 }}>切换中…</span>}
+          <span style={{ color: useRealDb ? 'var(--success)' : 'var(--ink-4)', fontSize: 10 }}>
+            {useRealDb ? '✓ 真查 SQL' : '纯 LLM 闲聊'}
+          </span>
+          {dbSwitching && <span style={{ fontSize: 10 }}>切换中…</span>}
         </div>
         <div className="topbar">
           <div className="brand"><span className="dot"></span>DataPulse</div>
