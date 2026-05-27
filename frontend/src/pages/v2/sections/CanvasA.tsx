@@ -30,6 +30,7 @@ type Node = {
   sql?: string
   pinnedToBoardId?: string | null   // 已钉的看板 id（real-data 节点才有）
   userNodeId?: string               // 配对的 user 节点 id (删此回合用)
+  createdAt?: string                // 真实创建时间 (ISO),render 成 HH:MM
   branches?: Branch[]
 }
 
@@ -302,7 +303,8 @@ function canvasNodesToNodes(cn: V2CanvasNode[]): Node[] {
         steps: 0, elapsed: '—',
         title: '等待回答', tag: '', chart: 'bar',
         thinking: [],
-        userNodeId: u.node_id,   // 同一个 id（删一个就删整条等待中的回合）
+        userNodeId: u.node_id,
+        createdAt: u.created_at,
       })
       continue
     }
@@ -326,6 +328,7 @@ function canvasNodesToNodes(cn: V2CanvasNode[]): Node[] {
       sql: a.sql || undefined,
       pinnedToBoardId: a.pinned_to_board_id,
       userNodeId: u.node_id,
+      createdAt: a.created_at || u.created_at,
     })
     lastAssistantNodeId = a.node_id
     i += 1
@@ -973,7 +976,13 @@ export function CanvasA() {
                   <div className="node" onClick={() => setCurrentId(n.id)} />
                   <div className="stamp">
                     <div className="num">{String(nodes.indexOf(n) + 1).padStart(2, '0')}</div>
-                    <div className="when">{n.id === currentId ? '现在' : `14:0${nodes.indexOf(n) + 2}`} · {n.branches?.length ? '已分支' : '主线'}</div>
+                    <div className="when">{
+                      n.id === currentId
+                        ? '现在'
+                        : (n.createdAt
+                            ? new Date(n.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                            : '—')
+                    } · {n.branches?.length ? '已分支' : '主线'}</div>
                   </div>
                   <NodeCard
                     n={n}
