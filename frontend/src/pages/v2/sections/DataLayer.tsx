@@ -2,6 +2,7 @@
 // Ported verbatim from datapulse-ai-design-system/project/v2/DataLayer.jsx
 // 真实数据接入：3 个画板分别接 datasource_tables_meta / column_meta+tags / metrics+synonyms+lineage
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { v2Api } from '../../../api'
 
 const { useState: useS_DL } = React;
@@ -157,8 +158,13 @@ function MetricCenterLiveBar() {
   const [metrics, setMetrics] = useState([])
   const [query, setQuery] = useState('')
   const [searched, setSearched] = useState(null)
-  const [name, setName] = useState('')
-  const [expr, setExpr] = useState('')
+  const [searchParams] = useSearchParams()
+  // DAT-25 · URL 协议消费 (?metric=&expr_seed=) — name 跟 metric 关键字，expr 预填 expr_seed (列名)
+  const [name, setName] = useState(searchParams.get('metric') || '')
+  const [expr, setExpr] = useState(() => {
+    const seed = searchParams.get('expr_seed')
+    return seed ? `SUM(${seed})` : ''
+  })
   const [synFor, setSynFor] = useState(null)         // metric_id
   const [synList, setSynList] = useState([])
   const [synText, setSynText] = useState('')
@@ -170,6 +176,14 @@ function MetricCenterLiveBar() {
     try { setMetrics(await v2Api.listMetrics(workspace.id)) } catch {}
   }
   useEffect(() => { reload() }, [workspace])
+
+  // DAT-25 · ?metric=<id> — 加载后高亮 + 设为 synFor(同义词面板)
+  const queryMetricId = searchParams.get('metric')
+  useEffect(() => {
+    if (!queryMetricId || !metrics.length) return
+    const m = metrics.find(x => x.id === queryMetricId || x.key === queryMetricId || x.name === queryMetricId)
+    if (m) setSynFor(m.id)
+  }, [queryMetricId, metrics])
   useEffect(() => {
     if (!synFor) return
     v2Api.listMetricSynonyms(synFor).then(setSynList).catch(() => {})

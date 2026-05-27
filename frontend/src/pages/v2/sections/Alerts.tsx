@@ -2,6 +2,7 @@
 // Ported verbatim from datapulse-ai-design-system/project/v2/Alerts.jsx
 // 阶段 5 真实数据接入：AlertWizard/Detail 顶部 Live 浮动条
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { v2Api } from '../../../api'
 
 const { useState: useS_AL } = React;
@@ -109,6 +110,8 @@ function AlertDetailLiveBar() {
   const [events, setEvents] = useState([])
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(false)
+  const [searchParams] = useSearchParams()
+  const queryEventId = searchParams.get('event')
 
   useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
   const reload = async () => {
@@ -119,6 +122,20 @@ function AlertDetailLiveBar() {
     } catch {}
   }
   useEffect(() => { reload() }, [workspace, filter])
+
+  // DAT-25 · URL 协议消费 (?event=<event_id>) — 在事件列表加载后高亮目标事件
+  useEffect(() => {
+    if (!queryEventId || !events.length) return
+    setTimeout(() => {
+      const el = document.querySelector(`[data-alert-event-id="${queryEventId}"]`) as HTMLElement | null
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        el.style.outline = '2px solid var(--amber-deep)'
+        el.style.outlineOffset = '2px'
+        setTimeout(() => { el.style.outline = ''; el.style.outlineOffset = '' }, 2500)
+      }
+    }, 100)
+  }, [queryEventId, events])
 
   const ack = async (eid) => { setBusy(true); try { await v2Api.ackAlertEvent(eid); reload() } finally { setBusy(false) } }
   const resolve = async (eid) => { setBusy(true); try { await v2Api.resolveAlertEvent(eid); reload() } finally { setBusy(false) } }
@@ -142,7 +159,7 @@ function AlertDetailLiveBar() {
       ) : (
         <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {events.map(e => (
-            <div key={e.id} style={{ ...liveRowAL, opacity: e.status === 'resolved' ? 0.5 : 1 }}>
+            <div key={e.id} data-alert-event-id={e.id} style={{ ...liveRowAL, opacity: e.status === 'resolved' ? 0.5 : 1 }}>
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: 9, textTransform: 'uppercase', padding: '1px 5px',
                 background: e.severity === 'critical' ? 'oklch(0.56 0.20 25 / 0.15)' : 'oklch(0.74 0.16 75 / 0.15)',

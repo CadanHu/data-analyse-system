@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { v2Api, type V2Workspace, type V2Session, type V2CanvasNode, type V2Board, type V2Profile } from '../../../api'
 import EChartsRenderer from '../../../components/EChartsRenderer'
 import { useV2Ask } from './useV2Ask'
+import { v2Urls } from './urlProtocol'
 
 type ChartKind = 'bar' | 'area' | 'funnel' | 'funnel2' | 'compare'
 
@@ -232,6 +233,7 @@ function NodeCard({
         <button onClick={onBranch}>＋ 分支</button>
         <button onClick={onAsk}>追问</button>
         <button onClick={onFocus}>放大</button>
+        <Link to={v2Urls.nodeDetail(n.id)} style={{ padding: '4px 10px', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 12, color: 'var(--ink-1)', textDecoration: 'none', background: 'transparent' }}>查看详情 →</Link>
         <button className="primary" onClick={onPin}>钉到看板 →</button>
       </div>
       {mode === 'business' && sqlOpen && n.sql && (
@@ -563,6 +565,7 @@ function roleIdFrom(profile: V2Profile | null): RoleId {
 }
 
 export function CanvasA() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [profile, setProfile] = useState<V2Profile | null>(null)
   const [workspace, setWorkspace] = useState<V2Workspace | null>(null)
   const [sessions, setSessions] = useState<V2Session[]>([])
@@ -616,6 +619,42 @@ export function CanvasA() {
       .finally(() => setSessionsLoading(false))
   }, [workspace, currentSession])
 
+  // DAT-25 · URL 协议消费 (?session=&node=&seed_q=) — sessions 拉好后挑指定 session
+  const querySession = searchParams.get('session')
+  const queryNode = searchParams.get('node')
+  const querySeedQ = searchParams.get('seed_q')
+  useEffect(() => {
+    if (!querySession || currentSession) return
+    const target = sessions.find(s => s.id === querySession)
+    if (target) {
+      setCurrentSession(target)
+      reloadNodes(target.id)
+    }
+  }, [querySession, sessions, currentSession])
+  // seed_q → 预填提问框 (一次性)
+  useEffect(() => {
+    if (querySeedQ) {
+      setAskInput(querySeedQ)
+      const next = new URLSearchParams(searchParams)
+      next.delete('seed_q')
+      setSearchParams(next, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [querySeedQ])
+  // node → 滚动定位 (节点加载后)
+  useEffect(() => {
+    if (!queryNode || !realNodes.length) return
+    const exists = realNodes.find(n => n.id === queryNode)
+    if (!exists) return
+    setCurrentId(queryNode)
+    setTimeout(() => {
+      const el = stepRefs.current[queryNode]
+      if (el && canvasRef.current) {
+        canvasRef.current.scrollTo({ left: el.offsetLeft - 100, behavior: 'smooth' })
+      }
+    }, 80)
+  }, [queryNode, realNodes])
+
   const reloadNodes = async (sessionId: string) => {
     try {
       const nodes = await v2Api.listCanvasNodes(sessionId)
@@ -645,7 +684,7 @@ export function CanvasA() {
   }
   const [focused, setFocused] = useState<(Node | Branch) | null>(null)
   const [pinned, setPinned] = useState<string[]>([])
-  const [pinToast, setPinToast] = useState<string | null>(null)
+  const [pinToast, setPinToast] = useState<{ msg: string; boardId?: string } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const stepRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
@@ -684,7 +723,7 @@ export function CanvasA() {
     // 分支节点是本地 demo 数据（v2 canvas_nodes 表里没有），不持久化
     const isLocalDemoBranch = !nodes.find(x => x.id === n.id)
     if (isLocalDemoBranch) {
-      setPinToast('分支暂未持久化，仅在画布内可见')
+      setPinToast({ msg: '分支暂未持久化，仅在画布内可见' })
       setTimeout(() => setPinToast(null), 2500)
       return
     }
@@ -698,12 +737,12 @@ export function CanvasA() {
       }
       await v2Api.pinNodeToBoard(board.id, n.id)
       setPinned([...pinned, n.id])
-      setPinToast(`已钉到「${board.title}」`)
-      setTimeout(() => setPinToast(null), 2500)
+      setPinToast({ msg: `已钉到「${board.title}」`, boardId: board.id })
+      setTimeout(() => setPinToast(null), 4500)
       // 刷新让 pinned_to_board_id 同步
       if (currentSession) reloadNodes(currentSession.id)
     } catch (err: any) {
-      setPinToast(`钉失败: ${err?.message || err}`)
+      setPinToast({ msg: `钉失败: ${err?.message || err}` })
       setTimeout(() => setPinToast(null), 3000)
     }
   }
@@ -897,7 +936,18 @@ export function CanvasA() {
 
         {pinToast && (
           <div className="pin-toast">
-            ★ 已钉到看板 · <strong>{pinToast}</strong>
+            ★ <strong>{pinToast.msg}</strong>
+            {pinToast.boardId && (
+              <>
+                {' · '}
+                <Link
+                  to={v2Urls.boardEditor(pinToast.boardId)}
+                  style={{ marginLeft: 8, color: 'var(--amber-deep)', textDecoration: 'underline', fontWeight: 600 }}
+                >
+                  打开看板 →
+                </Link>
+              </>
+            )}
           </div>
         )}
       </div>

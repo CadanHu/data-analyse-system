@@ -1,6 +1,7 @@
 // @ts-nocheck
 // Ported verbatim from datapulse-ai-design-system/project/v2/NodeDetail.jsx
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { v2Api } from '../../../api'
 
 const { useState: useS_ND } = React;
@@ -67,6 +68,14 @@ function NodeDetailLiveBar() {
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
+  const [searchParams] = useSearchParams()
+
+  // DAT-25 · URL 协议消费 (?id=<node_id>) — 跳进来直接定位
+  const queryId = searchParams.get('id')
+  useEffect(() => {
+    if (queryId && !node) setNode({ node_id: queryId, _session_title: '(URL)' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryId])
 
   const reloadDetail = async (nid) => {
     try {

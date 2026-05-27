@@ -3,6 +3,7 @@
 // 阶段 3 后半段：BoardEditor 顶部加"真实看板连接条"，能看到从 canvas 钉过来的真实 widgets，能删除。
 // 完整拖拽编辑暂未做（demo 视觉保留）。
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { v2Api } from '../../../api'
 
 const { useState: useS_BE } = React;
@@ -49,6 +50,8 @@ function RealBoardConnector() {
   const [board, setBoard] = useState(null)
   const [expanded, setExpanded] = useState(false)
   const [reloadTick, setReloadTick] = useState(0)
+  const [searchParams] = useSearchParams()
+  const queryBoardId = searchParams.get('board')
 
   useEffect(() => {
     v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {})
@@ -56,8 +59,16 @@ function RealBoardConnector() {
 
   useEffect(() => {
     if (!workspace) return
-    v2Api.listBoards(workspace.id).then(setBoards).catch(() => {})
-  }, [workspace, reloadTick])
+    v2Api.listBoards(workspace.id).then(list => {
+      setBoards(list || [])
+      // DAT-25 · URL 协议消费 (?board=) — 跳进来自动选中
+      if (queryBoardId && !activeBoardId && (list || []).some(b => b.id === queryBoardId)) {
+        setActiveBoardId(queryBoardId)
+        setExpanded(true)
+      }
+    }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace, reloadTick, queryBoardId])
 
   useEffect(() => {
     if (!activeBoardId) { setBoard(null); return }

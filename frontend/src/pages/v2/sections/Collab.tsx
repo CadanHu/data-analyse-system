@@ -2,7 +2,9 @@
 // Ported verbatim from datapulse-ai-design-system/project/v2/Collab.jsx
 // 阶段 4 真实数据接入：ShareLiveBar / NotifLiveBar 浮动条
 import React, { useState, useRef, useEffect, useMemo } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { v2Api } from '../../../api'
+import { notifJumpUrl } from './urlProtocol'
 
 const { useState: useS_CL } = React;
 
@@ -12,8 +14,10 @@ function ShareLiveBar() {
   const [workspace, setWorkspace] = useState(null)
   const [boards, setBoards] = useState([])
   const [sessions, setSessions] = useState([])
-  const [targetType, setTargetType] = useState('board')
-  const [targetId, setTargetId] = useState('')
+  const [searchParams] = useSearchParams()
+  // DAT-25 · URL 协议消费 (?target_type=&target_id=) — 跳进来预填
+  const [targetType, setTargetType] = useState(searchParams.get('target_type') || 'board')
+  const [targetId, setTargetId] = useState(searchParams.get('target_id') || '')
   const [permission, setPermission] = useState('view')
   const [expiresDays, setExpiresDays] = useState(7)
   const [links, setLinks] = useState([])
@@ -130,16 +134,24 @@ function NotifLiveBar() {
         </div>
       ) : (
         <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {list.map(n => (
-            <div key={n.id} style={{ ...liveRow, opacity: n.read_at ? 0.55 : 1 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-deep)', textTransform: 'uppercase', padding: '1px 5px', background: 'oklch(0.78 0.16 65 / 0.12)', borderRadius: 4 }}>{n.type}</span>
-              <span style={{ flex: 1, fontSize: 12 }}>
-                {(n.payload_json?.title) || '(无标题)'} {n.payload_json?.body && <span style={{ color: 'var(--ink-3)' }}>· {n.payload_json.body}</span>}
-              </span>
-              {!n.read_at && <button onClick={() => markOne(n.id)} style={btnGhost}>已读</button>}
-              <button onClick={() => del(n.id)} style={{ ...btnGhost, color: 'var(--ink-4)' }}>✕</button>
-            </div>
-          ))}
+          {list.map(n => {
+            const jumpUrl = notifJumpUrl(n)
+            return (
+              <div key={n.id} style={{ ...liveRow, opacity: n.read_at ? 0.55 : 1 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-deep)', textTransform: 'uppercase', padding: '1px 5px', background: 'oklch(0.78 0.16 65 / 0.12)', borderRadius: 4 }}>{n.type}</span>
+                <span style={{ flex: 1, fontSize: 12 }}>
+                  {(n.payload_json?.title) || '(无标题)'} {n.payload_json?.body && <span style={{ color: 'var(--ink-3)' }}>· {n.payload_json.body}</span>}
+                </span>
+                {jumpUrl && (
+                  <Link to={jumpUrl} onClick={() => { if (!n.read_at) markOne(n.id) }} style={{ ...btnGhost, color: 'var(--amber-deep)', textDecoration: 'none' }}>
+                    打开 →
+                  </Link>
+                )}
+                {!n.read_at && <button onClick={() => markOne(n.id)} style={btnGhost}>已读</button>}
+                <button onClick={() => del(n.id)} style={{ ...btnGhost, color: 'var(--ink-4)' }}>✕</button>
+              </div>
+            )
+          })}
         </div>
       )}
     </LiveBarCL>
