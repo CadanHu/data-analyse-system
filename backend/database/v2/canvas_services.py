@@ -106,10 +106,12 @@ async def add_message_with_node(
     nid = node_id or str(uuid.uuid4())
 
     async with v2_db.async_session() as s:
-        # 算 position_index = 当前 session 已有节点数
+        # 算 position_index = MAX(已有) + 1
+        # (用 COUNT 在删过节点后会算回已用过的 pos，导致冲突)
         from sqlalchemy import func
         res = await s.execute(
-            select(func.count(CanvasNodeModel.id)).where(CanvasNodeModel.session_id == session_id)
+            select(func.coalesce(func.max(CanvasNodeModel.position_index), -1) + 1)
+            .where(CanvasNodeModel.session_id == session_id)
         )
         pos = res.scalar() or 0
 

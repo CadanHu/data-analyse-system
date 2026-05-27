@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { v2Api, databaseApi, type V2Workspace, type V2Session, type V2CanvasNode, type V2Board, type V2Profile } from '../../../api'
 import EChartsRenderer from '../../../components/EChartsRenderer'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useV2Ask } from './useV2Ask'
 import { v2Urls } from './urlProtocol'
 
@@ -218,10 +220,12 @@ function NodeCard({
             <span className="tag">{n.tag || '对话'}</span>
             <span className="tag" style={{ color: 'var(--ink-4)' }}>{n.elapsed}</span>
           </div>
-          <div style={{
+          <div className="v2-md" style={{
             marginTop: 8, fontSize: 14, lineHeight: 1.6,
-            color: 'var(--ink-1)', whiteSpace: 'pre-wrap',
-          }}>{n.title}</div>
+            color: 'var(--ink-1)',
+          }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{n.title}</ReactMarkdown>
+          </div>
         </div>
       )}
       {mode === 'analyst' && n.sql && (
