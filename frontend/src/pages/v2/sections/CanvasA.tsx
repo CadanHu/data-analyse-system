@@ -911,16 +911,18 @@ export function CanvasA() {
             {currentSession && (
               <button
                 onClick={() => deleteSession(currentSession.id, currentSession.title)}
-                title="删除当前会话"
+                title="删除当前会话 (含全部节点 / 消息)"
+                aria-label="删除当前会话"
                 style={{
-                  marginLeft: 8, padding: '2px 6px',
-                  background: 'transparent', border: '1px solid var(--line-1)',
-                  borderRadius: 4, fontSize: 11, color: 'var(--ink-4)',
-                  cursor: 'pointer', lineHeight: 1,
+                  marginLeft: 4, width: 18, height: 18, padding: 0,
+                  background: 'transparent', border: 0,
+                  fontSize: 12, color: 'var(--ink-5)',
+                  cursor: 'pointer', lineHeight: 1, opacity: 0.6,
+                  borderRadius: 3,
                 }}
-                onMouseEnter={e => { e.currentTarget.style.color = 'var(--terracotta)'; e.currentTarget.style.borderColor = 'var(--terracotta)' }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'var(--ink-4)'; e.currentTarget.style.borderColor = 'var(--line-1)' }}
-              >✕ 删除</button>
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--terracotta)'; e.currentTarget.style.opacity = '1' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--ink-5)'; e.currentTarget.style.opacity = '0.6' }}
+              >✕</button>
             )}
             <span className="sep">·</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-4)' }}>main</span>
