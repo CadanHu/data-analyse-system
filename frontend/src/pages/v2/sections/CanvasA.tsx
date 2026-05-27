@@ -872,7 +872,7 @@ export function CanvasA() {
 
   return (
     <div className="v2-root" style={{ position: 'fixed', inset: 0 }}>
-      <div className="app-shell fullscreen">
+      <div className="app-shell fullscreen" style={{ gridTemplateRows: 'auto 56px 1fr 88px' }}>
         {/* DATA-SOURCE BRIDGE (临时,阶段 8 语义层落地后撤掉) */}
         <div style={{
           padding: '4px 12px', minHeight: 0, lineHeight: 1.2,
