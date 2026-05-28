@@ -8,6 +8,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from config import (
     MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_V2_DATABASE
 )
+from utils.json_utils import json_dumps
 
 V2Base = declarative_base()
 
@@ -21,6 +22,8 @@ class V2Database:
             f"@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_V2_DATABASE}?charset=utf8mb4"
         )
         # 复用 session_db.py 的连接池规模
+        # json_serializer=json_dumps:让 JSON 列序列化时能处理 date/Decimal/numpy 等类型
+        # (默认 json.dumps 碰到 date 会抛 TypeError;SQL 查询返回的 row 经常带 date)
         self.engine = create_async_engine(
             self.url,
             echo=False,
@@ -29,6 +32,7 @@ class V2Database:
             pool_size=10,
             max_overflow=20,
             pool_timeout=60,
+            json_serializer=json_dumps,
         )
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
