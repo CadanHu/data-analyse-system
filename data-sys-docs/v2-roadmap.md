@@ -295,3 +295,24 @@ Provider 内部：
 ---
 
 **结束。** 下次回来从这文档第 4 节挑一项开始即可。
+
+---
+
+## 9. 工具决策 · 项目管理三件套
+
+| 平台 | 用来做什么 | 不用来做什么 |
+|---|---|---|
+| **Linear** (主真源) | 故事(DAT-25 ~ 49) / Cycle (Sprint) / Story Points / Milestone / 燃尽图 / 依赖关系 / 优先级 / 标签 | 不存代码、不审查 PR |
+| **GitHub Issues + Projects v2** | 关联 PR / commit 自动 link / CI 视图 / repo 内可见的 issue tracker(对外公开备份) | **不配 Insights Chart**(API 不暴露,手动 9 步成本高;Linear 已 0 点击给出) |
+| **GitHub Project Sprint 字段** | 与 Linear Cycle **双向手动同步**(命名一致即可,数据不自动)。一次配好后两边都能看 Sprint 1/2/3 | 不作为唯一真源 |
+
+### 决策记录
+
+**2026-05-27 · 燃尽图走 Linear,不在 GitHub 上做**
+
+GitHub Projects v2 Charts 只支持手动 UI 操作,GraphQL API 没暴露 chart 配置。可选项:
+- ✅ **Linear Cycles 内建 Burndown/Burnup**(0 配置,自动收集 story points,数据从 Cycle 创建开始)
+- ❌ ZenHub for GitHub:三方依赖,免费档够用但引入三套真理源,维护成本翻倍
+- ❌ 自己写 gh + 脚本输出 SVG:复刻 Linear 已免费提供的功能,工程量不值得
+
+**结论**:燃尽图 / Velocity / Roadmap 时间轴 / Cycle 进度统一看 Linear;GitHub 只用作 PR 关联 + 公开 issue 备份。
