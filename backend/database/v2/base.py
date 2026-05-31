@@ -54,14 +54,37 @@ class V2Database:
         finally:
             conn.close()
 
+    # 轻量加列迁移表：create_all 只建缺失的表，不会给已存在的表补列。
+    # 每项 = (表名, 列名, ALTER 后半段 DDL)。幂等：列已存在则跳过。
+    # NOT NULL DEFAULT 会自动回填现有行，无需单独 UPDATE。
+    _COLUMN_MIGRATIONS = [
+        ('alert_rules', 'dedupe_minutes', 'INT NOT NULL DEFAULT 5'),
+    ]
+
+    async def _ensure_columns(self, conn):
+        """对 _COLUMN_MIGRATIONS 里每列查 information_schema，缺则 ALTER TABLE ADD COLUMN。"""
+        from sqlalchemy import text
+        for table, column, ddl in self._COLUMN_MIGRATIONS:
+            exists = await conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_schema = :db AND table_name = :t AND column_name = :c"
+                ),
+                {'db': MYSQL_V2_DATABASE, 't': table, 'c': column},
+            )
+            if exists.first() is None:
+                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+                print(f"  ↳ [v2 migrate] {table}.{column} 已补建 ({ddl})")
+
     async def init_db(self):
-        """建库 + create_all 所有 v2 表。"""
+        """建库 + create_all 所有 v2 表 + 轻量加列迁移。"""
         try:
             await self._ensure_db_exists()
             # import models 模块触发 V2Base.metadata 注册
             from . import models  # noqa: F401
             async with self.engine.begin() as conn:
                 await conn.run_sync(V2Base.metadata.create_all)
+                await self._ensure_columns(conn)
             print(f"✅ v2 数据库初始化完成: {MYSQL_V2_DATABASE}")
         except Exception as e:
             print(f"⚠️ [v2 警告] 初始化 v2 数据库失败，MySQL 可能未启动。v2 功能受限: {e}")

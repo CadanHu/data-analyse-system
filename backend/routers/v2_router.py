@@ -767,6 +767,7 @@ class AlertRuleCreate(BaseModel):
     schedule_cron: Optional[str] = None
     channels: Optional[List[Dict[str, Any]]] = None
     enabled: bool = True
+    dedupe_minutes: int = Field(5, ge=0)      # 去重窗口分钟；0 = 关闭去重
 
 
 class AlertRuleUpdate(BaseModel):
@@ -776,6 +777,7 @@ class AlertRuleUpdate(BaseModel):
     schedule_cron: Optional[str] = None
     channels_json: Optional[List[Dict[str, Any]]] = None
     enabled: Optional[bool] = None
+    dedupe_minutes: Optional[int] = Field(None, ge=0)
 
 
 class AlertTrigger(BaseModel):
@@ -832,6 +834,7 @@ async def create_alert_rule(data: AlertRuleCreate, current_user: dict = Depends(
         threshold=data.threshold,
         schedule_cron=data.schedule_cron,
         channels=data.channels, enabled=data.enabled,
+        dedupe_minutes=data.dedupe_minutes,
     )
     # 同步告警 worker scheduler
     try:
@@ -877,7 +880,7 @@ async def eval_alert_now(rule_id: str, current_user: dict = Depends(get_current_
     """立刻评估一次规则，绕过 cron。命中阈值会真触发 trigger_event + 通知。"""
     await _require_rule_writable(rule_id, current_user['id'])
     from services.alert_worker import evaluate_rule
-    return await evaluate_rule(rule_id)
+    return await evaluate_rule(rule_id, respect_dedupe=False, triggered_by='manual')
 
 
 # --- events ---

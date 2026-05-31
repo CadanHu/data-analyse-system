@@ -53,6 +53,7 @@ async def create_rule(
     schedule_cron: Optional[str] = None,
     channels: Optional[List[Dict[str, Any]]] = None,
     enabled: bool = True,
+    dedupe_minutes: int = 5,
 ) -> Dict[str, Any]:
     rid = str(uuid.uuid4())
     async with v2_db.async_session() as s:
@@ -62,6 +63,7 @@ async def create_rule(
             metric_id=metric_id, widget_id=widget_id,
             threshold_json=threshold, schedule_cron=schedule_cron,
             channels_json=channels, enabled=enabled,
+            dedupe_minutes=dedupe_minutes,
             created_at=datetime.utcnow(), updated_at=datetime.utcnow(),
         )
         s.add(r)
@@ -75,7 +77,7 @@ async def create_rule(
 
 
 async def update_rule(rule_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    ALLOWED = {'name', 'description', 'threshold_json', 'schedule_cron', 'channels_json', 'enabled'}
+    ALLOWED = {'name', 'description', 'threshold_json', 'schedule_cron', 'channels_json', 'enabled', 'dedupe_minutes'}
     cleaned = {k: v for k, v in updates.items() if k in ALLOWED}
     if not cleaned:
         return await get_rule(rule_id)
@@ -121,6 +123,18 @@ async def list_events(
         stmt = stmt.order_by(AlertEventModel.fired_at.desc()).limit(limit)
         res = await s.execute(stmt)
         return [_to_dict(e) for e in res.scalars().all()]
+
+
+async def get_last_event_fired_at(rule_id: str) -> Optional[datetime]:
+    """取该规则最近一次事件的 fired_at；无事件返回 None。用于 cron 去重窗口判断。"""
+    async with v2_db.async_session() as s:
+        res = await s.execute(
+            select(AlertEventModel.fired_at)
+            .where(AlertEventModel.rule_id == rule_id)
+            .order_by(AlertEventModel.fired_at.desc())
+            .limit(1)
+        )
+        return res.scalar_one_or_none()
 
 
 async def trigger_event(
