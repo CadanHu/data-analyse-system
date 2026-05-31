@@ -177,18 +177,73 @@ async def create_invoice(
     currency: str = 'CNY',
     pdf_url: Optional[str] = None,
     status: str = 'draft',
+    line_items: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     iid = str(uuid.uuid4())
     async with v2_db.async_session() as s:
         inv = InvoiceModel(
             id=iid, workspace_id=workspace_id, period_yyyymm=period_yyyymm,
             amount_cents=amount_cents, currency=currency,
-            pdf_url=pdf_url, status=status,
+            pdf_url=pdf_url, status=status, line_items_json=line_items,
             created_at=datetime.utcnow(),
         )
         s.add(inv)
         await s.commit()
         return _to_dict(inv)
+
+
+async def upsert_draft_invoice(
+    workspace_id: str,
+    period_yyyymm: str,
+    amount_cents: int,
+    line_items: List[Dict[str, Any]],
+    currency: str = 'CNY',
+) -> tuple[Dict[str, Any], str]:
+    """月结幂等写发票。返回 (invoice, action)，action ∈ created/updated/skipped。
+
+    - 无 → 新建 draft
+    - 已有 draft → 覆盖金额 + line_items（重复跑可刷新）
+    - 已有 issued/paid/void → 原样跳过，保护已开具的账单
+    """
+    async with v2_db.async_session() as s:
+        res = await s.execute(
+            select(InvoiceModel).where(
+                InvoiceModel.workspace_id == workspace_id,
+                InvoiceModel.period_yyyymm == period_yyyymm,
+            ).order_by(InvoiceModel.created_at.desc()).limit(1)
+        )
+        inv = res.scalar_one_or_none()
+        if inv is None:
+            inv = InvoiceModel(
+                id=str(uuid.uuid4()), workspace_id=workspace_id,
+                period_yyyymm=period_yyyymm, amount_cents=amount_cents,
+                currency=currency, status='draft', line_items_json=line_items,
+                created_at=datetime.utcnow(),
+            )
+            s.add(inv)
+            await s.commit()
+            return _to_dict(inv), 'created'
+        if inv.status != 'draft':
+            return _to_dict(inv), 'skipped'
+        inv.amount_cents = amount_cents
+        inv.line_items_json = line_items
+        inv.currency = currency
+        await s.commit()
+        return _to_dict(inv), 'updated'
+
+
+async def list_workspaces_with_subscription() -> List[tuple[str, str]]:
+    """每个有订阅的 workspace → (workspace_id, 当前 plan)。取各 ws 最新一条订阅。"""
+    async with v2_db.async_session() as s:
+        res = await s.execute(
+            select(SubscriptionModel)
+            .order_by(SubscriptionModel.workspace_id, SubscriptionModel.created_at.desc())
+        )
+        seen: Dict[str, str] = {}
+        for sub in res.scalars().all():
+            if sub.workspace_id not in seen:      # 已按 created_at desc，首次见即最新
+                seen[sub.workspace_id] = sub.plan
+        return list(seen.items())
 
 
 async def update_invoice_status(invoice_id: str, status: str) -> Optional[Dict[str, Any]]:

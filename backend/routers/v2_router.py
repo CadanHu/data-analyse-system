@@ -5,7 +5,7 @@
 import traceback
 import asyncio
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -1099,6 +1099,18 @@ async def patch_invoice_status(invoice_id: str, data: _InvoiceStatus, current_us
     if not inv:
         raise HTTPException(status_code=404, detail="invoice 不存在或 status 非法")
     return inv
+
+
+@router.post("/admin/billing/_close-month")
+async def close_billing_month(
+    year: int, month: int = Query(..., ge=1, le=12),
+    current_user: dict = Depends(require_role('admin')),
+):
+    """DAT-29 手动补跑月结。幂等:同 period 重复调覆盖 draft,issued/paid 跳过保护。"""
+    from services.billing_worker import close_month
+    return await close_month(
+        f'{year}-{month:02d}', actor_user_id=current_user['id'], triggered_by='manual',
+    )
 
 
 # ---------- model routes ----------

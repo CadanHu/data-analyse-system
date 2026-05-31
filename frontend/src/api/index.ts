@@ -583,6 +583,8 @@ export const v2Api = {
     api.post('/v2/admin/billing/invoices', data).then(r => r.data),
   updateInvoiceStatus: (invoiceId: string, status: string) =>
     api.patch(`/v2/admin/billing/invoices/${invoiceId}`, { status }).then(r => r.data),
+  closeBillingMonth: (year: number, month: number) =>
+    api.post('/v2/admin/billing/_close-month', null, { params: { year, month } }).then(r => r.data),
   // model routes & budgets
   listModelRoutes: (workspaceId: string) =>
     api.get('/v2/admin/model-routes', { params: { workspace_id: workspaceId } }).then(r => r.data),
