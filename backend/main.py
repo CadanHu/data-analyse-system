@@ -58,9 +58,21 @@ async def lifespan(app: FastAPI):
         await _start_alert()
     except Exception as e:
         print(f"⚠️ [alert-worker] 启动失败: {e}")
+    # DAT-29：月度结算 worker，加 job 到 alert_worker 已启动的 scheduler
+    try:
+        from services.billing_worker import start_worker as _start_billing
+        await _start_billing()
+    except Exception as e:
+        print(f"⚠️ [billing-worker] 启动失败: {e}")
     try:
         yield
     finally:
+        # 关闭月结 worker(先移 job，再由 alert_worker 关 scheduler)
+        try:
+            from services.billing_worker import stop_worker as _stop_billing
+            _stop_billing()
+        except Exception:
+            pass
         # 关闭告警 worker
         try:
             from services.alert_worker import stop_worker as _stop_alert

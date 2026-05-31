@@ -82,6 +82,20 @@ function BillingLiveBar() {
     finally { setBusy(false) }
   }
 
+  // DAT-29 · 补跑上月月结(全工作区,幂等)
+  const closeLastMonth = async () => {
+    setBusy(true)
+    try {
+      const now = new Date()
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1)   // 上个自然月
+      const out = await v2Api.closeBillingMonth(prev.getFullYear(), prev.getMonth() + 1)
+      setErr(null)
+      await reload()
+      alert(`月结 ${out.period}: 新建 ${out.created} · 覆盖 ${out.updated} · 跳过 ${out.skipped}` + (out.errors ? ` · 失败 ${out.errors}` : ''))
+    } catch (e) { setErr(e?.response?.data?.detail || e?.message) }
+    finally { setBusy(false) }
+  }
+
   return (
     <LiveBarAD title="账单 · 真实数据 (admin only)" footer={err ? `⚠ ${err}` : null}>
       {sub && <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>当前: <b>{sub.plan}</b> · {sub.billing_cycle || '—'}</span>}
@@ -93,14 +107,23 @@ function BillingLiveBar() {
             style={{ ...btnGhostAD, opacity: sub?.plan === p ? 0.4 : 1 }}>{p}</button>
         ))}
       </div>
+      <button disabled={busy} onClick={closeLastMonth} style={btnGhostAD} title="对所有工作区结算上月用量,生成草稿账单(幂等,可重复跑)">补跑上月</button>
       {invs.length > 0 && (
         <div style={{ width: '100%', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {invs.slice(0, 5).map(inv => (
-            <div key={inv.id} style={liveRowAD}>
+            <div key={inv.id} style={{ ...liveRowAD, ...(inv.status === 'draft' ? { background: 'var(--surface-2)', borderStyle: 'dashed' } : {}) }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{inv.period_yyyymm}</span>
-              <span style={{ flex: 1, fontSize: 12 }}>{(inv.amount_cents / 100).toFixed(2)} {inv.currency}</span>
+              <span title={inv.line_items_json ? inv.line_items_json.map(li => `${li.label}: ${(li.amount_cents/100).toFixed(2)}`).join('\n') : undefined}
+                style={{ flex: 1, fontSize: 12, cursor: inv.line_items_json ? 'help' : 'default' }}>
+                {(inv.amount_cents / 100).toFixed(2)} {inv.currency}
+                {inv.line_items_json && <span style={{ color: 'var(--ink-4)', fontSize: 10 }}> · {inv.line_items_json.length} 项</span>}
+              </span>
+              {inv.status === 'draft' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, padding: '1px 5px', borderRadius: 4, background: 'var(--amber-soft, oklch(0.74 0.16 75 / 0.15))', color: 'var(--warning)' }}>草稿</span>}
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: inv.status === 'paid' ? 'var(--success)' : 'var(--ink-3)' }}>{inv.status}</span>
               {inv.status === 'draft' && (
+                <button onClick={async () => { await v2Api.updateInvoiceStatus(inv.id, 'issued'); reload() }} style={btnGhostAD}>标记为 issued</button>
+              )}
+              {(inv.status === 'draft' || inv.status === 'issued') && (
                 <button onClick={async () => { await v2Api.updateInvoiceStatus(inv.id, 'paid'); reload() }} style={btnGhostAD}>标为已支付</button>
               )}
             </div>

@@ -59,6 +59,7 @@ class V2Database:
     # NOT NULL DEFAULT 会自动回填现有行，无需单独 UPDATE。
     _COLUMN_MIGRATIONS = [
         ('alert_rules', 'dedupe_minutes', 'INT NOT NULL DEFAULT 5'),
+        ('invoices', 'line_items_json', 'JSON NULL'),
     ]
 
     async def _ensure_columns(self, conn):

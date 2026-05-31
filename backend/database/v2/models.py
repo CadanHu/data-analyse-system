@@ -517,6 +517,7 @@ class InvoiceModel(V2Base):
     amount_cents = Column(Integer, nullable=False)
     currency = Column(String(8), default='CNY')
     status = Column(String(16), default='draft')                   # draft/issued/paid/void
+    line_items_json = Column(JSON, nullable=True)                  # [{kind,label,qty,unit_cents,amount_cents}] — total == amount_cents
     pdf_url = Column(String(512), nullable=True)
     paid_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
