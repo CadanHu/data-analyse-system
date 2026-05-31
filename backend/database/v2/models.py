@@ -386,6 +386,7 @@ class AlertRuleModel(V2Base):
     widget_id = Column(String(36), nullable=True)
     threshold_json = Column(JSON, nullable=False)               # {op:>, value:100, window:'1h', comparator:'wow_pct'}
     schedule_cron = Column(String(64), nullable=True)           # null = 实时；否则 cron 串
+    dedupe_minutes = Column(Integer, nullable=False, default=5)  # 去重窗口：同规则上次 fired_at 距今 < 此值则跳过；0 = 关闭去重
     channels_json = Column(JSON, nullable=True)                 # [{channel:'email', template:'...'}]
     owner_user_id = Column(Integer, nullable=False)
     enabled = Column(Boolean, default=True)

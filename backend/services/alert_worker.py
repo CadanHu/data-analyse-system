@@ -83,8 +83,17 @@ async def _extract_widget_value(widget_id: str) -> Optional[float]:
         return None
 
 
-async def evaluate_rule(rule_id: str) -> Dict[str, Any]:
-    """评估单条规则。返回 {evaluated, fired, value, threshold, reason}。"""
+async def evaluate_rule(
+    rule_id: str, respect_dedupe: bool = True, triggered_by: str = 'cron_worker',
+) -> Dict[str, Any]:
+    """评估单条规则。返回 {evaluated, fired, value, threshold, reason}。
+
+    respect_dedupe=True (cron 默认): 命中后若距上次 fired_at < rule.dedupe_minutes 则跳过触发。
+    respect_dedupe=False (手动 _eval_now): 绕过去重，命中必触发。
+    dedupe_minutes=0 表示关闭去重。
+    triggered_by: 写进 event.attribution.evaluated_by，标记触发来源 (cron_worker / manual)。
+    """
+    from datetime import datetime, timedelta
     from database.v2 import alert_services as v2_alert
     rule = await v2_alert.get_rule(rule_id)
     if not rule:
@@ -128,13 +137,27 @@ async def evaluate_rule(rule_id: str) -> Dict[str, Any]:
     }
 
     if fired:
+        # 去重窗口：cron 评估时，若距上次触发 < dedupe_minutes 则跳过（不写事件/不发通知）。
+        # 手动 _eval_now (respect_dedupe=False) 与 dedupe_minutes<=0 均绕过。
+        dedupe_minutes = rule.get('dedupe_minutes') or 0
+        if respect_dedupe and dedupe_minutes > 0:
+            last_fired = await v2_alert.get_last_event_fired_at(rule_id)
+            if last_fired is not None:
+                elapsed = datetime.utcnow() - last_fired
+                if elapsed < timedelta(minutes=dedupe_minutes):
+                    out['fired'] = False
+                    out['skipped'] = 'deduped'
+                    out['dedupe_minutes'] = dedupe_minutes
+                    out['last_fired_at'] = last_fired.isoformat()
+                    return out
+
         severity = threshold.get('severity', 'warn')
         event = await v2_alert.trigger_event(
             rule_id=rule_id,
             current_value=f'{current_value}',
             threshold_value=f'{op}{thr}',
             severity=severity,
-            attribution={'source': source, 'evaluated_by': 'cron_worker'},
+            attribution={'source': source, 'evaluated_by': triggered_by},
         )
         out['event_id'] = event.get('id')
     return out

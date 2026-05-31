@@ -15,6 +15,7 @@ function AlertWizardLiveBar() {
   const [name, setName] = useState('')
   const [op, setOp] = useState('<')
   const [value, setValue] = useState('-10')
+  const [dedupe, setDedupe] = useState('5')   // 去重窗口分钟；0 = 关闭
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
 
@@ -34,6 +35,7 @@ function AlertWizardLiveBar() {
         name: name.trim(),
         threshold: { op, value: parseFloat(value), comparator: 'wow_pct', window: '1d' },
         channels: [{ channel: 'inapp' }],
+        dedupe_minutes: Math.max(0, parseInt(dedupe, 10) || 0),
       })
       setMsg(`已创建: ${r.id.slice(0, 8)}...`)
       setName('')
@@ -77,6 +79,11 @@ function AlertWizardLiveBar() {
         </select>
         <input value={value} onChange={e => setValue(e.target.value)} style={{ width: 60, padding: '4px 8px' }} />%
       </InlineAL>
+      <InlineAL label="去重窗口">
+        <input type="number" min={0} value={dedupe} onChange={e => setDedupe(e.target.value)}
+          title="同规则同事件这么多分钟内不重复触发；0 = 关闭去重"
+          style={{ width: 56, padding: '4px 8px' }} />分钟
+      </InlineAL>
       <button disabled={busy || !name.trim()} onClick={create} style={btnPriAL}>创建</button>
 
       {rules.length > 0 && (
@@ -89,6 +96,10 @@ function AlertWizardLiveBar() {
                   {r.threshold_json?.op}{r.threshold_json?.value}%
                 </span>
               </span>
+              <span title="去重窗口" style={{
+                fontFamily: 'var(--font-mono)', fontSize: 9, padding: '1px 5px', borderRadius: 4,
+                background: 'var(--surface-2)', color: 'var(--ink-3)',
+              }}>{r.dedupe_minutes > 0 ? `去重 ${r.dedupe_minutes}m` : '去重关'}</span>
               <span style={{ fontSize: 10, color: r.enabled ? 'var(--success)' : 'var(--ink-4)' }}>{r.enabled ? '●启用' : '○停用'}</span>
               <button onClick={() => trigger(r.id)} style={btnGhostAL}>▶ 强触发</button>
               <button onClick={async () => {
