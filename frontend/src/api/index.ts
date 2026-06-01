@@ -587,8 +587,8 @@ export const v2Api = {
   // audit
   listAuditLogs: (params: { workspace_id?: string; actor_user_id?: number; target_type?: string; target_id?: string; since_days?: number; limit?: number; offset?: number }) =>
     api.get('/v2/admin/audit', { params }).then(r => r.data),
-  auditStats: (workspaceId: string, sinceDays = 30) =>
-    api.get('/v2/admin/audit/_stats', { params: { workspace_id: workspaceId, since_days: sinceDays } }).then(r => r.data),
+  auditStats: (workspaceId?: string, sinceDays = 30) =>
+    api.get('/v2/admin/audit/_stats', { params: { ...(workspaceId ? { workspace_id: workspaceId } : {}), since_days: sinceDays } }).then(r => r.data),
   seedAuditLog: (data: any) =>
     api.post('/v2/admin/audit/_seed', data).then(r => r.data),
   // billing

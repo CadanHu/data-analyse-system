@@ -19,6 +19,7 @@ import { AdminAudit, AdminApiKeys, AdminModels, AdminBilling } from './sections/
 import { SettingsProfile, SettingsNotify, SettingsSecurity } from './sections/Settings'
 import { NotFound, OfflineMode, SkeletonLoad, GenericError } from './sections/SystemStates'
 import { PricingPage, DocsPage, ChangelogPage } from './sections/MarketingExtras'
+import { V2TopBar } from './sections/V2TopBar'   // DAT-30 · 常驻顶部 toolbar(取代 V2StatusStrip)
 import { PathMap } from './sections/PathMap'   // DAT-31 · 索引页 4 条主流程地图
 
 type Item = { slug: string; label: string; el: React.ReactNode }
@@ -235,41 +236,8 @@ function BackBar() {
   )
 }
 
-// DAT-28 · 全局状态条 — 每个画板顶部一致地看到 当前工作区 / 角色 / 未读数。
-// 数据来自 V2Context(未读数 30s 轮询);仅在子页面显示,索引页不显示。
-function V2StatusStrip() {
-  const loc = useLocation()
-  const { workspace, profile, unreadCount, loading } = useV2Ctx()
-  if (loc.pathname === '/v2-preview' || loc.pathname === '/v2-preview/') return null
-  const role = profile?.role ?? null
-  return (
-    <div
-      title="全局状态 · 来自 V2Context"
-      style={{
-        position: 'fixed', top: 64, right: 12, zIndex: 9999,
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '4px 12px',
-        background: 'oklch(0.98 0.008 70 / 0.92)',
-        border: '1px solid var(--line-1)', borderRadius: 999,
-        fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)',
-        backdropFilter: 'blur(6px)',
-      }}
-    >
-      <span style={{ color: 'var(--amber-deep)' }}>●</span>
-      <span style={{ color: 'var(--ink-2)' }}>{loading ? '连接中…' : (workspace?.name || '无工作区')}</span>
-      <span style={{ color: 'var(--ink-5)' }}>·</span>
-      <span>{role || '未设角色'}</span>
-      <span style={{ color: 'var(--ink-5)' }}>·</span>
-      <Link
-        to="/v2-preview/notifications"
-        title="通知中心"
-        style={{ textDecoration: 'none', color: unreadCount > 0 ? 'var(--terracotta)' : 'var(--ink-4)' }}
-      >
-        {unreadCount > 0 ? `${unreadCount} 未读` : '0 未读'}
-      </Link>
-    </div>
-  )
-}
+// DAT-30 · 原 DAT-28 的 V2StatusStrip 已升级为 sections/V2TopBar 里的常驻 toolbar
+// (会话切换 / ⌘K / 通知 / 分享 / 角色切换),工作区·角色·未读数现由 V2TopBar 一并呈现。
 
 function ForbiddenPage({ groupTitle }: { groupTitle: string }) {
   return (
@@ -309,7 +277,7 @@ function V2PreviewInner() {
   return (
     <div className="v2-root" style={{ position: 'fixed', inset: 0, overflow: 'auto', background: 'oklch(0.92 0.015 70)' }}>
       <BackBar />
-      <V2StatusStrip />
+      <V2TopBar />
       <Routes>
         <Route index element={<Index profile={profile} />} />
         {GROUPS.flatMap(g =>

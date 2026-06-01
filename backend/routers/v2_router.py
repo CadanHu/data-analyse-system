@@ -1093,7 +1093,7 @@ async def list_audit_logs(
 
 @router.get("/admin/audit/_stats")
 async def audit_stats(
-    workspace_id: str,
+    workspace_id: Optional[str] = None,   # DAT-39 · 省略 = 全部(含平台级 workspace_id=null)
     since_days: int = 30,
     current_user: dict = Depends(require_role('admin')),
 ):
