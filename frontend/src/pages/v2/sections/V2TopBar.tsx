@@ -106,9 +106,9 @@ export function V2TopBar() {
 
       <span style={dot}>┊</span>
 
-      {/* ⌘K 占位 — 第五波(DAT-32 全局搜索)填空 */}
-      <button style={btn} title="全局搜索 · 即将上线(第五波)"
-        onClick={() => alert('全局搜索 ⌘K 即将上线(第五波 / DAT-32)')}>⌘K</button>
+      {/* ⌘K 全局搜索 — DAT-32 第五波,派发事件给 CommandPalette */}
+      <button style={btn} title="全局搜索 (⌘K)"
+        onClick={() => window.dispatchEvent(new CustomEvent('v2-open-cmdk'))}>⌘K</button>
 
       {/* 通知 bell */}
       <div style={{ position: 'relative' }}>

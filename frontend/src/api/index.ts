@@ -498,6 +498,9 @@ export const v2Api = {
 
   listSessions: (workspaceId: string) =>
     api.get<V2Session[]>('/v2/sessions', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  // DAT-32 第五波 · ⌘K 全局搜索(聚合 sessions/boards/metrics/nodes/notifications)
+  globalSearch: (workspaceId: string, q: string, limit = 5) =>
+    api.get('/v2/_search', { params: { workspace_id: workspaceId, q, limit } }).then(r => r.data),
   createSession: (workspaceId: string, title?: string) =>
     api.post<V2Session>('/v2/sessions', { workspace_id: workspaceId, title }).then(r => r.data),
   deleteV2Session: (sessionId: string) =>
