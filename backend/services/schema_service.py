@@ -29,13 +29,44 @@ class SchemaService:
                 cls._current_db_key = db_key
 
     @classmethod
-    def get_current_db_key(cls) -> str:
+    def get_current_db_key(cls) -> Optional[str]:
+        """返回当前库 key;用户尚未显式选库时惰性兜底到首个可用数据源。
+
+        DEFAULT_BUSINESS_DB 默认 None(设计上强制手动选),但部分老路径
+        (如 process_question_with_history)会在选库前就取 schema,导致
+        _current_db_key=None → schema 提取全空(DAT-40 根因)。这里兜底并
+        写回,保证后续 get_full_schema 等读到一致的 key,且警告只打一次。
+        """
+        if cls._current_db_key:
+            return cls._current_db_key
+        fallback = cls._resolve_fallback_db_key()
+        if fallback:
+            print(f"⚠️ [Schema] 未显式选库,fallback 到首个可用数据源: {fallback}")
+            cls._current_db_key = fallback
         return cls._current_db_key
+
+    @classmethod
+    def _resolve_fallback_db_key(cls) -> Optional[str]:
+        """选库兜底顺序: settings 默认 → DatabaseManager 已注册首个 → 静态 DATABASES 首个。"""
+        # 1) settings 配置的默认库(DEFAULT_BUSINESS_DB,默认 None 时跳过)
+        if DEFAULT_BUSINESS_DB and (
+            DEFAULT_BUSINESS_DB in DATABASES
+            or DatabaseManager.get_config(DEFAULT_BUSINESS_DB)
+        ):
+            return DEFAULT_BUSINESS_DB
+        # 2) DatabaseManager 已注册(含用户动态数据源)的首个
+        registered = DatabaseManager.get_configs()
+        if registered:
+            return next(iter(registered))
+        # 3) 静态配置 DATABASES 首个
+        if DATABASES:
+            return next(iter(DATABASES))
+        return None
 
     @classmethod
     async def get_table_names(cls) -> List[str]:
         """获取所有表名 (支持多库独立缓存)"""
-        db_key = cls._current_db_key
+        db_key = cls.get_current_db_key()
         if db_key in cls._cached_tables:
             return cls._cached_tables[db_key]
 
@@ -53,7 +84,7 @@ class SchemaService:
     @classmethod
     async def get_full_schema(cls, include_sample: bool = True) -> str:
         """获取完整数据库结构 (强制匹配当前 DB)"""
-        db_key = cls._current_db_key
+        db_key = cls.get_current_db_key()
         
         # 增加严格校验，如果缓存中的 DB Key 不匹配，则强制刷新
         if db_key in cls._cached_schemas:
@@ -81,7 +112,7 @@ class SchemaService:
 
     @classmethod
     async def get_table_schema(cls, table_name: str) -> str:
-        adapter = DatabaseManager.get_adapter(cls._current_db_key)
+        adapter = DatabaseManager.get_adapter(cls.get_current_db_key())
         if adapter:
             if not adapter.connected:
                 await adapter.connect()
@@ -91,7 +122,7 @@ class SchemaService:
     @classmethod
     async def get_db_version(cls) -> str:
         """获取当前数据库版本"""
-        adapter = DatabaseManager.get_adapter(cls._current_db_key)
+        adapter = DatabaseManager.get_adapter(cls.get_current_db_key())
         if adapter:
             if not adapter.connected:
                 await adapter.connect()
@@ -100,7 +131,7 @@ class SchemaService:
 
     @classmethod
     async def get_sample_data(cls, table_name: str, limit: int = 3) -> str:
-        adapter = DatabaseManager.get_adapter(cls._current_db_key)
+        adapter = DatabaseManager.get_adapter(cls.get_current_db_key())
         if not adapter or not adapter.connected: return ""
         try:
             rows = await adapter.execute_query(f"SELECT * FROM `{table_name}` LIMIT {limit}")
@@ -112,7 +143,7 @@ class SchemaService:
     @classmethod
     async def get_partial_schema(cls, table_names: List[str], include_sample: bool = True) -> str:
         """只获取指定表的 Schema（两阶段注入用）"""
-        db_key = cls._current_db_key
+        db_key = cls.get_current_db_key()
         schemas = []
         for table in table_names:
             table_schema = await cls.get_table_schema(table)

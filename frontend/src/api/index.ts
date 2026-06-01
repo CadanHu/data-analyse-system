@@ -498,6 +498,9 @@ export const v2Api = {
 
   listSessions: (workspaceId: string) =>
     api.get<V2Session[]>('/v2/sessions', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  // DAT-32 第五波 · ⌘K 全局搜索(聚合 sessions/boards/metrics/nodes/notifications)
+  globalSearch: (workspaceId: string, q: string, limit = 5) =>
+    api.get('/v2/_search', { params: { workspace_id: workspaceId, q, limit } }).then(r => r.data),
   createSession: (workspaceId: string, title?: string) =>
     api.post<V2Session>('/v2/sessions', { workspace_id: workspaceId, title }).then(r => r.data),
   deleteV2Session: (sessionId: string) =>
@@ -587,8 +590,8 @@ export const v2Api = {
   // audit
   listAuditLogs: (params: { workspace_id?: string; actor_user_id?: number; target_type?: string; target_id?: string; since_days?: number; limit?: number; offset?: number }) =>
     api.get('/v2/admin/audit', { params }).then(r => r.data),
-  auditStats: (workspaceId: string, sinceDays = 30) =>
-    api.get('/v2/admin/audit/_stats', { params: { workspace_id: workspaceId, since_days: sinceDays } }).then(r => r.data),
+  auditStats: (workspaceId?: string, sinceDays = 30) =>
+    api.get('/v2/admin/audit/_stats', { params: { ...(workspaceId ? { workspace_id: workspaceId } : {}), since_days: sinceDays } }).then(r => r.data),
   seedAuditLog: (data: any) =>
     api.post('/v2/admin/audit/_seed', data).then(r => r.data),
   // billing

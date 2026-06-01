@@ -69,14 +69,16 @@ async def list_logs(
         return [_to_dict(l) for l in res.scalars().all()]
 
 
-async def stats_by_action(workspace_id: str, since_days: int = 30) -> List[Dict[str, Any]]:
-    """按动作类型聚合。"""
+async def stats_by_action(workspace_id: Optional[str] = None, since_days: int = 30) -> List[Dict[str, Any]]:
+    """按动作类型聚合。workspace_id 省略时统计全部(含平台级 workspace_id=null)。"""
     async with v2_db.async_session() as s:
-        res = await s.execute(
+        stmt = (
             select(AuditLogModel.action, func.count(AuditLogModel.id).label('n'))
-            .where(AuditLogModel.workspace_id == workspace_id)
             .where(AuditLogModel.created_at >= datetime.utcnow() - timedelta(days=since_days))
             .group_by(AuditLogModel.action)
             .order_by(func.count(AuditLogModel.id).desc())
         )
+        if workspace_id:
+            stmt = stmt.where(AuditLogModel.workspace_id == workspace_id)
+        res = await s.execute(stmt)
         return [{'action': r[0], 'count': r[1]} for r in res.all()]
