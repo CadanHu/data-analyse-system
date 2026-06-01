@@ -3,8 +3,10 @@
 // 阶段 3 后半段：BoardEditor 顶部加"真实看板连接条"，能看到从 canvas 钉过来的真实 widgets，能删除。
 // 完整拖拽编辑暂未做（demo 视觉保留）。
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { v2Api } from '../../../api'
+import { v2Urls } from './urlProtocol'
+import { useV2Ctx } from '../V2Context'
 
 const { useState: useS_BE } = React;
 
@@ -44,7 +46,7 @@ function P1Top_BE({ crumbs, badge, clock='14:52 · main' }) {
    ========================================================= */
 
 function RealBoardConnector() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
   const [boards, setBoards] = useState([])
   const [activeBoardId, setActiveBoardId] = useState('')
   const [board, setBoard] = useState(null)
@@ -52,10 +54,6 @@ function RealBoardConnector() {
   const [reloadTick, setReloadTick] = useState(0)
   const [searchParams] = useSearchParams()
   const queryBoardId = searchParams.get('board')
-
-  useEffect(() => {
-    v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {})
-  }, [])
 
   useEffect(() => {
     if (!workspace) return
@@ -157,6 +155,14 @@ function RealBoardConnector() {
                 {w.node_role === 'assistant' ? '🤖 ' : '👤 '}{(w.node_content || '(无内容)').slice(0, 80)}
               </span>
               {w.node_sql && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-deep)', background: 'oklch(0.78 0.16 65 / 0.12)', padding: '1px 5px', borderRadius: 4 }}>SQL</span>}
+              {/* DAT-28 · 跳转按钮：回到源节点所在画布会话并定位该节点 */}
+              {w.source_node_id && w.node_session_id && (
+                <Link
+                  to={v2Urls.canvas({ session: w.node_session_id, node: w.source_node_id })}
+                  title="在画布中查看此 widget 的源节点"
+                  style={{ fontSize: 11, color: 'var(--amber-deep)', textDecoration: 'none', whiteSpace: 'nowrap' }}
+                >看源节点 →</Link>
+              )}
               <button
                 onClick={() => handleDelete(w.widget_id)}
                 style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 14 }}

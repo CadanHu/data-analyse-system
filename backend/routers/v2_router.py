@@ -990,6 +990,22 @@ async def list_alert_events(
     return await v2_alert.list_events(rule_id=rule_id, workspace_id=workspace_id, status=status, limit=limit)
 
 
+@router.get("/alert-rules/{rule_id}/source-node")
+async def get_alert_rule_source_node(rule_id: str, current_user: dict = Depends(get_current_user)):
+    """DAT-28 · 解析告警规则关联的源数据节点(给"看源数据 →"跳转用)。
+    链路:rule.widget_id → board_widget.source_node_id → 该节点所在 session。
+    没绑 widget / widget 已删 → 返回 {session_id: null, node_id: null}(前端据此提示)。"""
+    await _require_rule_readable(rule_id, current_user['id'])
+    rule = await v2_alert.get_rule(rule_id)
+    widget_id = (rule or {}).get('widget_id')
+    if not widget_id:
+        return {'session_id': None, 'node_id': None}
+    src = await v2_board.get_widget_source(widget_id)
+    if not src:
+        return {'session_id': None, 'node_id': None}
+    return {'session_id': src['session_id'], 'node_id': src['source_node_id']}
+
+
 @router.post("/alert-rules/{rule_id}/_trigger", status_code=status.HTTP_201_CREATED)
 async def trigger_alert(rule_id: str, data: AlertTrigger, current_user: dict = Depends(get_current_user)):
     """手动触发一条告警事件 (联调 / 管理员强制触发用)。

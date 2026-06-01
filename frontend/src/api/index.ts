@@ -429,6 +429,7 @@ export interface V2BoardWidget {
   widget_id: string
   board_id: string
   source_node_id: string
+  node_session_id: string | null   // DAT-28 · 源节点所在 session，跳回画布定位用
   grid_x: number
   grid_y: number
   w: number
@@ -571,6 +572,8 @@ export const v2Api = {
     api.patch(`/v2/alert-events/${eventId}/ack`).then(r => r.data),
   resolveAlertEvent: (eventId: string) =>
     api.patch(`/v2/alert-events/${eventId}/resolve`).then(r => r.data),
+  getAlertRuleSourceNode: (ruleId: string) =>
+    api.get<{ session_id: string | null; node_id: string | null }>(`/v2/alert-rules/${ruleId}/source-node`).then(r => r.data),
   subscribeAlert: (ruleId: string, channelOverrides?: any) =>
     api.post(`/v2/alert-rules/${ruleId}/subscribe`, { channel_overrides: channelOverrides }).then(r => r.data),
   unsubscribeAlert: (ruleId: string) =>

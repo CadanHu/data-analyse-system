@@ -3,18 +3,18 @@
 // 阶段 6 真实数据接入：4 个 Admin 子页都用 Live 浮动条
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { v2Api } from '../../../api'
+import { useV2Ctx } from '../V2Context'
 
 const { useState: useS_AD } = React;
 
 /* ---------- Live data bars (阶段 6, 仅 admin role) ---------- */
 
 function AuditLiveBar() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
   const [logs, setLogs] = useState([])
   const [stats, setStats] = useState([])
   const [err, setErr] = useState(null)
 
-  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
   useEffect(() => {
     if (!workspace) return
     Promise.all([
@@ -53,7 +53,7 @@ function AuditLiveBar() {
 }
 
 function BillingLiveBar() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
   const [sub, setSub] = useState(null)
   const [seats, setSeats] = useState(null)
   const [usage, setUsage] = useState(null)
@@ -61,7 +61,6 @@ function BillingLiveBar() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
 
-  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
   const reload = async () => {
     if (!workspace) return
     try {
@@ -135,7 +134,7 @@ function BillingLiveBar() {
 }
 
 function ModelsLiveBar() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
   const [routes, setRoutes] = useState([])
   const [budgets, setBudgets] = useState([])
   const [pattern, setPattern] = useState('')
@@ -143,7 +142,6 @@ function ModelsLiveBar() {
   const [busy, setBusy] = useState(false)
   const [evalResult, setEvalResult] = useState(null)
 
-  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
   const reload = async () => {
     if (!workspace) return
     try {
@@ -196,14 +194,13 @@ function ModelsLiveBar() {
 }
 
 function ApiKeysLiveBar() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
   const [keys, setKeys] = useState([])
   const [includeRevoked, setIncludeRevoked] = useState(false)
   const [name, setName] = useState('')
   const [revealedKey, setRevealedKey] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
   const reload = async () => {
     if (!workspace) return
     try { setKeys(await v2Api.listApiKeys(workspace.id, includeRevoked)) } catch {}

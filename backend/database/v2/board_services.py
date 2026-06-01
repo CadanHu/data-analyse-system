@@ -111,6 +111,7 @@ async def list_widgets(board_id: str) -> List[Dict[str, Any]]:
                 'widget_id': widget.id,
                 'board_id': widget.board_id,
                 'source_node_id': widget.source_node_id,
+                'node_session_id': node.session_id,   # DAT-28 · 跳回画布需要 session 才能定位节点
                 'grid_x': widget.grid_x,
                 'grid_y': widget.grid_y,
                 'w': widget.w,
@@ -125,6 +126,28 @@ async def list_widgets(board_id: str) -> List[Dict[str, Any]]:
                 'node_branch_label': node.branch_label,
             })
         return out
+
+
+async def get_widget_source(widget_id: str) -> Optional[Dict[str, Any]]:
+    """DAT-28 · 解析一个 board widget 的源数据位置:
+    widget → source_node_id → 该节点所在 session。供告警/看板跳回画布定位用。
+    widget 不存在或源节点已删返回 None。"""
+    async with v2_db.async_session() as s:
+        res = await s.execute(
+            select(BoardWidgetModel, CanvasNodeModel)
+            .join(CanvasNodeModel, CanvasNodeModel.id == BoardWidgetModel.source_node_id)
+            .where(BoardWidgetModel.id == widget_id)
+        )
+        row = res.first()
+        if not row:
+            return None
+        widget, node = row
+        return {
+            'widget_id': widget.id,
+            'board_id': widget.board_id,
+            'source_node_id': widget.source_node_id,
+            'session_id': node.session_id,
+        }
 
 
 async def pin_node_to_board(
