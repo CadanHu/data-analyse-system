@@ -74,6 +74,21 @@ def _parse_target(path: str):
     return 'unknown', None, None
 
 
+def _normalize_action(method: str, action: str) -> str:
+    """把 _PATH_RULES 的动词 action 按 HTTP method 规范化。
+
+    _PATH_RULES 里 action 本身已是动词。泛化的 'create'/'modify' 按 method
+    规范成 create/update/delete;其它已带具体语义的动词(invite_member/share/
+    grant…)保留,DELETE 仍加 delete_ 前缀。这样不会再出现 create_create /
+    update_modify 这类重复前缀(DAT-38)。
+    """
+    if method == 'DELETE':
+        return 'delete' if action in ('create', 'modify') else f'delete_{action}'
+    if method in ('PATCH', 'PUT'):
+        return 'update' if action == 'modify' else action
+    return 'create' if action == 'create' else action
+
+
 async def _resolve_actor(request: Request):
     """尝试解析当前 user_id；失败返回 None 不阻塞请求。"""
     auth = request.headers.get('authorization', '')
@@ -125,12 +140,7 @@ async def _async_write_audit(request: Request, method: str, path: str):
         if actor is None:
             return  # 没拿到 actor 不写
         action, ttype, tid = _parse_target(path)
-        if method == 'DELETE':
-            action = f'delete_{action}'
-        elif method == 'PATCH' or method == 'PUT':
-            action = f'update_{action}' if action == 'modify' else action
-        else:
-            action = f'create_{action}' if action == 'create' else action
+        action = _normalize_action(method, action)
         # 取 workspace_id（如果路径里没有，跳过，作为平台级动作）
         from database.v2 import audit_services as audit
         await audit.write(
