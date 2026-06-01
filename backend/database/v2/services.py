@@ -121,6 +121,36 @@ async def list_members(workspace_id: str) -> List[Dict[str, Any]]:
         return [_model_to_dict(m) for m in res.scalars().all()]
 
 
+async def update_member_role(workspace_id: str, user_id: int, role: str) -> Optional[Dict[str, Any]]:
+    """改某成员在工作区的角色。成员不存在返回 None（路由层据此返回 404）。"""
+    async with v2_db.async_session() as s:
+        res = await s.execute(
+            select(WorkspaceMemberModel).where(
+                WorkspaceMemberModel.workspace_id == workspace_id,
+                WorkspaceMemberModel.user_id == user_id,
+            )
+        )
+        mem = res.scalar_one_or_none()
+        if not mem:
+            return None
+        mem.role = role
+        await s.commit()
+        return _model_to_dict(mem)
+
+
+async def remove_member(workspace_id: str, user_id: int) -> bool:
+    """从工作区移除成员。返回是否真的删到了行（用于区分 404）。"""
+    async with v2_db.async_session() as s:
+        res = await s.execute(
+            sa_delete(WorkspaceMemberModel).where(
+                WorkspaceMemberModel.workspace_id == workspace_id,
+                WorkspaceMemberModel.user_id == user_id,
+            )
+        )
+        await s.commit()
+        return (res.rowcount or 0) > 0
+
+
 async def get_member_role(workspace_id: str, user_id: int) -> Optional[str]:
     """权限校验工具：判断 user 在 workspace 里是什么角色，None 表示不是成员。"""
     async with v2_db.async_session() as s:

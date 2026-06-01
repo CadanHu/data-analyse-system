@@ -464,7 +464,8 @@ export function NotificationCenter() {
    3. Team workspace · members + roles
    ========================================================= */
 
-export function TeamWorkspace() {
+/* ===== 旧 mock 版 TeamWorkspace（DAT-27 前的静态预览，保留备查；勿启用） =====
+function TeamWorkspaceMock() {
   const [role, setRole] = useS_CL('analyst');
   return (
     <div className="p0-frame">
@@ -623,4 +624,208 @@ export function TeamWorkspace() {
       </div>
     </div>
   );
-};
+}
+===== 旧 mock 版结束 ===== */
+
+/* ===== DAT-27 · 真实数据版 TeamWorkspace ===== */
+
+const ROLE_LABEL = { owner: '所有人', admin: '管理员', member: '成员', ops: '运维', analyst: '分析师', viewer: '访客' }
+const ASSIGNABLE_ROLES = ['admin', 'member', 'ops', 'analyst', 'viewer']
+
+export function TeamWorkspace() {
+  const [workspace, setWorkspace] = useState(null)
+  const [myUserId, setMyUserId] = useState(null)
+  const [members, setMembers] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState('member')
+
+  const myRole = workspace?.role
+  const canEdit = myRole === 'owner' || myRole === 'admin'
+
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(null), 4000) }
+  const errText = (e) => e?.response?.data?.detail || e?.message || String(e)
+
+  const reload = async (wsId) => {
+    try { setMembers(await v2Api.listMembers(wsId)) }
+    catch (e) { flash('加载成员失败: ' + errText(e)) }
+  }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [ws, profile] = await Promise.all([
+          v2Api.getCurrentWorkspace(),
+          v2Api.getMyProfile().catch(() => null),
+        ])
+        setWorkspace(ws)
+        setMyUserId(profile?.user_id ?? null)
+        await reload(ws.id)
+      } catch (e) { flash('初始化失败: ' + errText(e)) }
+      finally { setLoading(false) }
+    })()
+  }, [])
+
+  const invite = async () => {
+    const email = inviteEmail.trim()
+    if (!email || !workspace) return
+    setBusy(true)
+    try {
+      await v2Api.addMember(workspace.id, { email, role: inviteRole })
+      setInviteEmail(''); setInviteOpen(false)
+      await reload(workspace.id)
+      flash(`已邀请 ${email} 为「${ROLE_LABEL[inviteRole] || inviteRole}」`)
+    } catch (e) { flash('邀请失败: ' + errText(e)) }
+    finally { setBusy(false) }
+  }
+
+  const changeRole = async (uid, role) => {
+    if (!workspace) return
+    setBusy(true)
+    try { await v2Api.updateMemberRole(workspace.id, uid, role); await reload(workspace.id) }
+    catch (e) { flash('改角色失败: ' + errText(e)) }
+    finally { setBusy(false) }
+  }
+
+  const remove = async (m) => {
+    if (!workspace) return
+    if (!window.confirm(`确认移除成员 ${m.username}（${m.email || '—'}）？此操作立即生效。`)) return
+    setBusy(true)
+    try { await v2Api.removeMember(workspace.id, m.user_id); await reload(workspace.id) }
+    catch (e) { flash('移除失败: ' + errText(e)) }
+    finally { setBusy(false) }
+  }
+
+  const initial = (m) => (m.username || m.email || '?').trim().charAt(0).toUpperCase()
+  const fmtDate = (s) => (s ? String(s).slice(0, 10) : '—')
+
+  return (
+    <div className="p0-frame">
+      <div className="team">
+        <div className="team-side">
+          <div className="brand"><span className="dot" />DataPulse</div>
+          <div className="group">工作区 · WORKSPACE</div>
+          <a><span className="ix">·</span>概览</a>
+          <a className="on"><span className="ix">▸</span>成员与角色</a>
+          <a><span className="ix">·</span>团队 / 邮件组</a>
+          <a><span className="ix">·</span>审批流</a>
+          <div className="group">设置</div>
+          <a><span className="ix">·</span>数据源</a>
+          <a><span className="ix">·</span>指标中心</a>
+          <a><span className="ix">·</span>权限与脱敏</a>
+          <div className="group">合规</div>
+          <a><span className="ix">·</span>审计日志</a>
+          <a><span className="ix">·</span>会话留痕</a>
+        </div>
+
+        <div className="team-main">
+          <div className="team-head">
+            <div>
+              <span className="sub">工作区 · {workspace?.slug || workspace?.name || '—'}</span>
+              <h1>成员与角色</h1>
+            </div>
+            <div className="right">
+              {msg && <span style={{ fontSize: 12, color: 'var(--amber-deep)', marginRight: 12 }}>{msg}</span>}
+              {canEdit && (
+                <button className="btn-primary" disabled={busy} onClick={() => setInviteOpen(v => !v)}>
+                  {inviteOpen ? '收起' : '+ 邀请成员'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {canEdit && inviteOpen && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '0 0 16px', padding: '12px 14px', background: 'var(--paper-2)', borderRadius: 8, border: '1px solid var(--line-1)', flexWrap: 'wrap' }}>
+              <input
+                type="email"
+                placeholder="同事邮箱（须已注册）"
+                value={inviteEmail}
+                onChange={e => setInviteEmail(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') invite() }}
+                style={{ flex: 1, minWidth: 220, padding: '7px 10px', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 13 }}
+              />
+              <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} style={{ padding: '7px 10px', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 13 }}>
+                {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+              </select>
+              <button className="btn-primary" disabled={busy || !inviteEmail.trim()} onClick={invite}>发送邀请</button>
+            </div>
+          )}
+
+          <div className="team-stats">
+            <div className="cell">
+              <div className="label">总成员</div>
+              <div className="val"><em>{loading ? '…' : members.length}</em></div>
+              <div className="delta" style={{ color: 'var(--ink-4)' }}>当前工作区</div>
+            </div>
+            <div className="cell">
+              <div className="label">你的角色</div>
+              <div className="val">{ROLE_LABEL[myRole] || myRole || '—'}</div>
+              <div className="delta" style={{ color: 'var(--ink-4)' }}>{canEdit ? '可管理成员' : '只读'}</div>
+            </div>
+          </div>
+
+          <div className="team-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>成员</th>
+                  <th>角色</th>
+                  <th>加入时间</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={4} style={{ padding: 24, color: 'var(--ink-4)' }}>加载中…</td></tr>
+                ) : members.length === 0 ? (
+                  <tr><td colSpan={4} style={{ padding: 24, color: 'var(--ink-4)' }}>暂无成员</td></tr>
+                ) : members.map(m => {
+                  const isOwner = m.role === 'owner'
+                  const isMe = myUserId != null && m.user_id === myUserId
+                  return (
+                    <tr key={m.user_id}>
+                      <td>
+                        <div className="person">
+                          <div className="av">{initial(m)}</div>
+                          <div>
+                            <div>{m.username}{isMe && <span style={{ color: 'var(--ink-4)', fontSize: 11, fontFamily: 'var(--font-mono)', marginLeft: 6 }}>(你)</span>}</div>
+                            <div className="email">{m.email || '—'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        {canEdit && !isOwner ? (
+                          <select
+                            value={m.role}
+                            disabled={busy}
+                            onChange={e => changeRole(m.user_id, e.target.value)}
+                            style={{ padding: '4px 8px', border: '1px solid var(--line-1)', borderRadius: 6, fontSize: 12 }}
+                          >
+                            {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                          </select>
+                        ) : (
+                          <span className={`role-pill ${isOwner ? 'adm' : ''}`}>{ROLE_LABEL[m.role] || m.role}</span>
+                        )}
+                      </td>
+                      <td><span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)' }}>{fmtDate(m.joined_at)}</span></td>
+                      <td>
+                        <div className="row-actions">
+                          {canEdit && !isOwner
+                            ? <a onClick={() => remove(m)} style={{ cursor: 'pointer', color: 'var(--terracotta)' }}>移除</a>
+                            : <span style={{ color: 'var(--ink-5)' }}>—</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

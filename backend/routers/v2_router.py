@@ -12,9 +12,14 @@ from pydantic import BaseModel, Field
 from routers.auth_router import get_current_user
 from database.v2 import services as v2_svc
 from database.v2 import canvas_services as v2_canvas
+from database.user_db import user_db
 from services.stream_service import StreamableHTTPService
 
 router = APIRouter(prefix="/api/v2", tags=["v2"])
+
+# 可分配给成员的角色集合（owner 是工作区所有人，转让需独立 flow，故不在此列）。
+# 见 DAT-27：邀请 / 改角色下拉只给这几个，owner 行只读。
+ASSIGNABLE_MEMBER_ROLES = {'admin', 'member', 'ops', 'analyst', 'viewer'}
 
 
 # ============================================================
@@ -56,8 +61,14 @@ class WorkspaceOut(BaseModel):
 
 
 class MemberAdd(BaseModel):
-    user_id: int
-    role: str = Field(default='viewer')   # owner / admin / editor / viewer
+    # 二选一：优先 email（前端按 email 邀请），无 email 时回退到 user_id
+    email: Optional[str] = None
+    user_id: Optional[int] = None
+    role: str = Field(default='viewer')   # admin / member / ops / analyst / viewer
+
+
+class MemberRoleUpdate(BaseModel):
+    role: str
 
 
 class ProfileUpdate(BaseModel):
@@ -111,13 +122,28 @@ async def create_workspace(data: WorkspaceCreate, current_user: dict = Depends(g
     return {**ws, 'role': 'owner'}
 
 
+async def _enrich_member(member: Dict[str, Any], users: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
+    """给 member 行补上跨库的用户资料(email/username/avatar)。
+    users 来自 user_db.get_users_by_ids。查不到的用户(已删号等)兜底占位，不让前端炸。"""
+    u = users.get(member['user_id']) or {}
+    return {
+        **member,
+        'email': u.get('email'),
+        'username': u.get('username') or f"user#{member['user_id']}",
+        'avatar_url': u.get('avatar_url'),
+    }
+
+
 @router.get("/workspaces/{workspace_id}/members")
 async def list_workspace_members(workspace_id: str, current_user: dict = Depends(get_current_user)):
     # 权限：必须是成员才能查看成员列表
     my_role = await v2_svc.get_member_role(workspace_id, current_user['id'])
     if not my_role:
         raise HTTPException(status_code=403, detail="不是该工作区成员")
-    return await v2_svc.list_members(workspace_id)
+    members = await v2_svc.list_members(workspace_id)
+    # users 表在 session 库、members 在 v2 库，跨库无法 JOIN —— 这里一次性批量补资料
+    users = await user_db.get_users_by_ids([m['user_id'] for m in members])
+    return [await _enrich_member(m, users) for m in members]
 
 
 @router.post("/workspaces/{workspace_id}/members", status_code=status.HTTP_201_CREATED)
@@ -130,14 +156,74 @@ async def add_workspace_member(
     my_role = await v2_svc.get_member_role(workspace_id, current_user['id'])
     if my_role not in ('owner', 'admin'):
         raise HTTPException(status_code=403, detail="只有 owner / admin 能加成员")
-    if data.role == 'owner':
-        raise HTTPException(status_code=400, detail="不能直接给别人 owner 角色，请使用转让接口（待实现）")
-    return await v2_svc.add_member(
+    if data.role not in ASSIGNABLE_MEMBER_ROLES:
+        raise HTTPException(status_code=400, detail=f"角色非法，可选: {' / '.join(sorted(ASSIGNABLE_MEMBER_ROLES))}")
+
+    # 邀请方式：优先 email(前端按邮箱邀请)，回退 user_id
+    if data.email:
+        target = await user_db.get_user_by_email(data.email.strip())
+        if not target:
+            raise HTTPException(status_code=404, detail="该邮箱未注册，暂不支持邀请站外用户")
+        target_user_id = target['id']
+    elif data.user_id is not None:
+        target_user_id = data.user_id
+    else:
+        raise HTTPException(status_code=400, detail="请提供 email 或 user_id")
+
+    mem = await v2_svc.add_member(
         workspace_id=workspace_id,
-        user_id=data.user_id,
+        user_id=target_user_id,
         role=data.role,
         invited_by=current_user['id'],
     )
+    users = await user_db.get_users_by_ids([target_user_id])
+    return await _enrich_member(mem, users)
+
+
+@router.patch("/workspaces/{workspace_id}/members/{member_user_id}")
+async def update_workspace_member_role(
+    workspace_id: str,
+    member_user_id: int,
+    data: MemberRoleUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    # 权限：owner / admin 才能改角色
+    my_role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+    if my_role not in ('owner', 'admin'):
+        raise HTTPException(status_code=403, detail="只有 owner / admin 能改角色")
+    if data.role not in ASSIGNABLE_MEMBER_ROLES:
+        raise HTTPException(status_code=400, detail=f"角色非法，可选: {' / '.join(sorted(ASSIGNABLE_MEMBER_ROLES))}")
+    # 保护单一所有人不变式：owner 行不可改（转让需独立 flow）
+    target_role = await v2_svc.get_member_role(workspace_id, member_user_id)
+    if target_role == 'owner':
+        raise HTTPException(status_code=400, detail="不能修改所有人(owner)的角色")
+
+    mem = await v2_svc.update_member_role(workspace_id, member_user_id, data.role)
+    if not mem:
+        raise HTTPException(status_code=404, detail="该用户不是此工作区成员")
+    users = await user_db.get_users_by_ids([member_user_id])
+    return await _enrich_member(mem, users)
+
+
+@router.delete("/workspaces/{workspace_id}/members/{member_user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_workspace_member(
+    workspace_id: str,
+    member_user_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    # 权限：owner / admin 才能移除成员
+    my_role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+    if my_role not in ('owner', 'admin'):
+        raise HTTPException(status_code=403, detail="只有 owner / admin 能移除成员")
+    # owner 不可被移除（保护工作区所有人）
+    target_role = await v2_svc.get_member_role(workspace_id, member_user_id)
+    if target_role == 'owner':
+        raise HTTPException(status_code=400, detail="不能移除工作区所有人(owner)")
+
+    ok = await v2_svc.remove_member(workspace_id, member_user_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="该用户不是此工作区成员")
+    return None
 
 
 # ============================================================
