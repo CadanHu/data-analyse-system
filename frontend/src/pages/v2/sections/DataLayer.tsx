@@ -2,8 +2,10 @@
 // Ported verbatim from datapulse-ai-design-system/project/v2/DataLayer.jsx
 // 真实数据接入：3 个画板分别接 datasource_tables_meta / column_meta+tags / metrics+synonyms+lineage
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { v2Api } from '../../../api'
+import { v2Urls } from './urlProtocol'
+import { useV2Ctx } from '../V2Context'
 
 const { useState: useS_DL } = React;
 
@@ -83,6 +85,7 @@ function SchemaSemanticLiveBar() {
 
   useEffect(() => { reloadCols() }, [dsId, schema, table])
   useEffect(() => { reloadTags(activeColId) }, [activeColId])
+  const activeCol = columns.find(c => c.id === activeColId)   // DAT-28 · 当前选中字段(跳转建指标用)
 
   const addCol = async () => {
     if (!colName.trim()) return
@@ -127,8 +130,18 @@ function SchemaSemanticLiveBar() {
           ))}
         </div>
         <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)', marginBottom: 4 }}>
-            {activeColId ? '该字段的语义标签' : '← 选一个字段'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-3)' }}>
+              {activeColId ? '该字段的语义标签' : '← 选一个字段'}
+            </span>
+            {/* DAT-28 · 跳转按钮：拿当前字段去指标中心建指标(预填 SUM(col)) */}
+            {activeCol && (
+              <Link
+                to={v2Urls.metrics({ expr_seed: activeCol.column_name })}
+                title="用此字段建指标"
+                style={{ fontSize: 11, color: 'var(--amber-deep)', textDecoration: 'none' }}
+              >用此字段建指标 →</Link>
+            )}
           </div>
           {activeColId && (
             <>
@@ -154,7 +167,7 @@ function SchemaSemanticLiveBar() {
 }
 
 function MetricCenterLiveBar() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
   const [metrics, setMetrics] = useState([])
   const [query, setQuery] = useState('')
   const [searched, setSearched] = useState(null)
@@ -170,7 +183,6 @@ function MetricCenterLiveBar() {
   const [synText, setSynText] = useState('')
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
   const reload = async () => {
     if (!workspace) return
     try { setMetrics(await v2Api.listMetrics(workspace.id)) } catch {}
@@ -248,6 +260,12 @@ function MetricCenterLiveBar() {
                 <span style={{ color: 'var(--ink-3)', marginLeft: 4 }}>{m.unit || ''}</span>
               </span>
               {m.synonyms_count !== undefined && <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>syn:{m.synonyms_count}</span>}
+              {/* DAT-28 · 跳转按钮：拿这个指标去画布问一句(预填提问框) */}
+              <Link
+                to={v2Urls.canvas({ seed_q: `帮我分析一下${m.name}` })}
+                title="用它问一句"
+                style={{ fontSize: 10, color: 'var(--amber-deep)', textDecoration: 'none', whiteSpace: 'nowrap' }}
+              >用它问一句 →</Link>
               <button onClick={() => del(m.id)} style={{ ...btnGhostDL, color: 'var(--ink-4)' }}>✕</button>
             </div>
           ))}

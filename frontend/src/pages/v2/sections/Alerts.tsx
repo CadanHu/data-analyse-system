@@ -2,15 +2,17 @@
 // Ported verbatim from datapulse-ai-design-system/project/v2/Alerts.jsx
 // 阶段 5 真实数据接入：AlertWizard/Detail 顶部 Live 浮动条
 import React, { useState, useRef, useEffect, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { v2Api } from '../../../api'
+import { v2Urls } from './urlProtocol'
+import { useV2Ctx } from '../V2Context'
 
 const { useState: useS_AL } = React;
 
 /* ---------- Live data bars (阶段 5) ---------- */
 
 function AlertWizardLiveBar() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
   const [rules, setRules] = useState([])
   const [name, setName] = useState('')
   const [op, setOp] = useState('<')
@@ -19,7 +21,6 @@ function AlertWizardLiveBar() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
 
-  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
   const reload = async () => {
     if (!workspace) return
     try { setRules(await v2Api.listAlertRules(workspace.id)) } catch {}
@@ -117,14 +118,32 @@ function AlertWizardLiveBar() {
 }
 
 function AlertDetailLiveBar() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
+  const navigate = useNavigate()
   const [events, setEvents] = useState([])
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState(null)   // DAT-28 · 跳转失败的轻提示
   const [searchParams] = useSearchParams()
   const queryEventId = searchParams.get('event')
 
-  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
+  // DAT-28 · 跳转按钮：event → rule.widget_id → 源节点(+session) → 画布定位
+  const jumpToSource = async (ev) => {
+    setNote(null)
+    try {
+      const src = await v2Api.getAlertRuleSourceNode(ev.rule_id)
+      if (src?.session_id && src?.node_id) {
+        navigate(v2Urls.canvas({ session: src.session_id, node: src.node_id }))
+      } else {
+        setNote('该告警未关联看板 widget,无法定位源数据')
+        setTimeout(() => setNote(null), 3000)
+      }
+    } catch (e) {
+      setNote('定位源数据失败: ' + (e?.response?.data?.detail || e?.message || e))
+      setTimeout(() => setNote(null), 3000)
+    }
+  }
+
   const reload = async () => {
     if (!workspace) return
     try {
@@ -152,7 +171,7 @@ function AlertDetailLiveBar() {
   const resolve = async (eid) => { setBusy(true); try { await v2Api.resolveAlertEvent(eid); reload() } finally { setBusy(false) } }
 
   return (
-    <LiveBarAL title={`告警事件 · 真实数据 · 共 ${events.length}`}>
+    <LiveBarAL title={`告警事件 · 真实数据 · 共 ${events.length}`} footer={note}>
       <InlineAL label="状态">
         <select value={filter} onChange={e => setFilter(e.target.value)}>
           <option value="">全部</option>
@@ -183,6 +202,8 @@ function AlertDetailLiveBar() {
                 {e.attribution_json?.top_value && <span style={{ color: 'var(--ink-3)' }}> · 主因 {e.attribution_json.top_value} ({e.attribution_json.contrib_pct}%)</span>}
               </span>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase' }}>{e.status}</span>
+              {/* DAT-28 · 跳转按钮：看源数据 → 画布源节点 */}
+              <button onClick={() => jumpToSource(e)} style={{ ...btnGhostAL, color: 'var(--amber-deep)' }}>看源数据 →</button>
               {e.status === 'open' && <button onClick={() => ack(e.id)} disabled={busy} style={btnGhostAL}>ack</button>}
               {e.status !== 'resolved' && <button onClick={() => resolve(e.id)} disabled={busy} style={btnGhostAL}>resolve</button>}
             </div>

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
-import { v2Api, type V2Profile } from '../../api'
+import { type V2Profile } from '../../api'
+import { V2GlobalProvider, useV2Ctx } from './V2Context'
 import './tokens.css'
 import './app.css'
 import './p0.css'
@@ -233,6 +233,42 @@ function BackBar() {
   )
 }
 
+// DAT-28 · 全局状态条 — 每个画板顶部一致地看到 当前工作区 / 角色 / 未读数。
+// 数据来自 V2Context(未读数 30s 轮询);仅在子页面显示,索引页不显示。
+function V2StatusStrip() {
+  const loc = useLocation()
+  const { workspace, profile, unreadCount, loading } = useV2Ctx()
+  if (loc.pathname === '/v2-preview' || loc.pathname === '/v2-preview/') return null
+  const role = profile?.role ?? null
+  return (
+    <div
+      title="全局状态 · 来自 V2Context"
+      style={{
+        position: 'fixed', top: 64, right: 12, zIndex: 9999,
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '4px 12px',
+        background: 'oklch(0.98 0.008 70 / 0.92)',
+        border: '1px solid var(--line-1)', borderRadius: 999,
+        fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink-3)',
+        backdropFilter: 'blur(6px)',
+      }}
+    >
+      <span style={{ color: 'var(--amber-deep)' }}>●</span>
+      <span style={{ color: 'var(--ink-2)' }}>{loading ? '连接中…' : (workspace?.name || '无工作区')}</span>
+      <span style={{ color: 'var(--ink-5)' }}>·</span>
+      <span>{role || '未设角色'}</span>
+      <span style={{ color: 'var(--ink-5)' }}>·</span>
+      <Link
+        to="/v2-preview/notifications"
+        title="通知中心"
+        style={{ textDecoration: 'none', color: unreadCount > 0 ? 'var(--terracotta)' : 'var(--ink-4)' }}
+      >
+        {unreadCount > 0 ? `${unreadCount} 未读` : '0 未读'}
+      </Link>
+    </div>
+  )
+}
+
 function ForbiddenPage({ groupTitle }: { groupTitle: string }) {
   return (
     <div style={{ display: 'grid', placeItems: 'center', height: '100vh', padding: 32 }}>
@@ -254,16 +290,24 @@ function ForbiddenPage({ groupTitle }: { groupTitle: string }) {
   )
 }
 
+// 外层只负责挂 Provider;真正的页面在 V2PreviewInner 里消费 useV2Ctx()
 export default function V2Preview() {
-  const [profile, setProfile] = useState<V2Profile | null>(null)
-  useEffect(() => {
-    v2Api.getMyProfile().then(setProfile).catch(() => {/* 未登录则保持 null */})
-  }, [])
+  return (
+    <V2GlobalProvider>
+      <V2PreviewInner />
+    </V2GlobalProvider>
+  )
+}
+
+function V2PreviewInner() {
+  // DAT-28 · profile 改由全局 V2Context 提供(原本这里单独 getMyProfile)
+  const { profile } = useV2Ctx()
   const role = profile?.role ?? null
 
   return (
     <div className="v2-root" style={{ position: 'fixed', inset: 0, overflow: 'auto', background: 'oklch(0.92 0.015 70)' }}>
       <BackBar />
+      <V2StatusStrip />
       <Routes>
         <Route index element={<Index profile={profile} />} />
         {GROUPS.flatMap(g =>

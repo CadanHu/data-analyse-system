@@ -4,14 +4,15 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { v2Api } from '../../../api'
-import { notifJumpUrl } from './urlProtocol'
+import { notifJumpUrl, v2Urls } from './urlProtocol'
+import { useV2Ctx } from '../V2Context'
 
 const { useState: useS_CL } = React;
 
 /* ---------- Live data bars (阶段 4) ---------- */
 
 function ShareLiveBar() {
-  const [workspace, setWorkspace] = useState(null)
+  const { workspace } = useV2Ctx()   // DAT-28 · 工作区改由全局 V2Context 提供
   const [boards, setBoards] = useState([])
   const [sessions, setSessions] = useState([])
   const [searchParams] = useSearchParams()
@@ -24,7 +25,6 @@ function ShareLiveBar() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
 
-  useEffect(() => { v2Api.getCurrentWorkspace().then(setWorkspace).catch(() => {}) }, [])
   useEffect(() => {
     if (!workspace) return
     v2Api.listBoards(workspace.id).then(setBoards).catch(() => {})
@@ -90,7 +90,11 @@ function ShareLiveBar() {
               </span>
               <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{l.permission}</span>
               {l.revoked_at ? <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>已撤销</span>
-                : <button onClick={() => revoke(l.id)} style={btnGhost}>撤销</button>}
+                : <>
+                    {/* DAT-28 · 跳转按钮：新 tab 打开分享预览 */}
+                    <a href={v2Urls.sharePreview(l.token)} target="_blank" rel="noreferrer" style={{ ...btnGhost, color: 'var(--amber-deep)', textDecoration: 'none' }}>预览 →</a>
+                    <button onClick={() => revoke(l.id)} style={btnGhost}>撤销</button>
+                  </>}
             </div>
           ))}
         </div>
@@ -100,17 +104,15 @@ function ShareLiveBar() {
 }
 
 function NotifLiveBar() {
+  const { unreadCount: unread, refreshUnread } = useV2Ctx()  // DAT-28 · 未读数走全局,标记后同步刷新 badge
   const [list, setList] = useState([])
-  const [unread, setUnread] = useState(0)
   const [busy, setBusy] = useState(false)
 
   const reload = async () => {
     try {
-      const [items, cnt] = await Promise.all([
-        v2Api.listNotifications(false, 20),
-        v2Api.countUnreadNotifications(),
-      ])
-      setList(items); setUnread(cnt.unread || 0)
+      const items = await v2Api.listNotifications(false, 20)
+      setList(items)
+      await refreshUnread()
     } catch {}
   }
   useEffect(() => { reload() }, [])
@@ -633,8 +635,9 @@ const ROLE_LABEL = { owner: '所有人', admin: '管理员', member: '成员', o
 const ASSIGNABLE_ROLES = ['admin', 'member', 'ops', 'analyst', 'viewer']
 
 export function TeamWorkspace() {
-  const [workspace, setWorkspace] = useState(null)
-  const [myUserId, setMyUserId] = useState(null)
+  // DAT-28 · workspace / profile 改由全局 V2Context 提供(原本各自 getCurrentWorkspace + getMyProfile)
+  const { workspace, profile } = useV2Ctx()
+  const myUserId = profile?.user_id ?? null
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState(null)
@@ -655,19 +658,11 @@ export function TeamWorkspace() {
   }
 
   useEffect(() => {
-    (async () => {
-      try {
-        const [ws, profile] = await Promise.all([
-          v2Api.getCurrentWorkspace(),
-          v2Api.getMyProfile().catch(() => null),
-        ])
-        setWorkspace(ws)
-        setMyUserId(profile?.user_id ?? null)
-        await reload(ws.id)
-      } catch (e) { flash('初始化失败: ' + errText(e)) }
-      finally { setLoading(false) }
-    })()
-  }, [])
+    if (!workspace) return
+    setLoading(true)
+    reload(workspace.id).finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace])
 
   const invite = async () => {
     const email = inviteEmail.trim()
