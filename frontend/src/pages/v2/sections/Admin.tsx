@@ -14,21 +14,32 @@ function AuditLiveBar() {
   const [logs, setLogs] = useState([])
   const [stats, setStats] = useState([])
   const [err, setErr] = useState(null)
+  // DAT-39 · 'workspace' = 仅本工作区;'all' = 全部(含平台级 workspace_id=null 的日志)
+  const [scope, setScope] = useState('workspace')
+
+  // scope=all 时不传 workspace_id,后端返回全部(含平台级)
+  const wsParam = scope === 'all' ? undefined : (workspace ? workspace.id : undefined)
 
   useEffect(() => {
     if (!workspace) return
     Promise.all([
-      v2Api.listAuditLogs({ workspace_id: workspace.id, since_days: 30, limit: 50 }),
-      v2Api.auditStats(workspace.id, 30),
+      v2Api.listAuditLogs({ workspace_id: wsParam, since_days: 30, limit: 50 }),
+      v2Api.auditStats(wsParam, 30),
     ]).then(([l, s]) => { setLogs(l); setStats(s); setErr(null) }).catch(e => setErr(e?.response?.data?.detail || e?.message))
-  }, [workspace])
+  }, [workspace, scope])
 
   return (
-    <LiveBarAD title="审计日志 · 真实数据 (admin only)" footer={err ? `⚠ ${err}` : `${logs.length} 条 · 30 天`}>
+    <LiveBarAD title="审计日志 · 真实数据 (admin only)" footer={err ? `⚠ ${err}` : `${logs.length} 条 · 30 天 · ${scope === 'all' ? '全部' : '本工作区'}`}>
+      <div style={{ display: 'inline-flex', gap: 2, marginRight: 8 }}>
+        {[['workspace', '本工作区'], ['all', '全部']].map(([v, label]) => (
+          <button key={v} onClick={() => setScope(v)}
+            style={{ ...btnGhostAD, ...(scope === v ? { background: 'var(--amber-deep)', color: '#fff' } : {}) }}>{label}</button>
+        ))}
+      </div>
       <button onClick={async () => {
         if (!workspace) return
         await v2Api.seedAuditLog({ action: 'create', workspace_id: workspace.id, target_type: 'manual_test', target_id: 't-' + Date.now() })
-        const l = await v2Api.listAuditLogs({ workspace_id: workspace.id, limit: 50 })
+        const l = await v2Api.listAuditLogs({ workspace_id: wsParam, limit: 50 })
         setLogs(l)
       }} style={btnGhostAD}>＋ 造一条</button>
       {stats.length > 0 && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
