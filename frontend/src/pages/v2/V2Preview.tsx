@@ -21,6 +21,7 @@ import { NotFound, OfflineMode, SkeletonLoad, GenericError } from './sections/Sy
 import { PricingPage, DocsPage, ChangelogPage } from './sections/MarketingExtras'
 import { V2TopBar } from './sections/V2TopBar'   // DAT-30 · 常驻顶部 toolbar(取代 V2StatusStrip)
 import { PathMap } from './sections/PathMap'   // DAT-31 · 索引页 4 条主流程地图
+import { CommandPalette } from './sections/CommandPalette'   // DAT-32 · ⌘K 全局搜索
 
 type Item = { slug: string; label: string; el: React.ReactNode }
 type Group = { id: string; title: string; items: Item[]; allowedRoles?: string[] }
@@ -278,6 +279,7 @@ function V2PreviewInner() {
     <div className="v2-root" style={{ position: 'fixed', inset: 0, overflow: 'auto', background: 'oklch(0.92 0.015 70)' }}>
       <BackBar />
       <V2TopBar />
+      <CommandPalette />   {/* DAT-32 · ⌘K 全局搜索,任意子页面可唤起 */}
       <Routes>
         <Route index element={<Index profile={profile} />} />
         {GROUPS.flatMap(g =>

@@ -1738,6 +1738,19 @@ async def search_metric(workspace_id: str, q: str, limit: int = 10, current_user
     return await v2_sem.search_metrics(workspace_id, q, limit)
 
 
+@router.get("/_search")
+async def global_search_endpoint(
+    workspace_id: str, q: str, limit: int = 5,
+    current_user: dict = Depends(get_current_user),
+):
+    """DAT-32 第五波 · ⌘K 全局搜索。聚合 sessions/boards/metrics/nodes/notifications,按类型分组。"""
+    role = await v2_svc.get_member_role(workspace_id, current_user['id'])
+    if not role:
+        raise HTTPException(status_code=403, detail="不是该工作区成员")
+    from database.v2 import search_services
+    return await search_services.global_search(workspace_id, current_user['id'], q, limit)
+
+
 # ---------- synonyms ----------
 
 @router.get("/semantic/metrics/{metric_id}/synonyms")
