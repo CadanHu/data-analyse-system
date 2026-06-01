@@ -20,6 +20,7 @@ import { SettingsProfile, SettingsNotify, SettingsSecurity } from './sections/Se
 import { NotFound, OfflineMode, SkeletonLoad, GenericError } from './sections/SystemStates'
 import { PricingPage, DocsPage, ChangelogPage } from './sections/MarketingExtras'
 import { V2TopBar } from './sections/V2TopBar'   // DAT-30 · 常驻顶部 toolbar(取代 V2StatusStrip)
+import { PathMap } from './sections/PathMap'   // DAT-31 · 索引页 4 条主流程地图
 
 type Item = { slug: string; label: string; el: React.ReactNode }
 type Group = { id: string; title: string; items: Item[]; allowedRoles?: string[] }
@@ -166,6 +167,7 @@ function Index({ profile }: { profile: V2Profile | null }) {
           <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{defaultView.tagline} →</div>
         </Link>
       )}
+      <PathMap />
       {visibleGroups.map(g => (
         <div key={g.id} style={{ marginBottom: 32 }}>
           <div style={{ fontFamily: 'var(--font-serif)', fontSize: 22, marginBottom: 12, color: 'var(--ink-1)' }}>
