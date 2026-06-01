@@ -2,7 +2,7 @@
 基于 SQLAlchemy 的异步用户数据库操作 (支持 MySQL/PostgreSQL)
 """
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from sqlalchemy import Column, String, Integer, DateTime, SmallInteger, text
 from sqlalchemy.future import select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
@@ -72,6 +72,19 @@ class UserDatabase:
             result = await session.execute(select(UserModel).where(UserModel.email == email))
             u = result.scalar_one_or_none()
             return self._to_dict(u) if u else None
+
+    async def get_users_by_ids(self, user_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """批量按 id 查用户，返回 {id: {id, username, email, avatar_url}}。
+        用于跨库场景下给只存 user_id 的表(如 v2 workspace_members)补充用户资料，
+        一次 IN 查询避免 N+1。空列表直接返回 {}。"""
+        if not user_ids:
+            return {}
+        async with self.async_session() as session:
+            result = await session.execute(select(UserModel).where(UserModel.id.in_(list(set(user_ids)))))
+            return {
+                u.id: {'id': u.id, 'username': u.username, 'email': u.email, 'avatar_url': u.avatar_url}
+                for u in result.scalars().all()
+            }
 
     async def update_last_login(self, user_id: int):
         async with self.async_session() as session:

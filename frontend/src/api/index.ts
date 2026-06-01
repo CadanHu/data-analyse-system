@@ -451,6 +451,18 @@ export interface V2BoardTemplate {
   is_builtin: boolean
 }
 
+export interface V2WorkspaceMember {
+  workspace_id: string
+  user_id: number
+  role: string
+  joined_at: string | null
+  invited_by_user_id: number | null
+  // 路由层跨库 enrich 出来的用户资料
+  email: string | null
+  username: string
+  avatar_url: string | null
+}
+
 export interface V2Profile {
   user_id: number
   display_name: string | null
@@ -473,6 +485,16 @@ export const v2Api = {
     api.get<V2Workspace>('/v2/workspaces/current').then(r => r.data),
   listWorkspaces: () =>
     api.get<V2Workspace[]>('/v2/workspaces').then(r => r.data),
+  // DAT-27 · 工作区成员
+  listMembers: (workspaceId: string) =>
+    api.get<V2WorkspaceMember[]>(`/v2/workspaces/${workspaceId}/members`).then(r => r.data),
+  addMember: (workspaceId: string, payload: { email: string; role: string }) =>
+    api.post<V2WorkspaceMember>(`/v2/workspaces/${workspaceId}/members`, payload).then(r => r.data),
+  updateMemberRole: (workspaceId: string, userId: number, role: string) =>
+    api.patch<V2WorkspaceMember>(`/v2/workspaces/${workspaceId}/members/${userId}`, { role }).then(r => r.data),
+  removeMember: (workspaceId: string, userId: number) =>
+    api.delete(`/v2/workspaces/${workspaceId}/members/${userId}`).then(r => r.data),
+
   listSessions: (workspaceId: string) =>
     api.get<V2Session[]>('/v2/sessions', { params: { workspace_id: workspaceId } }).then(r => r.data),
   createSession: (workspaceId: string, title?: string) =>
