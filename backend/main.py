@@ -16,8 +16,10 @@ from database.user_db import user_db
 from database.knowledge_db import knowledge_db
 from database.business_db import init_business_db
 from database.datasource_db import datasource_db
+from database.v2 import v2_db
 
 from middleware import setup_exception_handlers, rate_limit_middleware
+from middleware.v2_audit import V2AuditMiddleware
 from utils.logger import setup_logging
 
 from contextlib import asynccontextmanager
@@ -40,10 +42,43 @@ async def lifespan(app: FastAPI):
     await user_db.init_db()
     await knowledge_db.init_db()
     await datasource_db.init_db()
+    await v2_db.init_db()
+    # 阶段 3：内置 6 个看板模板 (空表才灌)
+    try:
+        from database.v2 import board_services as _v2_board
+        n = await _v2_board.seed_builtin_templates_if_empty()
+        if n:
+            print(f"✅ v2 board_templates 灌入 {n} 条内置模板")
+    except Exception as e:
+        print(f"⚠️ [v2 警告] 灌入内置看板模板失败: {e}")
     print("✅ 数据库初始化完成")
+    # 阶段 9 横向：启动告警 cron worker
+    try:
+        from services.alert_worker import start_worker as _start_alert
+        await _start_alert()
+    except Exception as e:
+        print(f"⚠️ [alert-worker] 启动失败: {e}")
+    # DAT-29：月度结算 worker，加 job 到 alert_worker 已启动的 scheduler
+    try:
+        from services.billing_worker import start_worker as _start_billing
+        await _start_billing()
+    except Exception as e:
+        print(f"⚠️ [billing-worker] 启动失败: {e}")
     try:
         yield
     finally:
+        # 关闭月结 worker(先移 job，再由 alert_worker 关 scheduler)
+        try:
+            from services.billing_worker import stop_worker as _stop_billing
+            _stop_billing()
+        except Exception:
+            pass
+        # 关闭告警 worker
+        try:
+            from services.alert_worker import stop_worker as _stop_alert
+            _stop_alert()
+        except Exception:
+            pass
         # 🚀 关键修复: 在关闭时静默取消所有协程任务，防止 SSE 导致的 CancelledError 刷屏
         import asyncio
         print("📥 正在退出系统...")
@@ -80,6 +115,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+# 阶段 8 横向：v2 自动审计 middleware (POST/PATCH/DELETE 到 /api/v2/* 自动入 audit_logs)
+app.add_middleware(V2AuditMiddleware)
 
 
 # 2. 速率限制中间件
@@ -121,6 +159,7 @@ from routers.sync_router import router as sync_router
 from routers.business_sync_router import router as business_sync_router
 from routers.knowledge_graph_router import router as knowledge_graph_router
 from routers.datasource_router import router as datasource_router
+from routers.v2_router import router as v2_router
 from fastapi.staticfiles import StaticFiles
 
 app.include_router(session_router.router, prefix="/api", tags=["会话管理"])
@@ -136,6 +175,7 @@ app.include_router(sync_router, prefix="/api", tags=["移动端同步"])
 app.include_router(business_sync_router, prefix="/api", tags=["业务数据同步"])
 app.include_router(knowledge_graph_router, prefix="/api", tags=["知识图谱管理"])
 app.include_router(datasource_router)
+app.include_router(v2_router)
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")

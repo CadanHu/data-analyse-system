@@ -1,0 +1,42 @@
+name: CI
+
+# 务实绿色 CI（DAT-29 起）：先保证有真实、能过的检查。
+# 后端全量 pytest 依赖真 MySQL / API keys / 重依赖，不在裸 CI 跑；
+# 这里只跑无 IO 的纯单测 + 全量语法编译。前端用 vite build（esbuild 转译，
+# 不做严格 tsc——tsc 目前有 2 个历史报错，待单独清理后再加严格 typecheck）。
+
+on:
+  pull_request:
+  push:
+    branches: [feature/v2-preview, main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 语法编译全部后端 .py
+        run: python -m compileall -q backend -x 'venv'
+      - name: 纯单测（无 IO）
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest backend/tests/test_billing_pricing.py -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: vite build（兜底 import/语法错误）
+        run: npx vite build

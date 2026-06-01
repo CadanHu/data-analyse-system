@@ -9,6 +9,7 @@ from config import API_KEY, API_BASE_URL, CHAT_MODEL, REASONER_MODEL, MAX_RETRY_
 from services.llm_factory import llm_factory
 from services.schema_service import SchemaService
 from services.sql_executor import SQLExecutor
+from databases.database_manager import DatabaseManager
 from utils.prompt_templates import get_prompt
 
 # ── Prompt 辅助：按 DB 类型返回示例文本 ─────────────────────────────────────

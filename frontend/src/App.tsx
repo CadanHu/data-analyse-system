@@ -16,6 +16,7 @@ import LearnMore from './components/LearnMore'
 import Tutorial from './components/Tutorial'
 import Features from './components/Features'
 import Changelog from './components/Changelog'
+import V2Preview from './pages/v2/V2Preview'
 import UserSync from './components/UserSync'
 import LogViewer from './components/LogViewer'
 import MobileDebugPanel from './mobile/DebugPanel'
@@ -272,7 +273,10 @@ export default function App() {
         <Route path="/tutorial" element={<Tutorial />} />
         <Route path="/features" element={<Features />} />
         <Route path="/changelog" element={<Changelog />} />
-        
+        {import.meta.env.VITE_ENABLE_V2_PREVIEW === 'true' && (
+          <Route path="/v2-preview/*" element={<V2Preview />} />
+        )}
+
         <Route element={<ProtectedRoute />}>
         <Route path="/app" element={
           <div 

@@ -366,4 +366,361 @@ export const knowledgeGraphApi = {
     }).then(r => r.data),
 }
 
+// ============================================================
+// v2 API (workspace / v2 sessions / canvas nodes)
+// 详见 data-sys-docs/v2-schema.md
+// ============================================================
+
+export interface V2Workspace {
+  id: string
+  name: string
+  slug: string
+  owner_user_id: number
+  plan_tier: string
+  role?: string
+}
+
+export interface V2Session {
+  id: string
+  workspace_id: string
+  owner_user_id: number
+  title: string | null
+  model_provider: string | null
+  model_name: string | null
+  mode_flags_json: any
+  created_at: string
+  updated_at: string
+}
+
+export interface V2CanvasNode {
+  node_id: string
+  parent_node_id: string | null
+  branch_label: string | null
+  pinned_to_board_id: string | null
+  position_index: number
+  clarify_status: string
+  hitl_status: string
+  message_id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string | null
+  sql: string | null
+  chart_cfg_json: any
+  data_json: any
+  thinking_steps_json: string[] | null
+  elapsed_ms: number | null
+  created_at: string
+}
+
+export interface V2Board {
+  id: string
+  workspace_id: string
+  title: string
+  description: string | null
+  grid_cols: number
+  schedule_cron: string | null
+  owner_user_id: number
+  from_template_id: string | null
+  created_at: string
+  updated_at: string
+  widgets?: V2BoardWidget[]
+}
+
+export interface V2BoardWidget {
+  widget_id: string
+  board_id: string
+  source_node_id: string
+  node_session_id: string | null   // DAT-28 · 源节点所在 session，跳回画布定位用
+  grid_x: number
+  grid_y: number
+  w: number
+  h: number
+  override_cfg_json: any
+  order_index: number
+  node_role: string
+  node_content: string | null
+  node_sql: string | null
+  node_chart_cfg_json: any
+  node_branch_label: string | null
+}
+
+export interface V2BoardTemplate {
+  id: string
+  category: string | null
+  name: string
+  preview_url: string | null
+  layout_json: any
+  is_builtin: boolean
+}
+
+export interface V2WorkspaceMember {
+  workspace_id: string
+  user_id: number
+  role: string
+  joined_at: string | null
+  invited_by_user_id: number | null
+  // 路由层跨库 enrich 出来的用户资料
+  email: string | null
+  username: string
+  avatar_url: string | null
+}
+
+export interface V2Profile {
+  user_id: number
+  display_name: string | null
+  role: string | null
+  team_id: string | null
+  avatar_url: string | null
+  lang: string
+  theme: string
+  density: string
+  shortcuts_json: any
+}
+
+export const v2Api = {
+  getMyProfile: () =>
+    api.get<V2Profile>('/v2/me/profile').then(r => r.data),
+  updateMyProfile: (updates: Partial<V2Profile>) =>
+    api.put<V2Profile>('/v2/me/profile', updates).then(r => r.data),
+
+  getCurrentWorkspace: () =>
+    api.get<V2Workspace>('/v2/workspaces/current').then(r => r.data),
+  listWorkspaces: () =>
+    api.get<V2Workspace[]>('/v2/workspaces').then(r => r.data),
+  // DAT-27 · 工作区成员
+  listMembers: (workspaceId: string) =>
+    api.get<V2WorkspaceMember[]>(`/v2/workspaces/${workspaceId}/members`).then(r => r.data),
+  addMember: (workspaceId: string, payload: { email: string; role: string }) =>
+    api.post<V2WorkspaceMember>(`/v2/workspaces/${workspaceId}/members`, payload).then(r => r.data),
+  updateMemberRole: (workspaceId: string, userId: number, role: string) =>
+    api.patch<V2WorkspaceMember>(`/v2/workspaces/${workspaceId}/members/${userId}`, { role }).then(r => r.data),
+  removeMember: (workspaceId: string, userId: number) =>
+    api.delete(`/v2/workspaces/${workspaceId}/members/${userId}`).then(r => r.data),
+
+  listSessions: (workspaceId: string) =>
+    api.get<V2Session[]>('/v2/sessions', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createSession: (workspaceId: string, title?: string) =>
+    api.post<V2Session>('/v2/sessions', { workspace_id: workspaceId, title }).then(r => r.data),
+  deleteV2Session: (sessionId: string) =>
+    api.delete(`/v2/sessions/${sessionId}`).then(r => r.data),
+  listCanvasNodes: (sessionId: string) =>
+    api.get<V2CanvasNode[]>(`/v2/sessions/${sessionId}/canvas-nodes`).then(r => r.data),
+  askStreamUrl: (sessionId: string) => `/api/v2/sessions/${sessionId}/ask`,
+
+  // 阶段 3 · 看板
+  listBoards: (workspaceId: string) =>
+    api.get<V2Board[]>('/v2/boards', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createBoard: (workspaceId: string, title: string, description?: string) =>
+    api.post<V2Board>('/v2/boards', { workspace_id: workspaceId, title, description }).then(r => r.data),
+  getBoard: (boardId: string) =>
+    api.get<V2Board>(`/v2/boards/${boardId}`).then(r => r.data),
+  updateBoard: (boardId: string, updates: Partial<{ title: string; description: string; grid_cols: number; schedule_cron: string }>) =>
+    api.patch<V2Board>(`/v2/boards/${boardId}`, updates).then(r => r.data),
+  deleteBoard: (boardId: string) =>
+    api.delete(`/v2/boards/${boardId}`).then(r => r.data),
+  pinNodeToBoard: (boardId: string, sourceNodeId: string, opts?: { grid_x?: number; grid_y?: number; w?: number; h?: number }) =>
+    api.post<V2BoardWidget>(`/v2/boards/${boardId}/widgets`, { source_node_id: sourceNodeId, ...opts }).then(r => r.data),
+  updateWidget: (boardId: string, widgetId: string, updates: Partial<{ grid_x: number; grid_y: number; w: number; h: number }>) =>
+    api.patch<V2BoardWidget>(`/v2/boards/${boardId}/widgets/${widgetId}`, updates).then(r => r.data),
+  deleteWidget: (boardId: string, widgetId: string) =>
+    api.delete(`/v2/boards/${boardId}/widgets/${widgetId}`).then(r => r.data),
+  listBoardTemplates: (category?: string) =>
+    api.get<V2BoardTemplate[]>('/v2/board-templates', { params: category ? { category } : {} }).then(r => r.data),
+
+  // 阶段 4 · 分享 + 通知
+  createShareLink: (targetType: string, targetId: string, permission = 'view', expiresDays?: number) =>
+    api.post('/v2/share-links', { target_type: targetType, target_id: targetId, permission, expires_days: expiresDays }).then(r => r.data),
+  listShareLinks: (targetType?: string, targetId?: string) =>
+    api.get('/v2/share-links', { params: { target_type: targetType, target_id: targetId } }).then(r => r.data),
+  revokeShareLink: (linkId: string) =>
+    api.post(`/v2/share-links/${linkId}/revoke`).then(r => r.data),
+  deleteShareLink: (linkId: string) =>
+    api.delete(`/v2/share-links/${linkId}`).then(r => r.data),
+  upsertShareGrant: (targetType: string, targetId: string, userId: number, permission = 'view') =>
+    api.post('/v2/share-grants', { target_type: targetType, target_id: targetId, user_id: userId, permission }).then(r => r.data),
+  listShareGrants: (targetType: string, targetId: string) =>
+    api.get('/v2/share-grants', { params: { target_type: targetType, target_id: targetId } }).then(r => r.data),
+  deleteShareGrant: (grantId: string) =>
+    api.delete(`/v2/share-grants/${grantId}`).then(r => r.data),
+
+  listNotifications: (onlyUnread = false, limit = 50, offset = 0) =>
+    api.get('/v2/notifications', { params: { only_unread: onlyUnread, limit, offset } }).then(r => r.data),
+  countUnreadNotifications: () =>
+    api.get('/v2/notifications/_count').then(r => r.data),
+  markNotificationRead: (notifId: string) =>
+    api.patch(`/v2/notifications/${notifId}/read`).then(r => r.data),
+  markAllNotificationsRead: () =>
+    api.post('/v2/notifications/_read_all').then(r => r.data),
+  deleteNotification: (notifId: string) =>
+    api.delete(`/v2/notifications/${notifId}`).then(r => r.data),
+
+  // 阶段 5 · 告警
+  listAlertRules: (workspaceId: string) =>
+    api.get('/v2/alert-rules', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createAlertRule: (data: any) =>
+    api.post('/v2/alert-rules', data).then(r => r.data),
+  updateAlertRule: (ruleId: string, updates: any) =>
+    api.patch(`/v2/alert-rules/${ruleId}`, updates).then(r => r.data),
+  deleteAlertRule: (ruleId: string) =>
+    api.delete(`/v2/alert-rules/${ruleId}`).then(r => r.data),
+  listAlertEvents: (params: { rule_id?: string; workspace_id?: string; status?: string; limit?: number }) =>
+    api.get('/v2/alert-events', { params }).then(r => r.data),
+  triggerAlert: (ruleId: string, data: any) =>
+    api.post(`/v2/alert-rules/${ruleId}/_trigger`, data).then(r => r.data),
+  evalAlertNow: (ruleId: string) =>
+    api.post(`/v2/alert-rules/${ruleId}/_eval_now`).then(r => r.data),
+  ackAlertEvent: (eventId: string) =>
+    api.patch(`/v2/alert-events/${eventId}/ack`).then(r => r.data),
+  resolveAlertEvent: (eventId: string) =>
+    api.patch(`/v2/alert-events/${eventId}/resolve`).then(r => r.data),
+  getAlertRuleSourceNode: (ruleId: string) =>
+    api.get<{ session_id: string | null; node_id: string | null }>(`/v2/alert-rules/${ruleId}/source-node`).then(r => r.data),
+  subscribeAlert: (ruleId: string, channelOverrides?: any) =>
+    api.post(`/v2/alert-rules/${ruleId}/subscribe`, { channel_overrides: channelOverrides }).then(r => r.data),
+  unsubscribeAlert: (ruleId: string) =>
+    api.delete(`/v2/alert-rules/${ruleId}/subscribe`).then(r => r.data),
+  listAlertSubscribers: (ruleId: string) =>
+    api.get(`/v2/alert-rules/${ruleId}/subscribers`).then(r => r.data),
+  myAlertSubscriptions: () =>
+    api.get('/v2/me/alert-subscriptions').then(r => r.data),
+
+  // 阶段 6 · 管理后台
+  // audit
+  listAuditLogs: (params: { workspace_id?: string; actor_user_id?: number; target_type?: string; target_id?: string; since_days?: number; limit?: number; offset?: number }) =>
+    api.get('/v2/admin/audit', { params }).then(r => r.data),
+  auditStats: (workspaceId: string, sinceDays = 30) =>
+    api.get('/v2/admin/audit/_stats', { params: { workspace_id: workspaceId, since_days: sinceDays } }).then(r => r.data),
+  seedAuditLog: (data: any) =>
+    api.post('/v2/admin/audit/_seed', data).then(r => r.data),
+  // billing
+  getSubscription: (workspaceId: string) =>
+    api.get('/v2/admin/billing/subscription', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  upgradePlan: (data: any) =>
+    api.post('/v2/admin/billing/subscription', data).then(r => r.data),
+  getSeats: (workspaceId: string) =>
+    api.get('/v2/admin/billing/seats', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  updateSeats: (data: any) =>
+    api.patch('/v2/admin/billing/seats', data).then(r => r.data),
+  getUsage: (workspaceId: string, period?: string) =>
+    api.get('/v2/admin/billing/usage', { params: { workspace_id: workspaceId, period } }).then(r => r.data),
+  listInvoices: (workspaceId: string) =>
+    api.get('/v2/admin/billing/invoices', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createInvoice: (data: any) =>
+    api.post('/v2/admin/billing/invoices', data).then(r => r.data),
+  updateInvoiceStatus: (invoiceId: string, status: string) =>
+    api.patch(`/v2/admin/billing/invoices/${invoiceId}`, { status }).then(r => r.data),
+  closeBillingMonth: (year: number, month: number) =>
+    api.post('/v2/admin/billing/_close-month', null, { params: { year, month } }).then(r => r.data),
+  // model routes & budgets
+  listModelRoutes: (workspaceId: string) =>
+    api.get('/v2/admin/model-routes', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createModelRoute: (data: any) =>
+    api.post('/v2/admin/model-routes', data).then(r => r.data),
+  updateModelRoute: (routeId: string, updates: any) =>
+    api.patch(`/v2/admin/model-routes/${routeId}`, updates).then(r => r.data),
+  deleteModelRoute: (routeId: string) =>
+    api.delete(`/v2/admin/model-routes/${routeId}`).then(r => r.data),
+  evaluateModelRoute: (workspaceId: string, intent: string) =>
+    api.post('/v2/admin/model-routes/_evaluate', { workspace_id: workspaceId, intent }).then(r => r.data),
+  listModelBudgets: (workspaceId: string, period?: string) =>
+    api.get('/v2/admin/model-budgets', { params: { workspace_id: workspaceId, period } }).then(r => r.data),
+  setModelBudget: (data: any) =>
+    api.post('/v2/admin/model-budgets', data).then(r => r.data),
+  // api keys
+  listApiKeys: (workspaceId: string, includeRevoked = false) =>
+    api.get('/v2/admin/api-keys', { params: { workspace_id: workspaceId, include_revoked: includeRevoked } }).then(r => r.data),
+  createApiKey: (data: any) =>
+    api.post('/v2/admin/api-keys', data).then(r => r.data),
+  rotateApiKey: (keyId: string) =>
+    api.post(`/v2/admin/api-keys/${keyId}/rotate`).then(r => r.data),
+  revokeApiKey: (keyId: string) =>
+    api.post(`/v2/admin/api-keys/${keyId}/revoke`).then(r => r.data),
+
+  // 阶段 7 · 安全设置 (me)
+  // 2FA
+  get2FAStatus: () =>
+    api.get('/v2/me/security/2fa').then(r => r.data),
+  setup2FA: () =>
+    api.post('/v2/me/security/2fa/setup').then(r => r.data),
+  verify2FA: (code: string) =>
+    api.post('/v2/me/security/2fa/verify', { code }).then(r => r.data),
+  disable2FA: () =>
+    api.delete('/v2/me/security/2fa').then(r => r.data),
+  regenerateBackupCodes: () =>
+    api.post('/v2/me/security/2fa/regenerate-backup-codes').then(r => r.data),
+  // login sessions
+  listLoginSessions: (onlyActive = true) =>
+    api.get('/v2/me/security/sessions', { params: { only_active: onlyActive } }).then(r => r.data),
+  seedLoginSession: (data: any) =>
+    api.post('/v2/me/security/sessions/_seed', data).then(r => r.data),
+  revokeLoginSession: (sessionId: string) =>
+    api.delete(`/v2/me/security/sessions/${sessionId}`).then(r => r.data),
+  revokeOtherSessions: () =>
+    api.post('/v2/me/security/sessions/_revoke_others').then(r => r.data),
+  // oauth apps
+  listOAuthApps: (onlyActive = true) =>
+    api.get('/v2/me/security/oauth-apps', { params: { only_active: onlyActive } }).then(r => r.data),
+  seedOAuthApp: (data: any) =>
+    api.post('/v2/me/security/oauth-apps/_seed', data).then(r => r.data),
+  revokeOAuthApp: (appId: string) =>
+    api.delete(`/v2/me/security/oauth-apps/${appId}`).then(r => r.data),
+
+  // 节点详情 (阶段 8 配套)
+  getNodeDetail: (nodeId: string) =>
+    api.get(`/v2/nodes/${nodeId}`).then(r => r.data),
+  listNodeComments: (nodeId: string) =>
+    api.get(`/v2/nodes/${nodeId}/comments`).then(r => r.data),
+  addNodeComment: (nodeId: string, body: string, mentions?: number[], parent_comment_id?: string) =>
+    api.post(`/v2/nodes/${nodeId}/comments`, { body, mentions, parent_comment_id }).then(r => r.data),
+  resolveNodeComment: (nodeId: string, commentId: string) =>
+    api.post(`/v2/nodes/${nodeId}/comments/${commentId}/resolve`).then(r => r.data),
+  deleteNodeComment: (nodeId: string, commentId: string) =>
+    api.delete(`/v2/nodes/${nodeId}/comments/${commentId}`).then(r => r.data),
+  listNodeVersions: (nodeId: string) =>
+    api.get(`/v2/nodes/${nodeId}/versions`).then(r => r.data),
+  patchNodeStatus: (nodeId: string, updates: { clarify_status?: string; hitl_status?: string }) =>
+    api.patch(`/v2/nodes/${nodeId}/status`, updates).then(r => r.data),
+  getNodeDeleteImpact: (nodeId: string) =>
+    api.get(`/v2/nodes/${nodeId}/_delete_impact`).then(r => r.data),
+  deleteNode: (nodeId: string, cascade = false) =>
+    api.delete(`/v2/nodes/${nodeId}`, { params: { cascade } }).then(r => r.data),
+
+  // 语义层 + 指标中心 (阶段 8)
+  listSemanticTables: (dsId: string, schemaName?: string) =>
+    api.get('/v2/semantic/tables', { params: { ds_id: dsId, schema_name: schemaName } }).then(r => r.data),
+  upsertSemanticTable: (data: any) =>
+    api.post('/v2/semantic/tables', data).then(r => r.data),
+  listSemanticColumns: (dsId: string, schemaName: string, tableName: string) =>
+    api.get('/v2/semantic/columns', { params: { ds_id: dsId, schema_name: schemaName, table_name: tableName } }).then(r => r.data),
+  upsertSemanticColumn: (data: any) =>
+    api.post('/v2/semantic/columns', data).then(r => r.data),
+  listColumnTags: (columnId: string) =>
+    api.get(`/v2/semantic/columns/${columnId}/tags`).then(r => r.data),
+  addColumnTag: (columnId: string, data: { tag_name: string; confidence?: number; source?: string }) =>
+    api.post(`/v2/semantic/columns/${columnId}/tags`, data).then(r => r.data),
+  deleteColumnTag: (columnId: string, tagName: string) =>
+    api.delete(`/v2/semantic/columns/${columnId}/tags/${encodeURIComponent(tagName)}`).then(r => r.data),
+  listMetrics: (workspaceId: string) =>
+    api.get('/v2/semantic/metrics', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  createMetric: (data: any) =>
+    api.post('/v2/semantic/metrics', data).then(r => r.data),
+  updateMetric: (metricId: string, updates: any) =>
+    api.patch(`/v2/semantic/metrics/${metricId}`, updates).then(r => r.data),
+  deleteMetric: (metricId: string) =>
+    api.delete(`/v2/semantic/metrics/${metricId}`).then(r => r.data),
+  searchMetrics: (workspaceId: string, q: string, limit = 10) =>
+    api.get('/v2/semantic/search-metrics', { params: { workspace_id: workspaceId, q, limit } }).then(r => r.data),
+  listMetricSynonyms: (metricId: string) =>
+    api.get(`/v2/semantic/metrics/${metricId}/synonyms`).then(r => r.data),
+  addMetricSynonym: (metricId: string, data: { synonym_text: string; weight?: number; source?: string }) =>
+    api.post(`/v2/semantic/metrics/${metricId}/synonyms`, data).then(r => r.data),
+  deleteMetricSynonym: (metricId: string, synonymText: string) =>
+    api.delete(`/v2/semantic/metrics/${metricId}/synonyms/${encodeURIComponent(synonymText)}`).then(r => r.data),
+  listMetricLineage: (metricId: string) =>
+    api.get(`/v2/semantic/metrics/${metricId}/lineage`).then(r => r.data),
+  addMetricLineage: (metricId: string, data: any) =>
+    api.post(`/v2/semantic/metrics/${metricId}/lineage`, data).then(r => r.data),
+  deleteMetricLineage: (metricId: string, toType: string, toId: string) =>
+    api.delete(`/v2/semantic/metrics/${metricId}/lineage/${toType}/${encodeURIComponent(toId)}`).then(r => r.data),
+}
+
 export default api
